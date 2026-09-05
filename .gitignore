@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# VSCode files
+.vscode/
+.cursor/
+
+# macOS files
+.DS_Store
