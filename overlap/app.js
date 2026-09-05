@@ -2,6 +2,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
 
         const MAX_IMAGES = 7;
         const DEFAULT_OPACITY = 0.1;
+        const DEFAULT_RANDOM_OPACITY_MIN = 0.05;
         const DEFAULT_RANDOM_OPACITY_MAX = 0.3;
         const MODE_OVERLAY = "overlay";
         const MODE_MORPH = "morph";
@@ -301,9 +302,9 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
                 morph,
                 morphWeight: 100,
                 opacity: DEFAULT_OPACITY,
-                autoRandom: true,
+                autoRandom: false,
                 autoRandomType: RANDOM_OPACITY,
-                randomOpacityMin: getDefaultRandomOpacityMin(0),
+                randomOpacityMin: DEFAULT_RANDOM_OPACITY_MIN,
                 randomOpacityMax: DEFAULT_RANDOM_OPACITY_MAX,
                 randomTargets: {
                     opacity: DEFAULT_OPACITY,
@@ -312,17 +313,11 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             };
         }
 
-        function getDefaultRandomOpacityMin(index) {
-            if (index < 3) return 0.05;
-            if (index === 3) return 0.07;
-            return 0.1;
-        }
-
         function getLayerOpacitySetting(index) {
             if (!layerOpacitySettings[index]) {
                 layerOpacitySettings[index] = {
                     opacity: DEFAULT_OPACITY,
-                    min: getDefaultRandomOpacityMin(index),
+                    min: DEFAULT_RANDOM_OPACITY_MIN,
                     max: DEFAULT_RANDOM_OPACITY_MAX,
                     targetOpacity: DEFAULT_OPACITY
                 };
@@ -1995,34 +1990,20 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             const labelText = document.createElement("span");
             labelText.textContent = "ランダム";
 
-            const select = document.createElement("select");
-            select.draggable = false;
-            select.setAttribute("aria-label", `${layer.name}のランダム変化`);
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = layer.autoRandom;
+            checkbox.draggable = false;
+            checkbox.setAttribute("aria-label", `${layer.name}のランダム変化`);
+            checkbox.addEventListener("dragstart", (event) => event.stopPropagation());
+            checkbox.addEventListener("change", (event) => setAutoRandom(
+                layer.id,
+                event.target.checked
+                    ? (mode === MODE_MORPH ? RANDOM_MORPH : RANDOM_OPACITY)
+                    : RANDOM_OFF
+            ));
 
-            const options = mode === MODE_MORPH
-                ? [
-                    [RANDOM_OFF, "停止"],
-                    [RANDOM_MORPH, "モーフィング割合"]
-                ]
-                : [
-                    [RANDOM_OFF, "停止"],
-                    [RANDOM_OPACITY, "不透明度"]
-                ];
-
-            options.forEach(([value, text]) => {
-                const option = document.createElement("option");
-                option.value = value;
-                option.textContent = text;
-                select.appendChild(option);
-            });
-
-            select.value = layer.autoRandom
-                ? (mode === MODE_MORPH ? RANDOM_MORPH : RANDOM_OPACITY)
-                : RANDOM_OFF;
-            select.addEventListener("dragstart", (event) => event.stopPropagation());
-            select.addEventListener("change", (event) => setAutoRandom(layer.id, event.target.value));
-
-            control.append(labelText, select);
+            control.append(labelText, checkbox);
             group.appendChild(control);
 
             if (mode === MODE_OVERLAY && layer.autoRandom) {
