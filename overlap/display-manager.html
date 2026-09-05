@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Overlap Display Manager</title>
+
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --bg: #111;
+            --line: #333;
+            --text: #eee;
+            --muted: #999;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 32px 20px;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        body>* {
+            width: min(100%, 1280px);
+            margin-inline: auto;
+        }
+
+        h1,
+        h2,
+        p {
+            margin-top: 0;
+        }
+
+        h1 {
+            margin-bottom: 8px;
+            font-size: 28px;
+        }
+
+        h2 {
+            margin-bottom: 14px;
+            font-size: 16px;
+        }
+
+        .grid {
+            margin-top: 28px;
+        }
+
+        .panel {
+            padding: 24px 0;
+            border-top: 1px solid var(--line);
+        }
+
+        .source-row,
+        .display-row,
+        .assignment-row {
+            display: grid;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .source-row {
+            grid-template-columns: 90px 1fr 1fr 90px 70px;
+        }
+
+        .display-row {
+            grid-template-columns: 110px 1fr 80px;
+        }
+
+        .assignment-row {
+            grid-template-columns: 110px 1fr;
+        }
+
+        .fps-monitor {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .fps-group h3 {
+            margin: 0 0 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .fps-row {
+            display: grid;
+            grid-template-columns: 90px minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            padding: 7px 0;
+            border-bottom: 1px solid var(--line);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .fps-value {
+            font-weight: 700;
+        }
+
+        .fps-detail {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .source-row:last-child,
+        .display-row:last-child,
+        .assignment-row:last-child {
+            border-bottom: 0;
+        }
+
+        input,
+        select,
+        button {
+            font: inherit;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            background: #181818;
+            color: var(--text);
+        }
+
+        button {
+            padding: 9px 12px;
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            background: #222;
+            color: var(--text);
+            cursor: pointer;
+        }
+
+        button.primary {
+            border-color: #ddd;
+            background: #ddd;
+            color: #111;
+        }
+
+        button.danger {
+            color: #bbb;
+        }
+
+        .buttons {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .source-editor-tabs {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .source-editor-tab.is-active {
+            border-color: #ddd;
+            background: #ddd;
+            color: #111;
+        }
+
+        .source-editor-viewport {
+            position: relative;
+            height: min(78dvh, 860px);
+            min-height: 620px;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #f0f0f0;
+        }
+
+        .source-editor-frame {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .source-editor-frame.is-active {
+            z-index: 1;
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .settings {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .status {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .status.ready {
+            color: var(--text);
+        }
+
+        #log {
+            height: 210px;
+            overflow: auto;
+            white-space: pre-wrap;
+            color: var(--muted);
+            font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        #fpsLog {
+            height: 150px;
+            margin: 16px 0 0;
+            overflow: auto;
+            white-space: pre-wrap;
+            color: var(--muted);
+            font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        @media (max-width: 850px) {
+            body {
+                padding: 24px 16px;
+            }
+
+            .settings {
+                grid-template-columns: 1fr;
+            }
+
+            .source-row,
+            .display-row {
+                grid-template-columns: 1fr;
+            }
+
+            .source-editor-tabs {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .fps-monitor {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Overlap Display Manager</h1>
+    <section class="panel">
+        <h2>ソース編集（1タブ運用）</h2>
+        <div class="source-editor-tabs" id="sourceEditorTabs"></div>
+        <div class="source-editor-viewport" id="sourceEditorViewport"></div>
+    </section>
+    <div class="grid">
+        <section class="panel">
+            <h2>Canvas</h2>
+            <div id="sourceList"></div>
+            <div class="buttons">
+                <button id="refreshSources">更新</button>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>映像制御</h2>
+
+            <div class="settings">
+                <label>
+                    切り替え間隔（秒）
+                    <input id="intervalSeconds" type="number" min="2" value="5">
+                </label>
+
+                <label>
+                    クロスフェード（秒）
+                    <input id="fadeSeconds" type="number" min="0.1" step="0.1" value="3">
+                </label>
+
+                <label>
+                    描画FPS
+                    <input id="streamFps" type="number" min="1" max="60" value="60">
+                </label>
+            </div>
+
+            <div class="buttons">
+                <button id="initialize" class="primary">初期表示</button>
+                <button id="start" class="primary">開始</button>
+                <button id="next">次へ</button>
+                <button id="stop" class="danger">停止</button>
+                <button id="closeAllPopups" class="danger">全ポップアップを閉じる</button>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>ディスプレイ設定</h2>
+            <button id="detectDisplays">ディスプレイを検出</button>
+            <div id="displayList"></div>
+        </section>
+
+        <section class="panel">
+            <h2>実測FPSモニター</h2>
+            <div class="fps-monitor" id="fpsMonitor"></div>
+            <pre id="fpsLog" aria-label="FPS履歴ログ"></pre>
+        </section>
+
+        <section class="panel">
+            <h2>ログ</h2>
+            <div id="assignmentList"></div>
+            <div id="log"></div>
+        </section>
+    </div>
+
+    <script>
+        (() => {
+            "use strict";
+
+            const SOURCE_COUNT = 6;
+            const VIEWER_COUNT = 4;
+            const DEFAULT_CANVAS_ID = "canvas";
+            const DEFAULT_SOURCE_FPS = 60;
+            const SOURCE_EDITOR_VERSION = "20260716-5";
+            const VIEWER_MAX_WIDTH = 1920;
+            const VIEWER_MAX_HEIGHT = 1080;
+            const viewerIndexes = Array.from({ length: VIEWER_COUNT }, (_, index) => index);
+
+            const sources = Array.from({ length: SOURCE_COUNT }, (_, index) => ({
+                id: `source-${index + 1}`,
+                name: `source${index + 1}`,
+                canvasId: DEFAULT_CANVAS_ID
+            }));
+            const sourceById = new Map(sources.map(source => [source.id, source]));
+
+            const registry = new Map();
+            const viewers = Array(VIEWER_COUNT).fill(null);
+            const assignments = Array(VIEWER_COUNT).fill(null);
+            const lastChangedAt = Array(VIEWER_COUNT).fill(0);
+            const usageCount = Object.fromEntries(sources.map(source => [source.id, 0]));
+            const screenSelections = Array(VIEWER_COUNT).fill("");
+            const sourceEditorFrames = new Map();
+
+            let running = false;
+            let switching = false;
+            let timer = null;
+            let detectedScreens = [];
+            let selectedEditorSourceId = sources[0].id;
+
+            const elements = {
+                sourceList: document.querySelector("#sourceList"),
+                displayList: document.querySelector("#displayList"),
+                assignmentList: document.querySelector("#assignmentList"),
+                log: document.querySelector("#log"),
+                intervalSeconds: document.querySelector("#intervalSeconds"),
+                fadeSeconds: document.querySelector("#fadeSeconds"),
+                streamFps: document.querySelector("#streamFps"),
+                fpsMonitor: document.querySelector("#fpsMonitor"),
+                fpsLog: document.querySelector("#fpsLog")
+            };
+
+            function formatFps(value) {
+                return Number.isFinite(value) ? value.toFixed(1) : "0.0";
+            }
+
+            function getSourceOutputStats(sourceId) {
+                const sourceWindow = getSourceWindow(sourceId);
+                try {
+                    return sourceWindow?.getOverlapOutputStats?.() || null;
+                } catch {
+                    return null;
+                }
+            }
+
+            function getStreamFps(stream) {
+                if (!stream || stream.stopped) return 0;
+                return performance.now() - stream.lastDrawAt < 2000 ? stream.measuredFps : 0;
+            }
+
+            function getViewerLayerFps(viewerState) {
+                return viewerState
+                    ? viewerState.streams.map(getStreamFps)
+                    : [0, 0];
+            }
+
+            function getViewerDisplayFps(viewerState) {
+                const activeValues = getViewerLayerFps(viewerState).filter((value) => value > 0);
+                return activeValues.length ? Math.max(...activeValues) : 0;
+            }
+
+            function createFpsRow(label, value, detail) {
+                const row = document.createElement("div");
+                const name = document.createElement("strong");
+                const fps = document.createElement("span");
+                const description = document.createElement("span");
+                row.className = "fps-row";
+                name.textContent = label;
+                fps.className = "fps-value";
+                fps.textContent = `${formatFps(value)} fps`;
+                description.className = "fps-detail";
+                description.textContent = detail;
+                row.append(name, fps, description);
+                return row;
+            }
+
+            function renderFpsMonitor() {
+                const sourceGroup = document.createElement("div");
+                const sourceTitle = document.createElement("h3");
+                sourceGroup.className = "fps-group";
+                sourceTitle.textContent = "ソースCanvas";
+                sourceGroup.appendChild(sourceTitle);
+
+                sources.forEach((source) => {
+                    const stats = getSourceOutputStats(source.id);
+                    const detail = stats
+                        ? stats.active
+                            ? `${stats.width}×${stats.height} / 目標 ${stats.targetFps} fps`
+                            : "停止中"
+                        : "未接続";
+                    sourceGroup.appendChild(createFpsRow(source.name, stats?.fps || 0, detail));
+                });
+
+                const viewerGroup = document.createElement("div");
+                const viewerTitle = document.createElement("h3");
+                viewerGroup.className = "fps-group";
+                viewerTitle.textContent = "Viewer Canvas";
+                viewerGroup.appendChild(viewerTitle);
+
+                viewers.forEach((viewerState, index) => {
+                    const layerValues = getViewerLayerFps(viewerState);
+                    const detail = viewerState
+                        ? `layer0 ${formatFps(layerValues[0])} / layer1 ${formatFps(layerValues[1])}`
+                        : "未起動";
+                    viewerGroup.appendChild(createFpsRow(
+                        `Viewer ${index + 1}`,
+                        getViewerDisplayFps(viewerState),
+                        detail
+                    ));
+                });
+
+                elements.fpsMonitor.replaceChildren(sourceGroup, viewerGroup);
+            }
+
+            function appendFpsLog() {
+                const time = new Date().toLocaleTimeString("ja-JP");
+                const sourceSummary = sources.map((source) => {
+                    const stats = getSourceOutputStats(source.id);
+                    return `${source.name}:${formatFps(stats?.fps || 0)}`;
+                }).join(" ");
+                const viewerSummary = viewers
+                    .map((viewerState, index) => (
+                        `V${index + 1}:${formatFps(getViewerDisplayFps(viewerState))}`
+                    ))
+                    .join(" ");
+                const lines = `${elements.fpsLog.textContent}[${time}] ${sourceSummary} | ${viewerSummary}\n`
+                    .split("\n")
+                    .filter(Boolean)
+                    .slice(-120);
+                elements.fpsLog.textContent = `${lines.join("\n")}\n`;
+                elements.fpsLog.scrollTop = elements.fpsLog.scrollHeight;
+            }
+
+            function selectSourceEditor(sourceId) {
+                selectedEditorSourceId = sourceId;
+                sourceEditorFrames.forEach((frame, id) => {
+                    frame.classList.toggle("is-active", id === sourceId);
+                });
+                document.querySelectorAll("[data-editor-source-id]").forEach((button) => {
+                    button.classList.toggle("is-active", button.dataset.editorSourceId === sourceId);
+                });
+                updateSourceActivity();
+            }
+
+            function setSourceRuntimeActive(sourceId, active) {
+                try {
+                    getSourceWindow(sourceId)?.setOverlapRuntimeActive?.(active);
+                } catch {
+                    // 読み込み途中のiframeは登録完了時に再設定する。
+                }
+            }
+
+            function updateSourceActivity(extraSourceIds = []) {
+                const activeSourceIds = new Set(assignments.filter(Boolean));
+                activeSourceIds.add(selectedEditorSourceId);
+                extraSourceIds.forEach((sourceId) => activeSourceIds.add(sourceId));
+                sources.forEach((source) => {
+                    setSourceRuntimeActive(source.id, activeSourceIds.has(source.id));
+                });
+            }
+
+            function createSourceEditors() {
+                const tabs = document.querySelector("#sourceEditorTabs");
+                const viewport = document.querySelector("#sourceEditorViewport");
+
+                sources.forEach((source, index) => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "source-editor-tab";
+                    button.dataset.editorSourceId = source.id;
+                    button.textContent = source.name;
+                    button.addEventListener("click", () => selectSourceEditor(source.id));
+
+                    const frame = document.createElement("iframe");
+                    const sourceUrl = new URL("./index.html", window.location.href);
+                    sourceUrl.searchParams.set("sourceId", source.id);
+                    sourceUrl.searchParams.set("canvasId", source.canvasId);
+                    sourceUrl.searchParams.set("embedded", "1");
+                    sourceUrl.searchParams.set("outputFps", String(DEFAULT_SOURCE_FPS));
+                    sourceUrl.searchParams.set("v", SOURCE_EDITOR_VERSION);
+                    frame.className = "source-editor-frame";
+                    frame.title = `${source.name} 編集`;
+                    frame.src = sourceUrl;
+                    frame.loading = "eager";
+                    frame.addEventListener("load", () => updateSourceActivity());
+                    sourceEditorFrames.set(source.id, frame);
+                    tabs.appendChild(button);
+                    viewport.appendChild(frame);
+
+                    if (index === 0) selectSourceEditor(source.id);
+                });
+            }
+
+            function log(message) {
+                const time = new Date().toLocaleTimeString("ja-JP");
+                elements.log.textContent += `[${time}] ${message}\n`;
+                elements.log.scrollTop = elements.log.scrollHeight;
+            }
+
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            function shuffle(items) {
+                const copy = [...items];
+
+                for (let i = copy.length - 1; i > 0; i -= 1) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [copy[i], copy[j]] = [copy[j], copy[i]];
+                }
+
+                return copy;
+            }
+
+            function numberInRange(input, fallback, min, max = Infinity) {
+                const value = Number(input.value);
+                return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+            }
+
+            function getSettings() {
+                return {
+                    intervalMs: numberInRange(elements.intervalSeconds, 20, 2) * 1000,
+                    fadeMs: numberInRange(elements.fadeSeconds, 3, 0.1) * 1000,
+                    fps: numberInRange(elements.streamFps, 60, 1, 60)
+                };
+            }
+
+            function getSourceWindow(sourceId) {
+                const registeredWindow = registry.get(sourceId)?.popupWindow;
+                if (registeredWindow && !registeredWindow.closed) return registeredWindow;
+                return sourceEditorFrames.get(sourceId)?.contentWindow || null;
+            }
+
+            function canvasOf(sourceId) {
+                const entry = registry.get(sourceId);
+
+                try {
+                    if (!entry || !entry.popupWindow || entry.popupWindow.closed) return null;
+                    return entry.popupWindow.document.getElementById(entry.canvasId);
+                } catch {
+                    return null;
+                }
+            }
+
+            window.registerCanvasSource = function registerCanvasSource(
+                sourceId,
+                popupWindow,
+                canvasId = DEFAULT_CANVAS_ID,
+                name = null
+            ) {
+                const source = sourceById.get(sourceId);
+
+                if (!source) throw new Error(`不明なsourceIdです: ${sourceId}`);
+                if (!popupWindow || popupWindow.closed) throw new Error(`${sourceId}のポップアップがありません`);
+
+                try {
+                    void popupWindow.document;
+                } catch {
+                    throw new Error(`${sourceId}は同一オリジンではありません`);
+                }
+
+                if (name) source.name = name;
+                source.canvasId = canvasId;
+                registry.set(sourceId, { popupWindow, canvasId });
+
+                renderSources();
+                updateSourceActivity();
+                log(`${sourceId}を登録しました`);
+            };
+
+            window.unregisterCanvasSource = function unregisterCanvasSource(sourceId, popupWindow = null) {
+                const entry = registry.get(sourceId);
+                if (popupWindow && entry?.popupWindow !== popupWindow) return;
+
+                registry.delete(sourceId);
+                renderSources();
+            };
+
+            function createSourceInput(source, field, value, label) {
+                const input = document.createElement("input");
+                input.value = value;
+                input.dataset.sourceId = source.id;
+                input.dataset.field = field;
+                input.setAttribute("aria-label", `${source.id}の${label}`);
+                return input;
+            }
+
+            function renderSources() {
+                const fragment = document.createDocumentFragment();
+
+                for (const source of sources) {
+                    const ready = Boolean(canvasOf(source.id));
+                    const row = document.createElement("div");
+                    const id = document.createElement("strong");
+                    const status = document.createElement("span");
+                    const openButton = document.createElement("button");
+
+                    row.className = "source-row";
+                    id.textContent = source.id;
+                    status.dataset.sourceStatus = source.id;
+                    status.className = `status${ready ? " ready" : ""}`;
+                    status.textContent = ready ? "接続済み" : "未登録";
+                    openButton.type = "button";
+                    openButton.textContent = "編集";
+                    openButton.dataset.sourceId = source.id;
+
+                    row.append(
+                        id,
+                        createSourceInput(source, "name", source.name, "表示名"),
+                        createSourceInput(source, "canvas", source.canvasId, "Canvas ID"),
+                        status,
+                        openButton
+                    );
+                    fragment.append(row);
+                }
+
+                elements.sourceList.replaceChildren(fragment);
+            }
+
+            function handleSourceChange(event) {
+                const { sourceId, field } = event.target.dataset;
+                const source = sourceById.get(sourceId);
+                if (!source) return;
+
+                if (field === "name") {
+                    source.name = event.target.value.trim() || source.id;
+                    renderAssignments();
+                    return;
+                }
+
+                if (field === "canvas") {
+                    source.canvasId = event.target.value.trim() || DEFAULT_CANVAS_ID;
+                    const entry = registry.get(source.id);
+                    if (entry) entry.canvasId = source.canvasId;
+                    renderSources();
+                }
+            }
+
+            function handleSourceClick(event) {
+                if (event.target.tagName !== "BUTTON") return;
+
+                const sourceId = event.target.dataset.sourceId;
+                const source = sourceById.get(sourceId);
+                if (!source) return;
+                selectSourceEditor(sourceId);
+                document.querySelector("#sourceEditorViewport")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                log(`${sourceId}の編集画面を表示しました`);
+            }
+
+            function refreshSourceStatuses() {
+                for (const source of sources) {
+                    const element = document.querySelector(`[data-source-status="${source.id}"]`);
+                    if (!element) continue;
+
+                    const ready = Boolean(canvasOf(source.id));
+                    element.textContent = ready ? "接続済み" : "未登録";
+                    element.classList.toggle("ready", ready);
+                }
+            }
+
+            function renderAssignments() {
+                const fragment = document.createDocumentFragment();
+
+                assignments.forEach((sourceId, index) => {
+                    const source = sourceById.get(sourceId);
+                    const row = document.createElement("div");
+                    const viewer = document.createElement("strong");
+                    const assignment = document.createElement("span");
+
+                    row.className = "assignment-row";
+                    viewer.textContent = `Viewer ${index + 1}`;
+                    assignment.textContent = source?.name ?? "未割り当て";
+                    row.append(viewer, assignment);
+                    fragment.append(row);
+                });
+
+                elements.assignmentList.replaceChildren(fragment);
+            }
+
+            function resizeViewerCanvas(viewerState, canvas) {
+                const cssWidth = Math.max(1, viewerState.window.innerWidth);
+                const cssHeight = Math.max(1, viewerState.window.innerHeight);
+                const scale = Math.min(
+                    1,
+                    VIEWER_MAX_WIDTH / cssWidth,
+                    VIEWER_MAX_HEIGHT / cssHeight
+                );
+                const width = Math.max(1, Math.round(cssWidth * scale));
+                const height = Math.max(1, Math.round(cssHeight * scale));
+
+                if (canvas.width !== width || canvas.height !== height) {
+                    canvas.width = width;
+                    canvas.height = height;
+                }
+            }
+
+            function stopMirror(viewerState, layerIndex) {
+                const stream = viewerState.streams[layerIndex];
+                if (stream) stream.stopped = true;
+                viewerState.streams[layerIndex] = null;
+
+                const canvas = viewerState.layers[layerIndex];
+                const context = viewerState.contexts[layerIndex];
+
+                resizeViewerCanvas(viewerState, canvas);
+                context.fillStyle = "#000";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            function startMirror(viewerState, layerIndex, sourceId, fps) {
+                stopMirror(viewerState, layerIndex);
+
+                const stream = {
+                    stopped: false,
+                    lastFrameAt: 0,
+                    lastDrawAt: 0,
+                    sampleStartedAt: performance.now(),
+                    frameCount: 0,
+                    measuredFps: 0
+                };
+                const canvas = viewerState.layers[layerIndex];
+                const context = viewerState.contexts[layerIndex];
+                const frameInterval = 1000 / fps;
+
+                viewerState.streams[layerIndex] = stream;
+
+                function draw(time) {
+                    if (stream.stopped || viewerState.window.closed) return;
+                    viewerState.window.requestAnimationFrame(draw);
+
+                    if (time - stream.lastFrameAt < frameInterval) return;
+                    stream.lastFrameAt = time;
+
+                    const sourceCanvas = canvasOf(sourceId);
+                    if (!sourceCanvas) return;
+
+                    resizeViewerCanvas(viewerState, canvas);
+
+                    const scale = Math.min(
+                        canvas.width / sourceCanvas.width,
+                        canvas.height / sourceCanvas.height
+                    );
+
+                    const width = sourceCanvas.width * scale;
+                    const height = sourceCanvas.height * scale;
+                    const x = (canvas.width - width) / 2;
+                    const y = (canvas.height - height) / 2;
+
+                    context.fillStyle = "#000";
+                    context.fillRect(0, 0, canvas.width, canvas.height);
+                    context.drawImage(sourceCanvas, x, y, width, height);
+                    stream.frameCount += 1;
+                    stream.lastDrawAt = performance.now();
+                    const sampleDuration = stream.lastDrawAt - stream.sampleStartedAt;
+                    if (sampleDuration >= 1000) {
+                        stream.measuredFps = stream.frameCount * 1000 / sampleDuration;
+                        stream.frameCount = 0;
+                        stream.sampleStartedAt = stream.lastDrawAt;
+                    }
+                }
+
+                viewerState.window.requestAnimationFrame(draw);
+            }
+
+            function viewerGeometry(screen) {
+                return {
+                    left: screen.availLeft ?? screen.left,
+                    top: screen.availTop ?? screen.top,
+                    width: screen.availWidth ?? screen.width,
+                    height: screen.availHeight ?? screen.height
+                };
+            }
+
+            function createViewer(index, targetScreen) {
+                const geometry = viewerGeometry(targetScreen);
+                const viewerWindow = window.open(
+                    "",
+                    `canvas-viewer-${index + 1}`,
+                    `popup=yes,width=${geometry.width},height=${geometry.height},left=${geometry.left},top=${geometry.top}`
+                );
+
+                if (!viewerWindow) throw new Error(`Viewer ${index + 1}を開けませんでした`);
+
+                viewerWindow.moveTo(geometry.left, geometry.top);
+                viewerWindow.resizeTo(geometry.width, geometry.height);
+
+                viewerWindow.setTimeout(() => {
+                    if (viewerWindow.closed) return;
+
+                    const screenLeft = targetScreen.left ?? geometry.left;
+                    const screenTop = targetScreen.top ?? geometry.top;
+                    const screenRight = screenLeft + targetScreen.width;
+                    const screenBottom = screenTop + targetScreen.height;
+                    const isOnTarget = viewerWindow.screenX >= screenLeft
+                        && viewerWindow.screenX < screenRight
+                        && viewerWindow.screenY >= screenTop
+                        && viewerWindow.screenY < screenBottom;
+
+                    if (!isOnTarget) {
+                        log(`Viewer ${index + 1}の移動がブラウザに拒否されました。画面管理権限を確認してください`);
+                    }
+                }, 400);
+
+                viewerWindow.document.title = `Viewer ${index + 1}`;
+                viewerWindow.document.body.style.cssText = "margin:0;overflow:hidden;background:#000";
+                viewerWindow.document.body.innerHTML = `
+          <canvas id="layer0"></canvas>
+          <canvas id="layer1"></canvas>
+        `;
+
+                const style = viewerWindow.document.createElement("style");
+                style.textContent = `
+          html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}
+          canvas{position:absolute;inset:0;width:100%;height:100%;opacity:0;background:#000;transition-property:opacity;transition-timing-function:linear}
+          canvas.visible{opacity:1}
+        `;
+                viewerWindow.document.head.append(style);
+
+                const layers = [
+                    viewerWindow.document.getElementById("layer0"),
+                    viewerWindow.document.getElementById("layer1")
+                ];
+
+                const viewerState = {
+                    window: viewerWindow,
+                    layers,
+                    contexts: layers.map(canvas => canvas.getContext("2d", { alpha: false, desynchronized: true })),
+                    streams: [null, null],
+                    frontLayer: 0
+                };
+
+                viewerWindow.addEventListener("resize", () => {
+                    layers.forEach(canvas => resizeViewerCanvas(viewerState, canvas));
+                });
+
+                layers.forEach(canvas => resizeViewerCanvas(viewerState, canvas));
+                viewers[index] = viewerState;
+
+                const assignedSource = assignments[index];
+                if (assignedSource && canvasOf(assignedSource)) {
+                    startMirror(viewerState, 0, assignedSource, getSettings().fps);
+                    layers[0].classList.add("visible");
+                }
+
+                log(`Viewer ${index + 1}を${screenLabel(targetScreen, detectedScreens.indexOf(targetScreen))}へ開きました`);
+            }
+
+            function screenLabel(screen, index) {
+                const name = screen.label?.trim() || `Display ${index + 1}`;
+                return `${name}（${screen.width}×${screen.height}）`;
+            }
+
+            function renderDisplayChoices() {
+                if (!detectedScreens.length) {
+                    const message = document.createElement("p");
+                    message.className = "status";
+                    message.textContent = "利用できる拡張ディスプレイが見つかりませんでした。";
+                    elements.displayList.replaceChildren(message);
+                    return;
+                }
+
+                const fragment = document.createDocumentFragment();
+
+                screenSelections.forEach((selectedScreenIndex, viewerIndex) => {
+                    const row = document.createElement("div");
+                    const title = document.createElement("strong");
+                    const select = document.createElement("select");
+                    const placeButton = document.createElement("button");
+
+                    row.className = "display-row";
+                    title.textContent = `Viewer ${viewerIndex + 1}`;
+                    select.dataset.viewerIndex = String(viewerIndex);
+                    select.setAttribute("aria-label", `Viewer ${viewerIndex + 1}の配置先`);
+
+                    const emptyOption = document.createElement("option");
+                    emptyOption.value = "";
+                    emptyOption.textContent = "配置しない";
+                    select.append(emptyOption);
+
+                    detectedScreens.forEach((screen, screenIndex) => {
+                        const option = document.createElement("option");
+                        option.value = String(screenIndex);
+                        option.textContent = screenLabel(screen, screenIndex);
+                        select.append(option);
+                    });
+
+                    select.value = selectedScreenIndex;
+
+                    placeButton.type = "button";
+                    placeButton.textContent = "配置";
+                    placeButton.dataset.viewerIndex = String(viewerIndex);
+
+                    row.append(title, select, placeButton);
+                    fragment.append(row);
+                });
+
+                elements.displayList.replaceChildren(fragment);
+            }
+
+            function handleDisplayChange(event) {
+                if (event.target.tagName !== "SELECT") return;
+                screenSelections[Number(event.target.dataset.viewerIndex)] = event.target.value;
+            }
+
+            function handleDisplayClick(event) {
+                if (event.target.tagName !== "BUTTON") return;
+
+                const viewerIndex = Number(event.target.dataset.viewerIndex);
+                try {
+                    placeViewer(viewerIndex);
+                } catch (error) {
+                    log(`Viewer ${viewerIndex + 1}の配置に失敗しました: ${error.message}`);
+                }
+            }
+
+            async function detectDisplays() {
+                if (!window.getScreenDetails) {
+                    log("Window Management APIを利用できません。手動で配置してください");
+                    return;
+                }
+
+                try {
+                    const details = await window.getScreenDetails();
+                    detectedScreens = [...details.screens]
+                        .filter(screen => !screen.isPrimary)
+                        .sort((a, b) => {
+                            if (a.top !== b.top) return a.top - b.top;
+                            return a.left - b.left;
+                        });
+
+                    screenSelections.forEach((_, index) => {
+                        screenSelections[index] = detectedScreens[index] ? String(index) : "";
+                    });
+
+                    renderDisplayChoices();
+                    log(`拡張ディスプレイを${detectedScreens.length}画面検出しました`);
+                } catch (error) {
+                    log(`ディスプレイの検出に失敗しました: ${error.message}`);
+                }
+            }
+
+            function placeViewer(viewerIndex) {
+                if (!detectedScreens.length) {
+                    log("先にディスプレイを検出してください");
+                    return;
+                }
+
+                const selectedIndex = screenSelections[viewerIndex];
+                const screen = selectedIndex === "" ? null : detectedScreens[Number(selectedIndex)];
+                if (!screen) {
+                    log(`Viewer ${viewerIndex + 1}の配置先を選択してください`);
+                    return;
+                }
+
+                const viewerState = viewers[viewerIndex];
+                stopViewer(viewerState);
+                viewers[viewerIndex] = null;
+                createViewer(viewerIndex, screen);
+            }
+
+            function availableSources() {
+                return sources.filter(source => canvasOf(source.id));
+            }
+
+            function assertReady() {
+                if (availableSources().length < VIEWER_COUNT) {
+                    throw new Error("利用可能なCanvasが4件未満です");
+                }
+
+                viewers.forEach((viewerState, index) => {
+                    if (!viewerState || viewerState.window.closed) {
+                        throw new Error(`Viewer ${index + 1}が開いていません`);
+                    }
+                });
+            }
+
+            function initialAssignments() {
+                return shuffle(availableSources())
+                    .sort((a, b) => usageCount[a.id] - usageCount[b.id])
+                    .slice(0, VIEWER_COUNT)
+                    .map(source => source.id);
+            }
+
+            function nextChanges() {
+                const activeIds = new Set(assignments.filter(Boolean));
+                const inactive = sources
+                    .filter(source => !activeIds.has(source.id))
+                    .filter(source => canvasOf(source.id));
+
+                if (inactive.length < 2) throw new Error("非表示中のCanvasが2件必要です");
+
+                const changingViewerIndexes = shuffle(viewerIndexes)
+                    .sort((a, b) => lastChangedAt[a] - lastChangedAt[b])
+                    .slice(0, 2);
+
+                const incoming = shuffle(inactive)
+                    .sort((a, b) => usageCount[a.id] - usageCount[b.id])
+                    .slice(0, 2);
+
+                return changingViewerIndexes.map((viewerIndex, index) => ({
+                    viewerIndex,
+                    sourceId: incoming[index].id
+                }));
+            }
+
+            async function applyChanges(changes) {
+                if (switching) return;
+                switching = true;
+
+                try {
+                    const { fadeMs, fps } = getSettings();
+                    updateSourceActivity(changes.map((change) => change.sourceId));
+
+                    const prepared = changes.map(change => {
+                        const viewerState = viewers[change.viewerIndex];
+                        const oldLayer = viewerState.frontLayer;
+                        const newLayer = oldLayer === 0 ? 1 : 0;
+
+                        startMirror(viewerState, newLayer, change.sourceId, fps);
+
+                        return { ...change, viewerState, oldLayer, newLayer };
+                    });
+
+                    await sleep(250);
+
+                    await Promise.all(prepared.map(change => new Promise(resolve => {
+                        const oldCanvas = change.viewerState.layers[change.oldLayer];
+                        const newCanvas = change.viewerState.layers[change.newLayer];
+
+                        oldCanvas.style.transitionDuration = `${fadeMs}ms`;
+                        newCanvas.style.transitionDuration = `${fadeMs}ms`;
+
+                        void newCanvas.offsetWidth;
+                        newCanvas.classList.add("visible");
+                        oldCanvas.classList.remove("visible");
+
+                        change.viewerState.window.setTimeout(() => {
+                            stopMirror(change.viewerState, change.oldLayer);
+                            change.viewerState.frontLayer = change.newLayer;
+                            resolve();
+                        }, fadeMs + 80);
+                    })));
+
+                    prepared.forEach(change => {
+                        assignments[change.viewerIndex] = change.sourceId;
+                        usageCount[change.sourceId] += 1;
+                        lastChangedAt[change.viewerIndex] = Date.now();
+                    });
+
+                    updateSourceActivity();
+                    renderAssignments();
+                    log(prepared.map(change => `Viewer ${change.viewerIndex + 1} → ${change.sourceId}`).join(" / "));
+                } finally {
+                    switching = false;
+                }
+            }
+
+            async function initialize() {
+                assertReady();
+
+                await applyChanges(
+                    initialAssignments().map((sourceId, viewerIndex) => ({ viewerIndex, sourceId }))
+                );
+            }
+
+            async function next() {
+                assertReady();
+
+                if (assignments.some(sourceId => !sourceId)) {
+                    await initialize();
+                } else {
+                    await applyChanges(nextChanges());
+                }
+            }
+
+            function scheduleNext() {
+                clearTimeout(timer);
+                if (!running) return;
+
+                timer = setTimeout(async () => {
+                    try {
+                        await next();
+                    } catch (error) {
+                        log(error.message);
+                    } finally {
+                        scheduleNext();
+                    }
+                }, getSettings().intervalMs);
+            }
+
+            async function start() {
+                if (running) return;
+
+                running = true;
+
+                try {
+                    if (assignments.some(sourceId => !sourceId)) {
+                        await initialize();
+                    }
+
+                    scheduleNext();
+                    log("自動切り替えを開始しました");
+                } catch (error) {
+                    running = false;
+                    throw error;
+                }
+            }
+
+            function stop() {
+                stopAutomation();
+                log("停止しました");
+            }
+
+            function stopAutomation() {
+                running = false;
+                clearTimeout(timer);
+                timer = null;
+            }
+
+            function stopViewer(viewerState) {
+                if (!viewerState) return;
+                viewerState.streams.forEach((stream) => {
+                    if (stream) stream.stopped = true;
+                });
+                try {
+                    if (!viewerState.window.closed) viewerState.window.close();
+                } catch {
+                    // 既に閉じられたViewerはそのまま破棄する。
+                }
+            }
+
+            function closeAllPopups() {
+                stopAutomation();
+                switching = false;
+
+                viewers.forEach((viewerState, index) => {
+                    stopViewer(viewerState);
+                    viewers[index] = null;
+                    assignments[index] = null;
+                });
+
+                registry.forEach((entry, sourceId) => {
+                    const embeddedWindow = sourceEditorFrames.get(sourceId)?.contentWindow;
+                    if (!entry.popupWindow || entry.popupWindow === embeddedWindow) return;
+                    try {
+                        if (!entry.popupWindow.closed) entry.popupWindow.close();
+                    } catch {
+                        // ブラウザ側で既に閉じられたポップアップは無視する。
+                    }
+                    registry.delete(sourceId);
+                });
+
+                renderAssignments();
+                renderSources();
+                updateSourceActivity();
+                log("Viewerと外部Canvasポップアップをすべて閉じました");
+            }
+
+            async function runAction(action) {
+                try {
+                    await action();
+                } catch (error) {
+                    log(error.message);
+                }
+            }
+
+            elements.sourceList.addEventListener("change", handleSourceChange);
+            elements.sourceList.addEventListener("click", handleSourceClick);
+            elements.displayList.addEventListener("change", handleDisplayChange);
+            elements.displayList.addEventListener("click", handleDisplayClick);
+
+            const buttonActions = {
+                refreshSources,
+                detectDisplays,
+                initialize: () => runAction(initialize),
+                start: () => runAction(start),
+                next: () => runAction(next),
+                stop,
+                closeAllPopups
+            };
+            Object.entries(buttonActions).forEach(([id, action]) => {
+                document.getElementById(id).addEventListener("click", action);
+            });
+
+            setInterval(refreshSourceStatuses, 1500);
+            setInterval(renderFpsMonitor, 1000);
+            setInterval(appendFpsLog, 5000);
+
+            renderSources();
+            renderAssignments();
+            renderFpsMonitor();
+            appendFpsLog();
+            createSourceEditors();
+            log("管理画面を起動しました");
+        })();
+    </script>
+</body>
+
+</html>

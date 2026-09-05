@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表情の重ね合わせ・モーフィング</title>
+    <style>
+        :root {
+            --bg: #f0f0f0;
+            --ink: #1b2026;
+            --muted: #6d737b;
+            --line: #d9dde2;
+            --panel: #ffffff;
+            --accent: #42d392;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            min-height: 100dvh;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: "Yu Gothic Medium", "Yu Gothic", sans-serif;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        button {
+            border: 1px solid var(--line);
+            background: var(--panel);
+            color: var(--ink);
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.42;
+        }
+
+        .app {
+            width: 100dvw;
+            height: 100dvh;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 340px;
+            overflow: hidden;
+        }
+
+        .workspace {
+            min-width: 0;
+            height: 100%;
+            display: grid;
+        }
+
+        .status {
+            color: var(--muted);
+            font-size: 0.82rem;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .fileButton,
+        .textButton {
+            min-width: 36px;
+            display: inline-grid;
+            place-items: center;
+            border-radius: 8px;
+        }
+
+        .textButton {
+            height: 36px;
+            padding: 0 12px;
+            border: 0;
+            background: var(--ink);
+            color: #fff;
+            font-size: 0.88rem;
+        }
+
+        .fileButton {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            padding: 0;
+            overflow: hidden;
+            background: transparent;
+        }
+
+        .fileButton input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .stageWrap {
+            min-height: 0;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        .stage {
+            position: relative;
+            width: min(100%, calc((100dvh - 48px) * 1.333));
+            aspect-ratio: 4 / 3;
+            min-width: 280px;
+            min-height: 210px;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            background:
+                linear-gradient(45deg, #dde1e6 25%, transparent 25%),
+                linear-gradient(-45deg, #dde1e6 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #dde1e6 75%),
+                linear-gradient(-45deg, transparent 75%, #dde1e6 75%);
+            background-color: #f8f9fa;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+            background-size: 20px 20px;
+        }
+
+        .stageImageArea {
+            position: absolute;
+            background: #fff;
+            pointer-events: none;
+        }
+
+        .stageImageArea[hidden] {
+            display: none;
+        }
+
+        .stageControls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .stageToggleButton {
+            min-width: 76px;
+            height: 32px;
+            padding: 0 10px;
+            border: 0;
+            border-radius: 8px;
+            background: var(--ink);
+            color: #fff;
+            font-size: 0.78rem;
+        }
+
+        .stageToggleButton.is-off {
+            background: #7d858f;
+        }
+
+        .stageToggleButton[hidden] {
+            display: none;
+        }
+
+        .hierarchyIntervalControl {
+            display: grid;
+            grid-template-columns: auto 48px auto;
+            gap: 5px;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--ink);
+            font-size: 0.72rem;
+        }
+
+        .hierarchyIntervalControl input {
+            min-width: 0;
+            width: 48px;
+            height: 26px;
+            padding: 0 4px;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            background: #fff;
+            color: var(--ink);
+        }
+
+        .hierarchyIntervalControl[hidden] {
+            display: none;
+        }
+
+        .stage.is-cropping {
+            cursor: crosshair;
+        }
+
+        .stage.is-crop-moving {
+            cursor: move;
+        }
+
+        .cropSelection {
+            position: absolute;
+            z-index: 4;
+            border: 2px solid var(--accent);
+            background: rgba(66, 211, 146, 0.18);
+            pointer-events: none;
+        }
+
+        .cropSelection[hidden] {
+            display: none;
+        }
+
+        img,
+        video {
+            display: block;
+        }
+
+        .stageLayer {
+            position: absolute;
+            user-select: none;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .hierarchyTransitionLayer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .stageLayer.is-monochrome,
+        .morphCanvas.is-monochrome {
+            filter: grayscale(1);
+        }
+
+        .fileButton img {
+            width: 100%;
+            height: 100%;
+        }
+
+        .sidePanel {
+            min-width: 0;
+            height: 100dvh;
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr) auto;
+            border-left: 1px solid var(--line);
+            background: var(--panel);
+        }
+
+        .sideHeader {
+            padding: 12px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .randomOpacityTotalControl {
+            display: grid;
+            grid-template-columns: auto 72px auto;
+            gap: 6px;
+            align-items: center;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 0.76rem;
+        }
+
+        .randomOpacityTotalControl input {
+            min-width: 0;
+            width: 72px;
+            height: 28px;
+            padding: 0 5px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--panel);
+            color: var(--ink);
+        }
+
+        .randomOpacityTotalControl[hidden] {
+            display: none;
+        }
+
+        .modeTabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            padding: 4px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        .modeTab {
+            height: 34px;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .modeTab.is-active {
+            background: var(--ink);
+            color: #fff;
+        }
+
+        .sideFooter {
+            min-height: 52px;
+            display: grid;
+            gap: 12px;
+            padding: 8px 12px 8px 14px;
+            border-top: 1px solid var(--line);
+        }
+
+        .footerMain {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .cropControls {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+            gap: 6px;
+            align-items: end;
+        }
+
+        .cropControls[hidden] {
+            display: none;
+        }
+
+        .cropControl {
+            display: grid;
+            gap: 3px;
+            min-width: 0;
+            color: var(--muted);
+            font-size: 0.72rem;
+        }
+
+        .cropControl input {
+            width: 100%;
+            height: 30px;
+            min-width: 0;
+            padding: 0 6px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            color: var(--ink);
+            font-size: 0.78rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .cropShowButton {
+            height: 30px;
+            padding: 0 10px;
+            border: 0;
+            border-radius: 6px;
+            background: var(--ink);
+            color: #fff;
+            font-size: 0.78rem;
+        }
+
+        .layerList {
+            min-height: 0;
+            display: grid;
+            grid-template-rows: auto;
+            place-content: center;
+            gap: 10px;
+            padding: 12px;
+            overflow: auto;
+        }
+
+        .layerList.has-layers {
+            grid-template-rows: auto auto;
+            align-content: start;
+            justify-content: stretch;
+        }
+
+        .addLayerSlot {
+            display: grid;
+            place-items: center;
+        }
+
+        .addLayerSlot[hidden] {
+            display: none;
+        }
+
+        .layers {
+            display: grid;
+            align-content: start;
+            gap: 10px;
+        }
+
+        .layer {
+            position: relative;
+            display: grid;
+            grid-template-columns: 74px minmax(0, 1fr);
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            cursor: grab;
+        }
+
+        .layer.dragging {
+            opacity: 0.55;
+            cursor: grabbing;
+        }
+
+        .layerRemoveButton {
+            position: absolute;
+            top: -9px;
+            right: -9px;
+            width: 24px;
+            height: 24px;
+            display: grid;
+            place-items: center;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .layerRemoveButton img {
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .layerThumb {
+            width: 74px;
+            height: 74px;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #f8f9fa;
+        }
+
+        .layerThumb img,
+        .layerThumb video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            pointer-events: none;
+            user-select: none;
+        }
+
+        .layerBody {
+            min-width: 0;
+            display: grid;
+            gap: 8px;
+        }
+
+        .layerTitle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .fileName {
+            min-width: 0;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.83rem;
+        }
+
+        .opacityControl {
+            display: grid;
+            grid-template-columns: 1fr 3.2em;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .autoControl {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 0.78rem;
+        }
+
+        .autoControl select {
+            min-width: 0;
+            max-width: 170px;
+            height: 28px;
+            margin: 0;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--panel);
+            color: var(--ink);
+            font-size: 0.76rem;
+        }
+
+        .autoControlGroup {
+            display: grid;
+            gap: 6px;
+        }
+
+        .randomOpacityBounds {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .randomOpacityBound {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 4px;
+            align-items: center;
+            color: var(--muted);
+            font-size: 0.72rem;
+        }
+
+        .randomOpacityBound input {
+            min-width: 0;
+            width: 100%;
+            height: 26px;
+            padding: 0 4px;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            background: var(--panel);
+            color: var(--ink);
+        }
+
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+        }
+
+        output {
+            color: var(--muted);
+            font-size: 0.78rem;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .morphCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .morphCanvas[hidden] {
+            display: none;
+        }
+
+        @media (max-width: 860px) {
+            body {
+                overflow: auto;
+            }
+
+            .app {
+                min-height: 100dvh;
+                height: auto;
+                grid-template-columns: 1fr;
+                grid-template-rows: minmax(420px, 58dvh) auto;
+                overflow: visible;
+            }
+
+            .workspace {
+                min-height: 420px;
+            }
+
+            .stageWrap {
+                padding: 12px;
+            }
+
+            .stage {
+                width: min(100%, calc((58dvh - 24px) * 1.333));
+            }
+
+            .sidePanel {
+                height: auto;
+                min-height: 42dvh;
+                border-left: 0;
+                border-top: 1px solid var(--line);
+            }
+
+            .layerList {
+                max-height: none;
+                overflow: visible;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <main class="workspace">
+            <section class="stageWrap" aria-label="プレビュー">
+                <div class="stage" id="stage">
+                    <div class="stageImageArea" id="stageImageArea" hidden></div>
+                    <canvas class="morphCanvas" id="morphCanvas" hidden></canvas>
+                    <canvas id="embeddedOutputCanvas" hidden></canvas>
+                    <div class="cropSelection" id="cropSelection" hidden></div>
+                    <div class="stageControls">
+                        <button class="stageToggleButton cropToggleButton is-off" id="cropToggleButton" type="button"
+                            aria-pressed="false">トリミング</button>
+                        <button class="stageToggleButton monoToggleButton" id="monoToggleButton" type="button"
+                            aria-pressed="true">モノクロ</button>
+                        <button class="stageToggleButton averageBlendToggleButton is-off" id="averageBlendToggleButton"
+                            type="button" aria-pressed="false">平均合成</button>
+                        <button class="stageToggleButton alignToggleButton" id="alignToggleButton" type="button"
+                            aria-pressed="true">顔位置</button>
+                        <button class="stageToggleButton hierarchyToggleButton is-off" id="hierarchyToggleButton"
+                            type="button" aria-pressed="false">階層移動</button>
+                        <label class="hierarchyIntervalControl" id="hierarchyIntervalControl" hidden>
+                            <span>間隔</span>
+                            <input id="hierarchyIntervalInput" type="number" min="0.1" step="0.1" value="5"
+                                inputmode="decimal" aria-label="階層移動の間隔（秒）">
+                            <span>秒</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <aside class="sidePanel" aria-label="インポート素材">
+            <header class="sideHeader">
+                <div class="modeTabs" role="tablist" aria-label="機能選択">
+                    <button class="modeTab is-active" id="overlayModeButton" type="button" role="tab"
+                        aria-selected="true">重ね合わせ</button>
+                    <button class="modeTab" id="morphModeButton" type="button" role="tab"
+                        aria-selected="false">モーフィング</button>
+                </div>
+                <label class="randomOpacityTotalControl" id="randomOpacityTotalControl" hidden>
+                    <span>不透明度合算</span>
+                    <input id="randomOpacityTotalInput" type="number" min="0" step="0.1"
+                        inputmode="decimal" placeholder="自由" aria-label="ランダム不透明度の合算値">
+                    <span>％</span>
+                </label>
+            </header>
+            <div class="layerList" id="layerList">
+                <div class="layers" id="layers"></div>
+                <div class="addLayerSlot">
+                    <label class="fileButton" aria-label="画像・動画を追加">
+                        <img src="icon-plus.png" alt="">
+                        <input id="fileInput" type="file" accept="image/*,video/*" multiple>
+                    </label>
+                </div>
+            </div>
+            <div class="sideFooter">
+                <div class="cropControls" id="cropControls" hidden>
+                    <label class="cropControl">X<input id="cropXInput" type="number" min="0" step="1"></label>
+                    <label class="cropControl">Y<input id="cropYInput" type="number" min="0" step="1"></label>
+                    <label class="cropControl">W<input id="cropWidthInput" type="number" min="1" step="1"></label>
+                    <label class="cropControl">H<input id="cropHeightInput" type="number" min="1" step="1"></label>
+                    <button class="cropShowButton" id="cropShowButton" type="button">表示</button>
+                </div>
+                <div class="footerMain">
+                    <span class="status" id="status">0 / 7</span>
+                    <button class="textButton" id="clearButton" type="button" disabled>クリア</button>
+                </div>
+            </div>
+        </aside>
+    </div>
+    <script type="module" src="app.js?v=20260813-2"></script>
+</body>
+
+</html>

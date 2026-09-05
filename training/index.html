@@ -1,0 +1,2108 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表情トレーニング</title>
+    <script defer src="../faceAPI/face-api.min.js"></script>
+    <style>
+        :root {
+            --bg: #f7f8fa;
+            --panel: #ffffff;
+            --ink: #17202a;
+            --muted: #69727d;
+            --line: #d9dee5;
+            --accent: #27c28a;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            min-height: 100dvh;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: "Yu Gothic Medium", "Yu Gothic", system-ui, sans-serif;
+        }
+
+        .app {
+            height: 100dvh;
+            overflow: hidden;
+        }
+
+        .scene {
+            height: 100%;
+        }
+
+        .scene[hidden] {
+            display: none;
+        }
+
+        .introScene {
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        .introContent {
+            width: min(480px, 100%);
+            display: grid;
+            gap: 20px;
+            justify-items: center;
+            text-align: center;
+        }
+
+        .introThumbnail {
+            width: min(256px, 42vw);
+            aspect-ratio: 1;
+            display: block;
+            object-fit: contain;
+        }
+
+        .introTitle {
+            margin: 0;
+            font-size: clamp(1.5rem, 3vw, 2rem);
+            line-height: 1.15;
+            letter-spacing: 0;
+        }
+
+        .introText {
+            margin: 0;
+            color: var(--muted);
+            font-size: clamp(0.95rem, 2vw, 1.08rem);
+            line-height: 1.9;
+            text-align: left;
+        }
+
+        .startButton {
+            min-height: 44px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--ink);
+            padding: 0 18px;
+            color: #fff;
+            font: inherit;
+            font-size: 0.98rem;
+            cursor: pointer;
+        }
+
+        .startButton.is-recording {
+            border-color: var(--accent);
+            background: var(--accent);
+        }
+
+        .consentDialog {
+            width: min(560px, calc(100% - 40px));
+            border: 0;
+            border-radius: 12px;
+            background: var(--panel);
+            padding: 0;
+            color: var(--ink);
+            box-shadow: 0 24px 72px rgba(23, 32, 42, 0.24);
+        }
+
+        .consentDialog::backdrop {
+            background: rgba(17, 24, 33, 0.48);
+            backdrop-filter: blur(3px);
+        }
+
+        .consentContent {
+            display: grid;
+            gap: 24px;
+            padding: 32px;
+            text-align: center;
+        }
+
+        .consentText {
+            margin: 0;
+            font-size: 1.15rem;
+            font-weight: 600;
+            line-height: 1.7;
+        }
+
+        .consentNote {
+            display: block;
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 0.88em;
+            font-weight: 400;
+        }
+
+        .consentActions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .consentButton {
+            min-height: 48px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--ink);
+            font: inherit;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        .consentButton--accept {
+            border-color: var(--ink);
+            background: var(--ink);
+            color: #fff;
+        }
+
+        @media (min-width: 768px) and (min-height: 1200px) and (orientation: portrait) {
+            .introScene {
+                padding: 48px;
+            }
+
+            .introContent {
+                width: min(720px, 100%);
+                gap: clamp(28px, 2.2dvh, 40px);
+            }
+
+            .introThumbnail {
+                width: min(420px, 48vw);
+            }
+
+            .introTitle {
+                font-size: clamp(2.4rem, 4.2vw, 3rem);
+            }
+
+            .introText {
+                font-size: clamp(1.25rem, 2.25vw, 1.5rem);
+                line-height: 1.85;
+            }
+
+            .startButton {
+                min-height: 64px;
+                padding: 0 32px;
+                font-size: 1.25rem;
+            }
+
+            .consentDialog {
+                width: min(720px, calc(100% - 96px));
+            }
+
+            .consentContent {
+                gap: 32px;
+                padding: 32px;
+            }
+
+            .consentText {
+                font-size: 1.5rem;
+            }
+
+            .consentButton {
+                min-height: 64px;
+                font-size: 1.25rem;
+            }
+        }
+
+        .demoScene {
+            position: relative;
+            display: grid;
+            place-items: center;
+            padding: 12px;
+        }
+
+        .demoPanel,
+        .videoPanel {
+            min-width: 0;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--panel);
+        }
+
+        .demoPanel {
+            width: min(100%, calc((100dvh - 24px) * 0.75));
+        }
+
+        .demoPanel.is-previewing {
+            filter: blur(8px);
+        }
+
+        .demoVideoWrap {
+            position: relative;
+            aspect-ratio: 3 / 4;
+            background: #111821;
+        }
+
+        .demoVideoWrap video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: contain;
+            background: #111821;
+        }
+
+        .sceneOverlay {
+            position: absolute;
+            inset: 0;
+            z-index: 6;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: rgba(247, 248, 250, 0.58);
+            backdrop-filter: blur(10px);
+        }
+
+        .sceneOverlay[hidden] {
+            display: none;
+        }
+
+        .challengeIntroOverlay {
+            z-index: 8;
+        }
+
+        .demoIntroCard {
+            width: min(560px, 100%);
+            display: grid;
+            gap: 10px;
+            border: 1px solid rgba(217, 222, 229, 0.82);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.82);
+            padding: 18px 24px;
+            text-align: center;
+        }
+
+        .demoIntroTitle {
+            margin: 0;
+            color: var(--ink);
+            font-size: clamp(1.6rem, 4vw, 3rem);
+            line-height: 1.2;
+        }
+
+        .demoIntroText {
+            margin: 0;
+            color: var(--muted);
+            font-size: clamp(0.95rem, 2vw, 1.08rem);
+            line-height: 1.7;
+            white-space: pre-line;
+        }
+
+        .skipButton {
+            position: absolute;
+            right: 18px;
+            bottom: 18px;
+            z-index: 5;
+            min-height: 40px;
+            border: 1px solid rgba(217, 222, 229, 0.82);
+            border-radius: 6px;
+            padding: 0 14px;
+            background: rgba(255, 255, 255, 0.84);
+            color: var(--ink);
+            font: inherit;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .demoProgress {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 4;
+            height: 8px;
+            background: rgba(23, 32, 42, 0.12);
+        }
+
+        .demoProgressFill {
+            display: block;
+            width: 0%;
+            height: 100%;
+            background: var(--accent);
+        }
+
+        .levelUpProgress {
+            z-index: 9;
+        }
+
+        main {
+            height: 100%;
+            min-height: 0;
+            display: grid;
+            place-items: center;
+            padding: 12px;
+        }
+
+        .practice {
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            place-items: center;
+        }
+
+        .videoPanel {
+            width: min(calc(100vw - 24px), calc((100dvh - 24px) * 0.75));
+            height: min(calc(100dvh - 24px), calc((100vw - 24px) * 1.333333));
+            align-self: center;
+        }
+
+        .viewer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+            aspect-ratio: 3 / 4;
+            background: #111821;
+        }
+
+        .viewer.is-coaching::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            background: rgba(17, 24, 33, 0.46);
+            pointer-events: none;
+        }
+
+        .viewer video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: cover;
+            background: #111821;
+        }
+
+        #webcamVideo {
+            transform: scaleX(-1);
+        }
+
+        .assistVideo {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.28;
+            pointer-events: none;
+        }
+
+        .assistVideo[hidden] {
+            display: none;
+        }
+
+        .placeholder {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            color: #dfe7ee;
+            text-align: center;
+            line-height: 1.7;
+            background: #151d27;
+        }
+
+        .placeholder[hidden] {
+            display: none;
+        }
+
+        .ellipseGuide {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: min(72%, 720px);
+            height: min(76%, 1032px);
+            border: 2px solid rgba(39, 194, 138, 0.88);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        .scoreHero {
+            position: absolute;
+            z-index: 4;
+            top: 24px;
+            left: 8px;
+            right: 8px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 8px;
+            align-items: center;
+            padding: 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.7);
+            color: var(--ink);
+            opacity: 0.88;
+            pointer-events: none;
+        }
+
+        .challengeTimer {
+            position: absolute;
+            top: 104px;
+            right: 12px;
+            z-index: 4;
+            min-width: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            border: 1px solid rgba(217, 222, 229, 0.82);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.86);
+            padding: 8px 14px;
+            color: var(--ink);
+            font-size: 1.1rem;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            line-height: 1;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .challengeChances {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            white-space: nowrap;
+        }
+
+        .challengeChanceLabel {
+            color: var(--muted);
+            font-size: 0.78rem;
+            font-weight: 500;
+        }
+
+        .challengeChanceDots {
+            display: inline-flex;
+            gap: 5px;
+        }
+
+        .challengeChanceDot {
+            width: 10px;
+            aspect-ratio: 1;
+            border: 1px solid rgba(39, 194, 138, 0.72);
+            border-radius: 50%;
+            background: transparent;
+        }
+
+        .challengeChanceDot.is-remaining {
+            background: var(--accent);
+        }
+
+        .challengeTimer.is-last-chance .challengeChanceDot {
+            border-color: rgba(221, 138, 46, 0.72);
+        }
+
+        .challengeTimer.is-last-chance .challengeChanceDot.is-remaining {
+            background: #dd8a2e;
+        }
+
+        .challengeTimerDivider {
+            color: var(--line);
+            font-weight: 400;
+        }
+
+        .challengeTimerValue {
+            min-width: 2.8em;
+        }
+
+        .challengeTimer[hidden] {
+            display: none;
+        }
+
+        .challengeTimer.is-ending {
+            border-color: #dd4d5d;
+            color: #c93647;
+        }
+
+        .cameraAssist {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            z-index: 10;
+            width: min(360px, calc(100% - 32px));
+            border-radius: 999px;
+            background: rgba(23, 32, 42, 0.88);
+            padding: 8px 16px 10px;
+            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 600;
+            line-height: 1.4;
+            text-align: center;
+            transform: translate(-50%, -8px);
+            pointer-events: none;
+        }
+
+        .cameraAssist.is-active {
+            transform: translate(-50%, 0);
+        }
+
+        .cameraAssistArrow {
+            display: block;
+            color: var(--accent);
+            font-size: 1.8em;
+            line-height: 0.8;
+            animation: cameraArrowBounce 700ms ease-in-out infinite alternate;
+        }
+
+        .cameraAssistCountdown {
+            display: block;
+            min-height: 1.4em;
+            margin-top: 8px;
+            color: var(--accent);
+            font-size: 1.2em;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }
+
+        @keyframes cameraArrowBounce {
+            from {
+                transform: translateY(5px) scale(1);
+            }
+
+            to {
+                transform: translateY(-5px) scale(1.12);
+            }
+        }
+
+        .scoreBar {
+            grid-column: 1 / -1;
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(10, minmax(0, 1fr));
+            gap: 3px;
+        }
+
+        .scoreSegment {
+            display: block;
+            height: 9px;
+            border-radius: 999px;
+            background: #e7ecf1;
+            transition: background 120ms linear;
+        }
+
+        .scoreSegment.is-filled {
+            background: var(--accent);
+        }
+
+        .countdownOverlay {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            display: grid;
+            place-items: center;
+            color: var(--score-accent, var(--accent));
+            font-size: clamp(5rem, 18vw, 9rem);
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+            pointer-events: none;
+            text-shadow: 0 6px 20px rgba(23, 32, 42, 0.24);
+        }
+
+        .countdownOverlay[hidden] {
+            display: none;
+        }
+
+        .coachTips {
+            position: absolute;
+            inset: 0;
+            z-index: 8;
+            pointer-events: none;
+        }
+
+        .coachTips[hidden] {
+            display: none;
+        }
+
+        .coachTip {
+            position: absolute;
+            max-width: min(280px, calc(100% - 24px));
+            border-left: 4px solid var(--accent);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.88);
+            padding: 10px 12px;
+            color: var(--ink);
+            font-size: 0.88rem;
+            line-height: 1.6;
+            box-shadow: 0 8px 24px rgba(23, 32, 42, 0.16);
+            opacity: 0;
+            transform: translateY(6px);
+            transition: opacity 180ms ease, transform 180ms ease;
+            z-index: 8;
+        }
+
+        .coachTip.is-active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .coachTip.cameraAssist {
+            transform: translate(-50%, -8px);
+        }
+
+        .coachTip.cameraAssist.is-active {
+            transform: translate(-50%, 0);
+        }
+
+        .coachFaceCountdown {
+            display: block;
+            margin-top: 0;
+            color: var(--accent);
+            font-size: 1.15em;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+            text-align: right;
+            line-height: 1.0;
+        }
+
+        .coachTip--status {
+            top: 118px;
+            left: 12px;
+        }
+
+        .coachTip--timer {
+            top: 154px;
+            right: 12px;
+        }
+
+        .coachTip--face {
+            left: 50%;
+            top: 34%;
+            transform: translate(-50%, -50%);
+        }
+
+        .coachTip--face.is-active {
+            transform: translate(-50%, calc(-50% - 6px));
+        }
+
+        .coachFocus {
+            z-index: 7;
+            outline: 3px solid rgba(39, 194, 138, 0.94);
+            outline-offset: 6px;
+            box-shadow: 0 0 0 9999px rgba(17, 24, 33, 0.22);
+        }
+
+        .scoreHero.coachFocus {
+            z-index: 8;
+            background: rgba(255, 255, 255, 0.92);
+            opacity: 1;
+            outline-offset: 8px;
+            box-shadow: 0 0 0 6px rgba(39, 194, 138, 0.14), 0 0 0 9999px rgba(17, 24, 33, 0.22);
+        }
+
+        .ellipseGuide.coachFocus {
+            box-shadow: 0 0 0 8px rgba(39, 194, 138, 0.16), 0 0 0 9999px rgba(17, 24, 33, 0.22);
+        }
+
+        .scoreText {
+            grid-column: 1 / -1;
+            min-width: 0;
+        }
+
+        .scoreText strong {
+            display: block;
+            overflow: hidden;
+            font-size: 1.6rem;
+            font-weight: 400;
+            line-height: 1.4;
+            text-align: center;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 1120px) {
+            main {
+                overflow: auto;
+            }
+
+            .demoScene,
+            main {
+                padding: 0;
+                overflow: hidden;
+            }
+
+            .demoPanel,
+            .videoPanel {
+                width: 100vw;
+                height: 100dvh;
+                border: 0;
+                border-radius: 0;
+            }
+
+            .demoVideoWrap,
+            .viewer {
+                height: 100%;
+                aspect-ratio: auto;
+            }
+
+            .coachTip {
+                max-width: calc(100% - 24px);
+                font-size: 0.78rem;
+            }
+
+            .coachTip--status {
+                top: clamp(96px, 12dvh, 118px);
+                left: 10px;
+            }
+
+            .coachTip--face {
+                top: 48%;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        @media (min-width: 768px) and (min-height: 1200px) and (orientation: portrait) {
+            .sceneOverlay {
+                padding: 48px;
+            }
+
+            .demoIntroCard {
+                width: min(840px, 100%);
+                gap: 22px;
+                padding: 40px 48px;
+            }
+
+            .demoIntroTitle {
+                font-size: clamp(2.75rem, 5vw, 3.5rem);
+            }
+
+            .demoIntroText {
+                font-size: clamp(1.55rem, 2.6vw, 1.75rem);
+                line-height: 1.8;
+            }
+
+            .skipButton {
+                right: 28px;
+                bottom: 28px;
+                min-height: 64px;
+                padding: 0 28px;
+                font-size: 1.3rem;
+            }
+
+            .placeholder {
+                font-size: 1.5rem;
+            }
+
+            .scoreHero {
+                top: 32px;
+                left: 16px;
+                right: 16px;
+                gap: 12px;
+                padding: 14px 16px;
+            }
+
+            .scoreText strong {
+                font-size: 2.25rem;
+            }
+
+            .scoreSegment {
+                height: 14px;
+            }
+
+            .challengeTimer {
+                top: 152px;
+                right: 24px;
+                min-width: 308px;
+                gap: 14px;
+                padding: 12px 20px;
+                font-size: 1.75rem;
+            }
+
+            .challengeChanceLabel {
+                font-size: 1.15rem;
+            }
+
+            .challengeChanceDots {
+                gap: 7px;
+            }
+
+            .challengeChanceDot {
+                width: 14px;
+            }
+
+            .cameraAssist {
+                top: 14px;
+                width: min(560px, calc(100% - 48px));
+                padding: 12px 24px 14px;
+                font-size: 1.45rem;
+            }
+
+            .coachTip {
+                max-width: min(640px, calc(100% - 48px));
+                border-left-width: 6px;
+                padding: 22px 26px;
+                font-size: 1.6rem;
+                line-height: 1.7;
+                box-shadow: 0 12px 32px rgba(23, 32, 42, 0.2);
+            }
+
+            .coachTip--status {
+                top: 224px;
+                left: 24px;
+                max-width: min(640px, calc(100% - 220px));
+            }
+
+            .coachTip--timer {
+                top: 224px;
+                right: 24px;
+            }
+
+            .coachTip--face {
+                top: 30%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <section id="introScene" class="scene introScene">
+            <div class="introContent">
+                <img class="introThumbnail" src="thumbnail.png" alt="サムネイル画像">
+                <h1 class="introTitle">ようこそ、表情クリニックへ</h1>
+                <p class="introText">
+                    表情クリニックとは、適切な表情表現を身につけるための教育プログラムです。全7段階のトレーニングを通して、正しい表情の作り方を学び、コミュニケーション能力に優れた、模範的な人間を目指しましょう。</p>
+                <button id="startButton" class="startButton" type="button">さあ始めましょう →</button>
+            </div>
+        </section>
+
+        <dialog id="consentDialog" class="consentDialog" aria-labelledby="consentText">
+            <div class="consentContent">
+                <p id="consentText" class="consentText">
+                    表情の撮影、表情画像の使用について同意して始めますか？
+                    <span class="consentNote">※同意しなくても体験は可能です</span>
+                    <span class="consentNote">※同意していただける場合は、「はい」を押す前に同意書にサインをしてください。</span>
+                </p>
+                <div class="consentActions">
+                    <button id="consentAcceptButton" class="consentButton consentButton--accept"
+                        type="button">はい</button>
+                    <button id="consentDeclineButton" class="consentButton" type="button">いいえ</button>
+                </div>
+            </div>
+        </dialog>
+
+        <section id="demoScene" class="scene demoScene" hidden>
+            <article id="demoPanel" class="demoPanel">
+                <div class="demoVideoWrap">
+                    <video id="demoVideo" muted playsinline></video>
+                    <div id="demoPlaceholder" class="placeholder">お手本動画を読み込み中...</div>
+                </div>
+            </article>
+            <div id="demoIntroOverlay" class="sceneOverlay demoIntroOverlay" hidden>
+                <div class="demoIntroCard">
+                    <h2 id="demoIntroTitle" class="demoIntroTitle">レベル0：無表情</h2>
+                    <p id="demoIntroText" class="demoIntroText">まずは、お手本動画をよく見て観察しましょう。</p>
+                </div>
+            </div>
+            <button id="skipDemoButton" class="skipButton" type="button">スキップ →</button>
+            <div class="demoProgress" aria-hidden="true">
+                <span id="demoProgressFill" class="demoProgressFill"></span>
+            </div>
+        </section>
+
+        <main id="trainingScene" class="scene" hidden>
+            <section class="practice" aria-label="training videos">
+                <article class="videoPanel">
+                    <div class="viewer">
+                        <video id="webcamVideo" autoplay muted playsinline></video>
+                        <video id="assistVideo" class="assistVideo" muted playsinline loop hidden></video>
+                        <div class="scoreHero">
+                            <div class="scoreText">
+                                <strong id="scoreTitle">準備中</strong>
+                            </div>
+                            <div id="scoreBar" class="scoreBar" aria-hidden="true"></div>
+                        </div>
+                        <div id="challengeTimer" class="challengeTimer" hidden>
+                            <span class="challengeChances">
+                                <span class="challengeChanceLabel">チャンス</span>
+                                <span id="challengeChanceDots" class="challengeChanceDots" aria-label="残り3回"></span>
+                            </span>
+                            <span class="challengeTimerDivider" aria-hidden="true">|</span>
+                            <span id="challengeTimerValue" class="challengeTimerValue" aria-label="残り時間">1:00</span>
+                        </div>
+                        <div id="countdownOverlay" class="countdownOverlay" hidden>3</div>
+                        <div id="coachTips" class="coachTips" hidden aria-hidden="true">
+                            <div class="coachTip coachTip--status">
+                                上の表示は判定コメントです。達成率バーが塗られるほど、目標の表情に近づいています。「かなり好ましい表情です！」と表示された状態を3秒間キープするとクリアです。
+                            </div>
+                            <div class="coachTip coachTip--timer">
+                                1回の挑戦時間は1分です。時間内にクリアできなかった場合は、もう一度お手本を見て再挑戦します。3回挑戦してもクリアできなかった場合でも、次のレベルへ進みます。</div>
+                            <div class="coachTip coachTip--face">
+                                顔の位置を枠に収まるように調整してください。
+                                <span id="coachFaceCountdown" class="coachFaceCountdown">残り10秒</span>
+                            </div>
+                            <div id="cameraAssist" class="coachTip coachTip--camera cameraAssist">
+                                <span class="cameraAssistArrow" aria-hidden="true">⇧</span>
+                                ここにカメラがあります。カメラ目線を意識しましょう。
+                                <span class="cameraAssistCountdown">そのままキープ</span>
+                            </div>
+                        </div>
+                        <div id="cameraPlaceholder" class="placeholder">Webcamを起動中...</div>
+                        <div class="ellipseGuide" aria-hidden="true"></div>
+                        <div id="challengeIntroOverlay" class="sceneOverlay challengeIntroOverlay" hidden>
+                            <div class="demoIntroCard">
+                                <h2 id="challengeIntroTitle" class="demoIntroTitle">レベル0：無表情</h2>
+                                <p id="challengeIntroText" class="demoIntroText">次はあなたの番です。無表情に挑戦してみましょう！</p>
+                            </div>
+                        </div>
+                        <div id="levelUpProgress" class="demoProgress levelUpProgress" hidden aria-hidden="true">
+                            <span id="levelUpProgressFill" class="demoProgressFill"></span>
+                        </div>
+                    </div>
+                </article>
+            </section>
+        </main>
+
+        <section id="finalScene" class="scene introScene" hidden>
+            <div class="introContent">
+                <img class="introThumbnail" src="thumbnail.png" alt="サムネイル画像">
+                <h1 class="introTitle">おめでとうございます🎉</h1>
+                <p class="introText">
+                    すべての表情トレーニングが完了しました。<br>このトレーニングにより、あなたの表情は、他者にとって理解しやすい形へと調整されました。これからも、周囲に誤解を与えない模範的な表情表現を継続してください。
+                    <span id="finalWarning" hidden></span>
+                </p>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        window.addEventListener("load", () => {
+            const MODEL_URL = "../faceAPI/models";
+            const DEMO_INTRO_MS = 4000;
+            const DEMO_LOOP_COUNT = 3;
+            const CLEAR_SCORE = 0.82;
+            const CLEAR_SCORE_BY_EXPRESSION = {
+                fearful: 0.72,
+                disgusted: 0.76
+            };
+            const CLEAR_HOLD_MS = 3000;
+            const LEVEL_UP_MS = 4000;
+            const COACH_TIP_MS = 5000;
+            const COACH_STATUS_TIP_MS = 8000;
+            const COACH_TIMER_TIP_MS = 9000;
+            const COACH_FACE_TIP_MS = 10 * 1000;
+            const FINAL_RELOAD_MS = 30 * 1000;
+            const PARTICIPANT_ABSENCE_MS = 60 * 1000;
+            const CHALLENGE_ATTEMPT_MS = 60 * 1000;
+            const MAX_CHALLENGE_ATTEMPTS = 3;
+            const PAUSE_TITLE = "休憩中...";
+            const PAUSE_TEXT = "少し休んで、表情筋の強張りをほぐしましょう";
+            const SCORE_SEGMENT_COUNT = 10;
+            const SAMPLE_VIDEO_DIR = "samplevideo";
+            const ARCHIVE_DIR = "training/archives";
+            const SCORE_MESSAGES = {
+                clear: "かなり好ましい表情です！そのままキープしてください。",
+                improving: "だんだん好ましい表情に近づいています！",
+                low: "好ましい表情ではありません"
+            };
+            const LEVEL_CLEAR_MESSAGES = {
+                neutral: "3秒キープでクリアになります。\nその調子で頑張りましょう。",
+                happy: "素敵な笑顔ですね。とても好印象です。",
+                surprised: "素晴らしい驚きの表現です。\nしっかりと目や口を開くことがポイントです。",
+                angry: "素晴らしい怒りの表現です。\n怒りは、大袈裟に表現するくらいがちょうどいいのかもしれません",
+                sad: "悲しみがよく伝わる表情です。\n思わず慰めたくなるような素晴らしい表現力です。",
+                fearful: "緊張感が伝わる素晴らしい恐れの表現ができています。",
+                disgusted: "素晴らしいです。相手にしっかり伝わる嫌悪感の表現ができています。"
+            };
+            const EXPRESSION_KEYS = ["happy", "surprised", "angry", "sad", "fearful", "disgusted", "neutral"];
+            const CONFUSION_CREDIT = {
+                fearful: { angry: 0.32, sad: 0.44 },
+                disgusted: { angry: 0.28, sad: 0.08 }
+            };
+            const TARGETS = {
+                happy: { label: "喜び", vector: { happy: 0.82, surprised: 0.08, angry: 0, sad: 0, fearful: 0, disgusted: 0, neutral: 0.10 } },
+                surprised: { label: "驚き", vector: { happy: 0.08, surprised: 0.74, angry: 0, sad: 0, fearful: 0.10, disgusted: 0, neutral: 0.08 } },
+                angry: { label: "怒り", vector: { happy: 0, surprised: 0.02, angry: 0.78, sad: 0.04, fearful: 0, disgusted: 0.08, neutral: 0.08 } },
+                sad: { label: "悲しみ", vector: { happy: 0, surprised: 0, angry: 0.04, sad: 0.78, fearful: 0.06, disgusted: 0, neutral: 0.12 } },
+                fearful: { label: "恐怖", vector: { happy: 0, surprised: 0.02, angry: 0.18, sad: 0.34, fearful: 0.38, disgusted: 0.02, neutral: 0.06 } },
+                disgusted: { label: "嫌悪", vector: { happy: 0, surprised: 0.02, angry: 0.22, sad: 0.04, fearful: 0.02, disgusted: 0.58, neutral: 0.12 } },
+                neutral: { label: "無表情", vector: { happy: 0.02, surprised: 0.02, angry: 0.02, sad: 0.02, fearful: 0.02, disgusted: 0.02, neutral: 0.88 } }
+            };
+            const LEVELS = [
+                { level: 0, key: "neutral" },
+                { level: 1, key: "happy" },
+                { level: 2, key: "surprised" },
+                { level: 3, key: "angry" },
+                { level: 4, key: "sad" },
+                { level: 5, key: "fearful" },
+                { level: 6, key: "disgusted" }
+            ];
+            const videoFiles = (...names) => {
+                const extensions = ["mp4", "webm", "mov", "m4v"];
+                return names.flatMap((name) => extensions.map((extension) => `${name}.${extension}`));
+            };
+            const SAMPLE_VIDEO_CANDIDATES = {
+                happy: ["01_喜び_100.mov", ...videoFiles("happy", "喜び", "joy")],
+                surprised: ["05_驚き_100.mov", ...videoFiles("surprised", "驚き", "surprise")],
+                angry: ["03_怒り_99.mov", ...videoFiles("angry", "怒り", "anger")],
+                sad: ["02_悲しみ_100.mov", ...videoFiles("sad", "悲しみ")],
+                fearful: ["04_恐れ_85.mov", ...videoFiles("fearful", "恐れ", "fear")],
+                disgusted: ["06_嫌悪_99.mov", ...videoFiles("disgusted", "嫌悪", "disgust")],
+                neutral: ["00_無表情.mov", ...videoFiles("neutral", "無表情")]
+            };
+
+            const $ = (id) => document.getElementById(id);
+            const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, Number(value || 0)));
+            const detectOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
+
+            const demoPanel = $("demoPanel");
+            const demoVideo = $("demoVideo");
+            const demoPlaceholder = $("demoPlaceholder");
+            const demoIntroOverlay = $("demoIntroOverlay");
+            const demoIntroTitle = $("demoIntroTitle");
+            const demoIntroText = $("demoIntroText");
+            const viewer = document.querySelector(".viewer");
+            const scoreHero = document.querySelector(".scoreHero");
+            const ellipseGuide = document.querySelector(".ellipseGuide");
+            const webcamVideo = $("webcamVideo");
+            const assistVideo = $("assistVideo");
+            const cameraPlaceholder = $("cameraPlaceholder");
+            const introScene = $("introScene");
+            const demoScene = $("demoScene");
+            const trainingScene = $("trainingScene");
+            const finalScene = $("finalScene");
+            const finalWarning = $("finalWarning");
+            const startButton = $("startButton");
+            const consentDialog = $("consentDialog");
+            const consentAcceptButton = $("consentAcceptButton");
+            const consentDeclineButton = $("consentDeclineButton");
+            const skipDemoButton = $("skipDemoButton");
+            const demoProgressFill = $("demoProgressFill");
+            const levelUpProgress = $("levelUpProgress");
+            const levelUpProgressFill = $("levelUpProgressFill");
+            const challengeIntroOverlay = $("challengeIntroOverlay");
+            const challengeIntroTitle = $("challengeIntroTitle");
+            const challengeIntroText = $("challengeIntroText");
+            const scoreBar = $("scoreBar");
+            const scoreTitle = $("scoreTitle");
+            const challengeTimer = $("challengeTimer");
+            const challengeTimerValue = $("challengeTimerValue");
+            const challengeChanceDots = $("challengeChanceDots");
+            const coachFaceCountdown = $("coachFaceCountdown");
+            const countdownOverlay = $("countdownOverlay");
+            const coachTips = $("coachTips");
+            const guideAudio = new Audio("guide.mp3");
+            const clearAudio = new Audio("clear.mp3");
+            const restartAudio = new Audio("restart.mp3");
+            guideAudio.preload = "auto";
+            clearAudio.preload = "auto";
+            restartAudio.preload = "auto";
+
+            let currentLevelIndex = 0;
+            let activeTarget = LEVELS[currentLevelIndex].key;
+            let sampleLoadToken = 0;
+            let demoTimer = 0;
+            let demoIntroTimer = 0;
+            let demoIntroStartedAt = 0;
+            let demoIntroRemainingMs = DEMO_INTRO_MS;
+            let demoIntroActive = false;
+            let challengeIntroTimer = 0;
+            let coachTipsTimer = 0;
+            let challengeTimeoutTimer = 0;
+            let challengeClockTimer = 0;
+            let challengeTimerStartedAt = 0;
+            let challengeTimerRemainingMs = CHALLENGE_ATTEMPT_MS;
+            let levelUpProgressTimer = 0;
+            let finalReloadTimer = 0;
+            let demoPlayCount = 0;
+            let running = false;
+            let participantMonitoring = false;
+            let lastParticipantActivityAt = 0;
+            let paused = false;
+            let modelsLoading = false;
+            let modelsLoaded = false;
+            let smoothedScore = 0;
+            let holdStartedAt = 0;
+            let challengeCleared = false;
+            let challengeAttemptCount = 0;
+            const unclearedExpressions = new Set();
+            let coachTipsShown = false;
+            let coaching = false;
+            let coachFaceCountdownTimer = 0;
+            let levelUpTimer = 0;
+            let recordingEnabled = false;
+            let archiveSessionName = "";
+            let mediaRecorder = null;
+            let recordedChunks = [];
+            let recordingLevel = null;
+            let recordingCanvas = null;
+            let recordingContext = null;
+            let recordingFrame = 0;
+            scoreBar.innerHTML = Array.from({ length: SCORE_SEGMENT_COUNT }, () => '<span class="scoreSegment"></span>').join("");
+            const scoreSegments = [...scoreBar.querySelectorAll(".scoreSegment")];
+            challengeChanceDots.innerHTML = Array.from(
+                { length: MAX_CHALLENGE_ATTEMPTS },
+                () => '<span class="challengeChanceDot" aria-hidden="true"></span>'
+            ).join("");
+            const challengeChanceDotItems = [...challengeChanceDots.querySelectorAll(".challengeChanceDot")];
+            const coachTipItems = [...coachTips.querySelectorAll(".coachTip")];
+            const coachFocusByTip = new Map([
+                [document.querySelector(".coachTip--status"), scoreHero],
+                [document.querySelector(".coachTip--timer"), challengeTimer],
+                [document.querySelector(".coachTip--face"), ellipseGuide]
+            ]);
+            const coachFocusTargets = [...new Set([...coachFocusByTip.values()].filter(Boolean))];
+
+            const clampLevelIndex = (index) => Math.min(Math.max(index, 0), LEVELS.length - 1);
+            const currentLevel = () => LEVELS[currentLevelIndex];
+            const targetFor = (key = activeTarget) => TARGETS[key];
+            const activeTargetLabel = () => targetFor().label;
+            const challengeCopy = () => `次はあなたの番です。${activeTargetLabel()}に挑戦してみましょう！`;
+
+            const markParticipantActivity = () => {
+                if (participantMonitoring) lastParticipantActivityAt = performance.now();
+            };
+
+            const checkParticipantPresence = () => {
+                if (!participantMonitoring || finalScene.hidden === false) return;
+                if (performance.now() - lastParticipantActivityAt >= PARTICIPANT_ABSENCE_MS) {
+                    window.location.reload();
+                }
+            };
+
+            const setProgress = (fill, progress) => {
+                fill.style.width = `${Math.round(clamp(progress) * 100)}%`;
+            };
+
+            const setChallengeOverlay = (title, text) => {
+                challengeIntroTitle.textContent = title;
+                challengeIntroText.textContent = text;
+                challengeIntroOverlay.hidden = false;
+            };
+
+            const clearScoreFor = (key = activeTarget) => CLEAR_SCORE_BY_EXPRESSION[key] || CLEAR_SCORE;
+
+            const expressionVector = (source) => {
+                return Object.fromEntries(EXPRESSION_KEYS.map((name) => [name, clamp(source[name])]));
+            };
+
+            const applyScore = (score, expressions = null) => {
+                setScore(score, expressions);
+                updateClearProgress(score, expressions);
+            };
+
+            const setScore = (score, expressions = null) => {
+                const normalized = clamp(score);
+                const rounded = Math.round(normalized * 100);
+                const filledSegments = Math.ceil(normalized * scoreSegments.length);
+                const scoreAccent = rounded >= 72 ? "#27c28a" : rounded >= 44 ? "#ef8b39" : "#dd4d5d";
+                scoreBar.style.setProperty("--accent", scoreAccent);
+                countdownOverlay.style.setProperty("--score-accent", scoreAccent);
+                scoreSegments.forEach((segment, index) => {
+                    segment.classList.toggle("is-filled", index < filledSegments);
+                });
+
+                if (isClearReady(normalized, expressions)) {
+                    scoreTitle.textContent = SCORE_MESSAGES.clear;
+                } else if (rounded >= 58) {
+                    scoreTitle.textContent = SCORE_MESSAGES.improving;
+                } else if (running) {
+                    scoreTitle.textContent = SCORE_MESSAGES.low;
+                }
+            };
+
+            const playAudio = (audio) => {
+                audio.pause();
+                audio.currentTime = 0;
+                audio.play().catch(() => { });
+            };
+
+            const timestampName = () => {
+                const date = new Date();
+                const pad = (value) => String(value).padStart(2, "0");
+                return [
+                    date.getFullYear(),
+                    pad(date.getMonth() + 1),
+                    pad(date.getDate())
+                ].join("-") + "_" + [
+                    pad(date.getHours()),
+                    pad(date.getMinutes()),
+                    pad(date.getSeconds())
+                ].join("-");
+            };
+
+            const safeName = (value) => String(value).replace(/[^\w\u3040-\u30ff\u3400-\u9fff-]+/g, "_");
+
+            const setRecordingEnabled = (enabled) => {
+                recordingEnabled = Boolean(enabled);
+                archiveSessionName = recordingEnabled ? timestampName() : "";
+                startButton.classList.toggle("is-recording", recordingEnabled);
+            };
+
+            const toggleRecordingEnabled = () => {
+                setRecordingEnabled(!recordingEnabled);
+            };
+
+            const recordingMimeType = () => {
+                const types = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+                return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+            };
+
+            const downloadRecording = (blob, level) => {
+                const target = targetFor(level.key);
+                const filename = `${archiveSessionName}_${safeName(`level${level.level}_${target.label}`)}.webm`;
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = filename;
+                anchor.dataset.archivePath = `${ARCHIVE_DIR}/${archiveSessionName}/${filename}`;
+                document.body.append(anchor);
+                anchor.click();
+                anchor.remove();
+                URL.revokeObjectURL(url);
+            };
+
+            const cancelRecordingFrame = () => {
+                window.cancelAnimationFrame(recordingFrame);
+                recordingFrame = 0;
+            };
+
+            const resetRecordingBuffer = () => {
+                recordedChunks = [];
+                recordingLevel = null;
+            };
+
+            const stopChallengeRecording = () => {
+                cancelRecordingFrame();
+                if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+                mediaRecorder.stop();
+            };
+
+            const syncRecordingCanvasSize = () => {
+                const rect = webcamVideo.getBoundingClientRect();
+                const width = Math.max(2, Math.round(rect.width || webcamVideo.clientWidth || 720));
+                const height = Math.max(2, Math.round(rect.height || webcamVideo.clientHeight || 960));
+                if (recordingCanvas.width !== width) recordingCanvas.width = width;
+                if (recordingCanvas.height !== height) recordingCanvas.height = height;
+            };
+
+            const drawRecordingFrame = () => {
+                if (!recordingContext || !recordingCanvas || !mediaRecorder || mediaRecorder.state !== "recording") return;
+                syncRecordingCanvasSize();
+                const sourceWidth = webcamVideo.videoWidth;
+                const sourceHeight = webcamVideo.videoHeight;
+                if (sourceWidth > 0 && sourceHeight > 0) {
+                    const targetRatio = recordingCanvas.width / recordingCanvas.height;
+                    const sourceRatio = sourceWidth / sourceHeight;
+                    let sx = 0;
+                    let sy = 0;
+                    let sw = sourceWidth;
+                    let sh = sourceHeight;
+
+                    if (sourceRatio > targetRatio) {
+                        sw = sourceHeight * targetRatio;
+                        sx = (sourceWidth - sw) / 2;
+                    } else {
+                        sh = sourceWidth / targetRatio;
+                        sy = (sourceHeight - sh) / 2;
+                    }
+
+                    recordingContext.save();
+                    recordingContext.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+                    recordingContext.translate(recordingCanvas.width, 0);
+                    recordingContext.scale(-1, 1);
+                    recordingContext.drawImage(webcamVideo, sx, sy, sw, sh, 0, 0, recordingCanvas.width, recordingCanvas.height);
+                    recordingContext.restore();
+                }
+                recordingFrame = window.requestAnimationFrame(drawRecordingFrame);
+            };
+
+            const startChallengeRecording = () => {
+                if (!recordingEnabled || !webcamVideo.srcObject || mediaRecorder?.state === "recording") return;
+                if (typeof MediaRecorder === "undefined") return;
+
+                resetRecordingBuffer();
+                recordingLevel = currentLevel();
+                const mimeType = recordingMimeType();
+                recordingCanvas = recordingCanvas || document.createElement("canvas");
+                syncRecordingCanvasSize();
+                recordingContext = recordingCanvas.getContext("2d");
+                if (!recordingContext || !recordingCanvas.captureStream) {
+                    resetRecordingBuffer();
+                    return;
+                }
+
+                try {
+                    mediaRecorder = new MediaRecorder(recordingCanvas.captureStream(30), mimeType ? { mimeType } : undefined);
+                } catch {
+                    resetRecordingBuffer();
+                    return;
+                }
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data?.size) recordedChunks.push(event.data);
+                };
+                mediaRecorder.onstop = () => {
+                    cancelRecordingFrame();
+                    if (recordedChunks.length && recordingLevel) {
+                        const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "video/webm" });
+                        downloadRecording(blob, recordingLevel);
+                    }
+                    resetRecordingBuffer();
+                };
+                mediaRecorder.start();
+                drawRecordingFrame();
+            };
+
+            const sampleCandidatesFor = (key) => {
+                const files = SAMPLE_VIDEO_CANDIDATES[key] || [`${key}.mp4`];
+                return files.map((file) => `${SAMPLE_VIDEO_DIR}/${encodeURIComponent(file)}`);
+            };
+
+            const levelText = () => {
+                const level = currentLevel();
+                return `レベル${level.level}：${targetFor(level.key).label}`;
+            };
+
+            const setDemoVideoSource = (key) => {
+                const token = sampleLoadToken + 1;
+                sampleLoadToken = token;
+                const target = TARGETS[key];
+                const candidates = sampleCandidatesFor(key);
+                let index = 0;
+                demoPlaceholder.hidden = false;
+                demoPlaceholder.textContent = `${target.label}のお手本動画を読み込み中...`;
+
+                const tryNext = () => {
+                    if (token !== sampleLoadToken) return;
+                    if (index >= candidates.length) {
+                        demoVideo.removeAttribute("src");
+                        demoVideo.load();
+                        demoPlaceholder.hidden = false;
+                        demoPlaceholder.textContent = `training/${SAMPLE_VIDEO_DIR} に ${target.label} の動画が見つかりません。`;
+                        return;
+                    }
+                    demoVideo.src = candidates[index];
+                    index += 1;
+                    demoVideo.load();
+                };
+
+                demoVideo.onloadeddata = () => {
+                    if (token !== sampleLoadToken) return;
+                    demoPlaceholder.hidden = true;
+                };
+                demoVideo.onerror = tryNext;
+                tryNext();
+            };
+
+            const syncLevelCopy = () => {
+                const text = levelText();
+                demoIntroTitle.textContent = text;
+                demoIntroText.textContent = "まずは、お手本動画をよく見て観察しましょう。";
+                challengeIntroTitle.textContent = text;
+                challengeIntroText.textContent = challengeCopy();
+            };
+
+            const updateLevel = () => {
+                currentLevelIndex = clampLevelIndex(currentLevelIndex);
+                activeTarget = currentLevel().key;
+                syncLevelCopy();
+                setDemoVideoSource(activeTarget);
+            };
+
+            const pauseDemoVideo = (resetTime = false) => {
+                demoVideo.pause();
+                if (resetTime) demoVideo.currentTime = 0;
+            };
+
+            const resetDemoIntro = (previewing = false) => {
+                demoPanel.classList.toggle("is-previewing", previewing);
+                demoIntroOverlay.hidden = !previewing;
+                if (previewing) syncLevelCopy();
+            };
+
+            const setDemoOverlay = (title, text) => {
+                demoIntroTitle.textContent = title;
+                demoIntroText.textContent = text;
+                demoPanel.classList.add("is-previewing");
+                demoIntroOverlay.hidden = false;
+            };
+
+            const updateChallengeChances = () => {
+                const remaining = Math.max(1, MAX_CHALLENGE_ATTEMPTS - challengeAttemptCount);
+                challengeChanceDotItems.forEach((dot, index) => {
+                    dot.classList.toggle("is-remaining", index < remaining);
+                });
+                challengeChanceDots.setAttribute("aria-label", `残り${remaining}回`);
+                challengeTimer.classList.toggle("is-last-chance", remaining === 1);
+            };
+
+            const resetChallengeState = () => {
+                holdStartedAt = 0;
+                challengeCleared = false;
+                paused = false;
+                challengeTimerRemainingMs = CHALLENGE_ATTEMPT_MS;
+                challengeTimerStartedAt = 0;
+                challengeTimerValue.textContent = "1:00";
+                updateChallengeChances();
+                challengeTimer.classList.remove("is-ending");
+                challengeTimer.hidden = true;
+                smoothedScore = 0;
+                setScore(0);
+                countdownOverlay.hidden = true;
+                scoreTitle.textContent = "準備中";
+            };
+
+            const clearDemoTimers = () => {
+                window.cancelAnimationFrame(demoTimer);
+                window.clearTimeout(demoIntroTimer);
+                demoIntroStartedAt = 0;
+            };
+
+            const clearChallengeTimers = () => {
+                window.clearTimeout(challengeIntroTimer);
+                window.clearTimeout(coachTipsTimer);
+                window.clearInterval(coachFaceCountdownTimer);
+                coachFaceCountdownTimer = 0;
+                window.clearTimeout(challengeTimeoutTimer);
+                window.clearInterval(challengeClockTimer);
+                challengeClockTimer = 0;
+                challengeTimerStartedAt = 0;
+                window.clearTimeout(levelUpTimer);
+                window.cancelAnimationFrame(levelUpProgressTimer);
+            };
+
+            const hideAssistOverlay = () => {
+                assistVideo.pause();
+                assistVideo.hidden = true;
+            };
+
+            const syncAssistVideoSource = () => {
+                const source = demoVideo.currentSrc || demoVideo.src;
+                if (!source || assistVideo.src === source) return;
+                assistVideo.src = source;
+                assistVideo.load();
+            };
+
+            const showAssistOverlay = () => {
+                if (!running || challengeCleared || trainingScene.hidden) return;
+                syncAssistVideoSource();
+                assistVideo.hidden = false;
+                assistVideo.currentTime = 0;
+                assistVideo.play().catch(() => { });
+            };
+
+            const toggleAssistOverlay = () => {
+                if (!running || challengeCleared || trainingScene.hidden) return;
+                if (assistVideo.hidden) {
+                    showAssistOverlay();
+                } else {
+                    hideAssistOverlay();
+                }
+            };
+
+            const hideCoachTips = () => {
+                window.clearTimeout(coachTipsTimer);
+                window.clearInterval(coachFaceCountdownTimer);
+                coachFaceCountdownTimer = 0;
+                coaching = false;
+                holdStartedAt = 0;
+                countdownOverlay.hidden = true;
+                hideAssistOverlay();
+                viewer.classList.remove("is-coaching");
+                coachTips.hidden = true;
+                coachTipItems.forEach((tip) => tip.classList.remove("is-active"));
+                coachFocusTargets.forEach((target) => target.classList.remove("coachFocus"));
+            };
+
+            const startCoachFaceCountdown = () => {
+                const startedAt = performance.now();
+                const update = () => {
+                    const remainingMs = Math.max(0, COACH_FACE_TIP_MS - (performance.now() - startedAt));
+                    const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
+                    coachFaceCountdown.textContent = `残り${remainingSeconds}秒`;
+                };
+
+                update();
+                coachFaceCountdownTimer = window.setInterval(update, 250);
+            };
+
+            const startChallengeTimer = () => {
+                window.clearTimeout(challengeTimeoutTimer);
+                window.clearInterval(challengeClockTimer);
+                challengeTimerStartedAt = performance.now();
+                challengeTimer.hidden = false;
+                updateChallengeTimer();
+                challengeClockTimer = window.setInterval(updateChallengeTimer, 250);
+                challengeTimeoutTimer = window.setTimeout(handleChallengeTimeout, challengeTimerRemainingMs);
+            };
+
+            const updateChallengeTimer = () => {
+                const elapsed = challengeTimerStartedAt ? performance.now() - challengeTimerStartedAt : 0;
+                const remainingMs = Math.max(0, challengeTimerRemainingMs - elapsed);
+                const remainingSeconds = Math.ceil(remainingMs / 1000);
+                const minutes = Math.floor(remainingSeconds / 60);
+                const seconds = String(remainingSeconds % 60).padStart(2, "0");
+                challengeTimerValue.textContent = `${minutes}:${seconds}`;
+                challengeTimer.classList.toggle("is-ending", remainingSeconds <= 10);
+            };
+
+            const pauseChallengeTimer = () => {
+                window.clearTimeout(challengeTimeoutTimer);
+                if (challengeTimerStartedAt) {
+                    challengeTimerRemainingMs = Math.max(0, challengeTimerRemainingMs - (performance.now() - challengeTimerStartedAt));
+                    challengeTimerStartedAt = 0;
+                }
+                updateChallengeTimer();
+            };
+
+            const finishDemoIntro = () => {
+                if (paused) return;
+                demoIntroActive = false;
+                demoIntroRemainingMs = 0;
+                demoIntroStartedAt = 0;
+                resetDemoIntro();
+                pauseDemoVideo(true);
+                demoVideo.play().catch(() => { });
+                demoTimer = window.requestAnimationFrame(updateDemoProgress);
+            };
+
+            const startDemoIntroTimer = () => {
+                window.clearTimeout(demoIntroTimer);
+                demoIntroActive = true;
+                demoIntroStartedAt = performance.now();
+                demoIntroTimer = window.setTimeout(finishDemoIntro, demoIntroRemainingMs);
+            };
+
+            const pauseDemoScene = () => {
+                window.clearTimeout(demoIntroTimer);
+                window.cancelAnimationFrame(demoTimer);
+
+                if (demoIntroActive && demoIntroStartedAt) {
+                    demoIntroRemainingMs = Math.max(0, demoIntroRemainingMs - (performance.now() - demoIntroStartedAt));
+                    demoIntroStartedAt = 0;
+                } else {
+                    pauseDemoVideo();
+                }
+
+                guideAudio.pause();
+                setDemoOverlay(PAUSE_TITLE, PAUSE_TEXT);
+            };
+
+            const resumeDemoScene = () => {
+                if (demoIntroActive) {
+                    resetDemoIntro(true);
+                    guideAudio.play().catch(() => { });
+                    startDemoIntroTimer();
+                    return;
+                }
+
+                resetDemoIntro();
+                demoVideo.play().catch(() => { });
+                demoTimer = window.requestAnimationFrame(updateDemoProgress);
+            };
+
+            const showCoachTipStep = (index = 0) => {
+                if (index >= coachTipItems.length) {
+                    hideCoachTips();
+                    startChallengeTimer();
+                    return;
+                }
+
+                const activeTip = coachTipItems[index];
+                const isFaceTip = activeTip?.classList.contains("coachTip--face");
+                window.clearInterval(coachFaceCountdownTimer);
+                coachFaceCountdownTimer = 0;
+                if (isFaceTip) startCoachFaceCountdown();
+                countdownOverlay.hidden = true;
+
+                coachTipItems.forEach((tip, tipIndex) => {
+                    tip.classList.toggle("is-active", tipIndex === index);
+                });
+                const activeFocusTarget = coachFocusByTip.get(activeTip);
+                coachFocusTargets.forEach((target) => {
+                    target.classList.toggle("coachFocus", target === activeFocusTarget);
+                });
+                const isStatusTip = activeTip?.classList.contains("coachTip--status");
+                const displayMs = activeTip?.classList.contains("coachTip--timer")
+                    ? COACH_TIMER_TIP_MS
+                    : isStatusTip
+                        ? COACH_STATUS_TIP_MS
+                        : isFaceTip
+                            ? COACH_FACE_TIP_MS
+                            : COACH_TIP_MS;
+                coachTipsTimer = window.setTimeout(() => showCoachTipStep(index + 1), displayMs);
+            };
+
+            const showCoachTips = () => {
+                if (coachTipsShown || currentLevelIndex !== 0) return false;
+                coachTipsShown = true;
+                coaching = true;
+                holdStartedAt = 0;
+                countdownOverlay.hidden = true;
+                challengeTimer.hidden = false;
+                viewer.classList.add("is-coaching");
+                coachTips.hidden = false;
+                window.clearTimeout(coachTipsTimer);
+                showCoachTipStep();
+                return true;
+            };
+
+            const togglePause = () => {
+                const pausingDemo = !demoScene.hidden;
+                const pausingChallenge = !trainingScene.hidden;
+                if (!pausingDemo && !pausingChallenge) return;
+                if (pausingChallenge && (!running || challengeCleared || coaching || (!paused && !challengeIntroOverlay.hidden))) return;
+
+                paused = !paused;
+                holdStartedAt = 0;
+                countdownOverlay.hidden = true;
+
+                if (paused) {
+                    if (pausingDemo) {
+                        pauseDemoScene();
+                    } else {
+                        pauseChallengeTimer();
+                        setChallengeOverlay(PAUSE_TITLE, PAUSE_TEXT);
+                    }
+                } else {
+                    if (pausingDemo) {
+                        resumeDemoScene();
+                    } else {
+                        challengeIntroOverlay.hidden = true;
+                        startChallengeTimer();
+                    }
+                }
+            };
+
+            const stopChallengeSession = () => {
+                stopChallengeRecording();
+                running = false;
+                participantMonitoring = false;
+                paused = false;
+                holdStartedAt = 0;
+                window.clearTimeout(challengeTimeoutTimer);
+                window.clearInterval(challengeClockTimer);
+                challengeClockTimer = 0;
+                challengeTimerStartedAt = 0;
+                challengeTimer.hidden = true;
+                countdownOverlay.hidden = true;
+                challengeIntroOverlay.hidden = true;
+                hideAssistOverlay();
+                hideCoachTips();
+            };
+
+            const hideLevelUpProgress = () => {
+                levelUpProgress.hidden = true;
+                setProgress(levelUpProgressFill, 0);
+            };
+
+            const startLevelUpProgress = () => {
+                const startedAt = performance.now();
+                levelUpProgress.hidden = false;
+                setProgress(levelUpProgressFill, 0);
+
+                const update = () => {
+                    const progress = (performance.now() - startedAt) / LEVEL_UP_MS;
+                    setProgress(levelUpProgressFill, progress);
+                    if (progress < 1) {
+                        levelUpProgressTimer = window.requestAnimationFrame(update);
+                    }
+                };
+
+                levelUpProgressTimer = window.requestAnimationFrame(update);
+            };
+
+            const proceedAfterTransition = (hasNextLevel) => {
+                challengeIntroOverlay.hidden = true;
+                hideLevelUpProgress();
+
+                if (hasNextLevel) {
+                    resetChallengeState();
+                    startDemo();
+                } else {
+                    showScene(finalScene);
+                }
+            };
+
+            const startResultTransition = ({ title, text, hasNextLevel, audio = null }) => {
+                if (audio) playAudio(audio);
+                setChallengeOverlay(title, text);
+                clearChallengeTimers();
+                startLevelUpProgress();
+                levelUpTimer = window.setTimeout(() => proceedAfterTransition(hasNextLevel), LEVEL_UP_MS);
+            };
+
+            const advanceLevel = () => {
+                currentLevelIndex += 1;
+                challengeAttemptCount = 0;
+                return currentLevelIndex < LEVELS.length;
+            };
+
+            const handleChallengeTimeout = () => {
+                if (!running || challengeCleared || trainingScene.hidden) return;
+                challengeCleared = true;
+                challengeAttemptCount += 1;
+                stopChallengeSession();
+
+                if (challengeAttemptCount < MAX_CHALLENGE_ATTEMPTS) {
+                    startResultTransition({
+                        title: "ナイストライ！",
+                        text: "もう一度、お手本を観察してみましょう。",
+                        hasNextLevel: true,
+                        audio: restartAudio
+                    });
+                    return;
+                }
+
+                unclearedExpressions.add(currentLevel().key);
+                const hasNextLevel = advanceLevel();
+                startResultTransition({
+                    title: hasNextLevel ? "ナイスファイト！" : "全レベル終了",
+                    text: hasNextLevel
+                        ? "ここまでよく取り組みました。次の表情にも挑戦してみましょう。"
+                        : "すべての表情トレーニングが終了しました。",
+                    hasNextLevel,
+                    audio: clearAudio
+                });
+            };
+
+            const completeLevel = () => {
+                if (challengeCleared) return;
+                challengeCleared = true;
+                stopChallengeSession();
+
+                const clearedKey = currentLevel().key;
+                const hasNextLevel = advanceLevel();
+                startResultTransition({
+                    title: hasNextLevel ? "レベルアップ！" : "全レベルクリア！",
+                    text: hasNextLevel
+                        ? LEVEL_CLEAR_MESSAGES[clearedKey]
+                        : `${LEVEL_CLEAR_MESSAGES[clearedKey]} すべての表情トレーニングをクリアしました。`,
+                    hasNextLevel,
+                    audio: clearAudio
+                });
+            };
+
+            const isFearClearReady = (expressions) => {
+                if (!expressions) return false;
+                const fearLike = ["angry", "sad", "fearful"].reduce((sum, name) => sum + clamp(expressions[name]), 0);
+                return fearLike >= clearScoreFor("fearful");
+            };
+
+            const isClearReady = (score, expressions = null) => {
+                if (activeTarget === "fearful") {
+                    return score >= clearScoreFor() && isFearClearReady(expressions);
+                }
+                return score >= clearScoreFor();
+            };
+
+            const updateClearProgress = (score, expressions = null) => {
+                if (paused || coaching || challengeCleared || !isClearReady(score, expressions)) {
+                    holdStartedAt = 0;
+                    countdownOverlay.hidden = true;
+                    return;
+                }
+
+                const now = performance.now();
+                if (!holdStartedAt) {
+                    holdStartedAt = now;
+                }
+
+                const elapsed = now - holdStartedAt;
+                const remaining = Math.max(0, Math.ceil((CLEAR_HOLD_MS - elapsed) / 1000));
+                countdownOverlay.hidden = false;
+                countdownOverlay.textContent = String(Math.max(1, remaining));
+
+                if (elapsed >= CLEAR_HOLD_MS) {
+                    completeLevel();
+                }
+            };
+
+            const scoreExpressions = (expressions) => {
+                const target = targetFor().vector;
+                const confusionCredit = CONFUSION_CREDIT[activeTarget] || {};
+                const maxDistance = Math.sqrt(EXPRESSION_KEYS.length);
+                const distance = Math.sqrt(EXPRESSION_KEYS.reduce((sum, name) => {
+                    const diff = clamp(expressions[name]) - clamp(target[name]);
+                    return sum + diff * diff;
+                }, 0));
+                const primary = activeTarget === "neutral" ? expressions.neutral : expressions[activeTarget];
+                const blendedPrimary = Object.entries(confusionCredit).reduce((score, [name, weight]) => {
+                    return score + clamp(expressions[name]) * weight;
+                }, clamp(primary));
+                const distanceScore = 1 - distance / maxDistance;
+                return clamp(distanceScore * 0.58 + clamp(blendedPrimary) * 0.42);
+            };
+
+            const loadModels = async () => {
+                if (modelsLoading || running) return;
+                if (!modelsLoaded) {
+                    modelsLoading = true;
+                    scoreTitle.textContent = "モデル読込中";
+                    try {
+                        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                        await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+                        modelsLoaded = true;
+                    } finally {
+                        modelsLoading = false;
+                    }
+                }
+                scoreTitle.textContent = "Webcam起動中";
+                await startCamera();
+            };
+
+            const detectLoop = async () => {
+                if (!running) return;
+                if (paused || coaching) {
+                    window.setTimeout(detectLoop, 90);
+                    return;
+                }
+
+                try {
+                    const result = await faceapi
+                        .detectSingleFace(webcamVideo, detectOptions)
+                        .withFaceExpressions();
+
+                    if (result?.detection) markParticipantActivity();
+
+                    if (result?.expressions) {
+                        const expressions = expressionVector(result.expressions);
+                        const rawScore = scoreExpressions(expressions);
+                        smoothedScore = smoothedScore ? smoothedScore * 0.72 + rawScore * 0.28 : rawScore;
+                        applyScore(smoothedScore, expressions);
+                    } else {
+                        smoothedScore *= 0.88;
+                        applyScore(smoothedScore);
+                    }
+                } catch {
+                    scoreTitle.textContent = "推定エラー";
+                } finally {
+                    window.setTimeout(detectLoop, 90);
+                }
+            };
+
+            const startCamera = async () => {
+                if (running) return;
+                try {
+                    let stream = webcamVideo.srcObject;
+                    if (!stream) {
+                        stream = await navigator.mediaDevices.getUserMedia({
+                            video: {
+                                width: { ideal: 1280 },
+                                height: { ideal: 960 },
+                                facingMode: "user"
+                            },
+                            audio: false
+                        });
+                        webcamVideo.srcObject = stream;
+                    }
+                    await webcamVideo.play();
+                    cameraPlaceholder.hidden = true;
+                    resetChallengeState();
+                    running = true;
+                    participantMonitoring = true;
+                    markParticipantActivity();
+                    startChallengeRecording();
+                    detectLoop();
+                } catch {
+                    scoreTitle.textContent = "Webcamを開始できません";
+                    cameraPlaceholder.hidden = false;
+                    cameraPlaceholder.textContent = "Webcamを開始できません。";
+                }
+            };
+
+            const showScene = (scene) => {
+                introScene.hidden = scene !== introScene;
+                demoScene.hidden = scene !== demoScene;
+                trainingScene.hidden = scene !== trainingScene;
+                finalScene.hidden = scene !== finalScene;
+
+                window.clearTimeout(finalReloadTimer);
+                finalReloadTimer = 0;
+                if (scene === finalScene) {
+                    const unclearedLabels = [...unclearedExpressions]
+                        .map((key) => TARGETS[key]?.label)
+                        .filter(Boolean);
+                    finalWarning.hidden = unclearedLabels.length === 0;
+                    finalWarning.textContent = unclearedLabels.length > 0
+                        ? `ただし、${unclearedLabels.join("・")}には誤解の恐れが残ります。普段からわかりやすい表現を心がけましょう。`
+                        : "";
+                    if (unclearedLabels.length > 0) {
+                        finalWarning.prepend(document.createElement("br"));
+                    }
+                    finalReloadTimer = window.setTimeout(() => {
+                        window.location.reload();
+                    }, FINAL_RELOAD_MS);
+                }
+            };
+
+            const goToChallengeLevel = (index) => {
+                currentLevelIndex = clampLevelIndex(index);
+                challengeAttemptCount = 0;
+                updateLevel();
+                startChallenge();
+            };
+
+            const debugNextScene = () => {
+                if (!introScene.hidden) {
+                    startDemo();
+                    return;
+                }
+
+                if (!demoScene.hidden) {
+                    startChallenge();
+                    return;
+                }
+
+                if (!trainingScene.hidden) {
+                    completeLevel();
+                }
+            };
+
+            const debugPreviousScene = () => {
+                if (!finalScene.hidden) {
+                    goToChallengeLevel(LEVELS.length - 1);
+                    return;
+                }
+
+                if (!trainingScene.hidden) {
+                    stopChallengeSession();
+                    startDemo();
+                    return;
+                }
+
+                if (!demoScene.hidden) {
+                    clearDemoTimers();
+                    pauseDemoVideo();
+                    resetDemoIntro();
+
+                    if (currentLevelIndex <= 0) {
+                        showScene(introScene);
+                        return;
+                    }
+
+                    goToChallengeLevel(currentLevelIndex - 1);
+                }
+            };
+
+            const startChallenge = () => {
+                clearDemoTimers();
+                clearChallengeTimers();
+                pauseDemoVideo();
+                setProgress(demoProgressFill, 1);
+                showScene(trainingScene);
+                syncLevelCopy();
+                resetChallengeState();
+                hideLevelUpProgress();
+                hideCoachTips();
+                syncAssistVideoSource();
+                hideAssistOverlay();
+                setChallengeOverlay(
+                    levelText(),
+                    challengeCopy()
+                );
+                loadModels().catch(() => {
+                    scoreTitle.textContent = "モデルを読み込めません";
+                });
+                challengeIntroTimer = window.setTimeout(() => {
+                    challengeIntroOverlay.hidden = true;
+                    if (!showCoachTips()) {
+                        startChallengeTimer();
+                    }
+                }, DEMO_INTRO_MS);
+            };
+
+            const updateDemoProgress = () => {
+                if (paused) return;
+                const duration = Number.isFinite(demoVideo.duration) ? demoVideo.duration : 0;
+                const currentLoopProgress = duration > 0 ? clamp(demoVideo.currentTime / duration) : 0;
+                const progress = clamp((demoPlayCount + currentLoopProgress) / DEMO_LOOP_COUNT);
+                setProgress(demoProgressFill, progress);
+                if (progress >= 1) {
+                    startChallenge();
+                    return;
+                }
+                demoTimer = window.requestAnimationFrame(updateDemoProgress);
+            };
+
+            const handleDemoEnded = () => {
+                if (paused) return;
+                demoPlayCount += 1;
+                if (demoPlayCount >= DEMO_LOOP_COUNT) {
+                    startChallenge();
+                    return;
+                }
+
+                demoVideo.currentTime = 0;
+                demoVideo.play().catch(() => { });
+            };
+
+            demoVideo.addEventListener("ended", handleDemoEnded);
+
+            const startDemo = () => {
+                updateLevel();
+                demoPlayCount = 0;
+                demoIntroActive = false;
+                demoIntroRemainingMs = DEMO_INTRO_MS;
+                demoIntroStartedAt = 0;
+                setProgress(demoProgressFill, 0);
+                showScene(demoScene);
+                clearDemoTimers();
+                clearChallengeTimers();
+                stopChallengeSession();
+                pauseDemoVideo(true);
+                resetDemoIntro(true);
+                playAudio(guideAudio);
+                startDemoIntroTimer();
+            };
+
+            startButton.addEventListener("click", () => {
+                consentDialog.showModal();
+            });
+            consentDialog.addEventListener("cancel", (event) => {
+                event.preventDefault();
+            });
+            consentAcceptButton.addEventListener("click", () => {
+                setRecordingEnabled(true);
+                consentDialog.close();
+                startDemo();
+            });
+            consentDeclineButton.addEventListener("click", () => {
+                setRecordingEnabled(false);
+                consentDialog.close();
+                startDemo();
+            });
+            skipDemoButton.addEventListener("click", startChallenge);
+            window.addEventListener("pointerdown", markParticipantActivity, { passive: true });
+            window.addEventListener("keydown", (event) => {
+                markParticipantActivity();
+                const tagName = event.target?.tagName;
+                if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") return;
+                if (consentDialog.open) return;
+                if (event.code === "Space" && !introScene.hidden) {
+                    event.preventDefault();
+                    toggleRecordingEnabled();
+                    return;
+                }
+                if (event.code === "KeyH") {
+                    event.preventDefault();
+                    toggleAssistOverlay();
+                    return;
+                }
+                if (event.code === "KeyS") {
+                    event.preventDefault();
+                    togglePause();
+                    return;
+                }
+                if (event.code !== "ArrowRight" && event.code !== "ArrowLeft") return;
+                event.preventDefault();
+                if (event.code === "ArrowRight") {
+                    debugNextScene();
+                } else {
+                    debugPreviousScene();
+                }
+            });
+            window.setInterval(checkParticipantPresence, 5000);
+
+            syncLevelCopy();
+            setScore(0);
+        });
+    </script>
+</body>
+
+</html>
