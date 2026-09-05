@@ -864,9 +864,9 @@
         <section id="introScene" class="scene introScene">
             <div class="introContent">
                 <img class="introThumbnail" src="thumbnail.png" alt="サムネイル画像">
-                <h1 class="introTitle">ようこそ、表情クリニックへ</h1>
+                <h1 class="introTitle">ようこそ、表情フィットネス へ</h1>
                 <p class="introText">
-                    表情クリニックとは、適切な表情表現を身につけるための教育プログラムです。全7段階のトレーニングを通して、正しい表情の作り方を学び、コミュニケーション能力に優れた、模範的な人間を目指しましょう。</p>
+                    表情フィットネスとは、あなたの表情をより良くするためのトレーニングプログラムです。全7種類のトレーニングを通して、正しい表情の作り方を学び、コミュニケーション能力に優れた、模範的な人間を目指しましょう。</p>
                 <button id="startButton" class="startButton" type="button">さあ始めましょう →</button>
             </div>
         </section>
@@ -1033,17 +1033,17 @@
                 { level: 6, key: "disgusted" }
             ];
             const videoFiles = (...names) => {
-                const extensions = ["mp4", "webm", "mov", "m4v"];
+                const extensions = ["mp4", "webm", "mov"];
                 return names.flatMap((name) => extensions.map((extension) => `${name}.${extension}`));
             };
             const SAMPLE_VIDEO_CANDIDATES = {
-                happy: ["01_喜び_100.mov", ...videoFiles("happy", "喜び", "joy")],
-                surprised: ["05_驚き_100.mov", ...videoFiles("surprised", "驚き", "surprise")],
-                angry: ["03_怒り_99.mov", ...videoFiles("angry", "怒り", "anger")],
-                sad: ["02_悲しみ_100.mov", ...videoFiles("sad", "悲しみ")],
-                fearful: ["04_恐れ_85.mov", ...videoFiles("fearful", "恐れ", "fear")],
-                disgusted: ["06_嫌悪_99.mov", ...videoFiles("disgusted", "嫌悪", "disgust")],
-                neutral: ["00_無表情.mov", ...videoFiles("neutral", "無表情")]
+                happy: ["01_happy_100.mov", ...videoFiles("happy", "喜び", "joy")],
+                surprised: ["05_surprised_100.mov", ...videoFiles("surprised", "驚き", "surprise")],
+                angry: ["03_angry_99.mov", ...videoFiles("angry", "怒り", "anger")],
+                sad: ["02_sad_100.mov", ...videoFiles("sad", "悲しみ")],
+                fearful: ["04_fearful_85.mov", ...videoFiles("fearful", "恐れ", "fear")],
+                disgusted: ["06_disgusted_99.mov", ...videoFiles("disgusted", "嫌悪", "disgust")],
+                neutral: ["00_natural.mov", ...videoFiles("neutral", "無表情")]
             };
 
             const $ = (id) => document.getElementById(id);
