@@ -1,4 +1,3 @@
-        const MAX_IMAGES = 7;
         const DEFAULT_OPACITY = 0.1;
         const DEFAULT_RANDOM_OPACITY_MIN = 0.05;
         const DEFAULT_RANDOM_OPACITY_MAX = 0.3;
@@ -27,7 +26,6 @@
         ];
         const fileInput = document.getElementById("fileInput");
         const clearButton = document.getElementById("clearButton");
-        const status = document.getElementById("status");
         const stage = document.getElementById("stage");
         const stageImageArea = document.getElementById("stageImageArea");
         const embeddedOutputCanvas = document.getElementById("embeddedOutputCanvas");
@@ -47,7 +45,6 @@
         const hierarchyIntervalInput = document.getElementById("hierarchyIntervalInput");
         const layerList = document.getElementById("layerList");
         const layersContainer = document.getElementById("layers");
-        const addLayerSlot = document.querySelector(".addLayerSlot");
         const randomOpacityTotalControl = document.getElementById("randomOpacityTotalControl");
         const randomOpacityTotalInput = document.getElementById("randomOpacityTotalInput");
 
@@ -292,20 +289,13 @@
             const mediaFiles = Array.from(fileList).filter((file) => (
                 file.type.startsWith("image/") || file.type.startsWith("video/")
             ));
-            const slots = MAX_IMAGES - layers.length;
 
-            if (mediaFiles.length > slots) {
-                alert(`画像・動画は合計${MAX_IMAGES}点まで追加できます。`);
-            }
-
-            const selectedFiles = mediaFiles.slice(0, slots);
-
-            if (selectedFiles.length === 0) {
+            if (mediaFiles.length === 0) {
                 render();
                 return;
             }
 
-            const nextLayers = await Promise.all(selectedFiles.map(makeLayer));
+            const nextLayers = await Promise.all(mediaFiles.map(makeLayer));
             if (!alignmentReferenceId) {
                 alignmentReferenceId = nextLayers.find((layer) => layer.landmarks)?.id || null;
             }
@@ -1764,14 +1754,11 @@
             layers.forEach((layer) => layersContainer.appendChild(createLayerItem(layer)));
         }
 
-        function renderStatus() {
+        function renderControls() {
             const randomOpacityLayers = getRandomOpacityLayers();
             const randomOpacityRange = getRandomOpacityTotalRange(randomOpacityLayers);
             updateCropInputLimits();
-            status.textContent = `${layers.length} / ${MAX_IMAGES}`;
             clearButton.disabled = layers.length === 0;
-            fileInput.disabled = layers.length >= MAX_IMAGES;
-            addLayerSlot.hidden = layers.length >= MAX_IMAGES;
             syncToggleButton(monoToggleButton, monochromeEnabled);
             syncToggleButton(averageBlendToggleButton, averageBlendEnabled);
             syncToggleButton(alignToggleButton, alignmentEnabled);
@@ -1789,7 +1776,7 @@
             renderStage();
             renderLayerList();
             renderLayerOutputs();
-            renderStatus();
+            renderControls();
             ensureAutoRandomLoop();
         }
 
@@ -1825,7 +1812,7 @@
         hierarchyToggleButton.addEventListener("click", () => {
             hierarchyShuffleEnabled = !hierarchyShuffleEnabled;
             nextHierarchyShuffleTime = 0;
-            renderStatus();
+            renderControls();
             ensureAutoRandomLoop();
         });
 

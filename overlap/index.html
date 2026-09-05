@@ -66,13 +66,6 @@
             display: grid;
         }
 
-        .status {
-            color: var(--muted);
-            font-size: 0.82rem;
-            font-variant-numeric: tabular-nums;
-            white-space: nowrap;
-        }
-
         .fileButton,
         .textButton {
             min-width: 36px;
@@ -295,7 +288,7 @@
         .footerMain {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-end;
             gap: 12px;
         }
 
@@ -359,10 +352,6 @@
         .addLayerSlot {
             display: grid;
             place-items: center;
-        }
-
-        .addLayerSlot[hidden] {
-            display: none;
         }
 
         .layers {
@@ -605,13 +594,12 @@
                     <button class="cropShowButton" id="cropShowButton" type="button">表示</button>
                 </div>
                 <div class="footerMain">
-                    <span class="status" id="status">0 / 7</span>
                     <button class="textButton" id="clearButton" type="button" disabled>クリア</button>
                 </div>
             </div>
         </aside>
     </div>
-    <script type="module" src="app.js?v=20260906-2"></script>
+    <script type="module" src="app.js?v=20260906-3"></script>
 </body>
 
 </html>
