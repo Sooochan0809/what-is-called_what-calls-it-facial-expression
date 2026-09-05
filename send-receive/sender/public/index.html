@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Folder Sender</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      max-width: 680px;
+      margin: 60px auto;
+      padding: 0 24px;
+    }
+
+    input,
+    button {
+      font: inherit;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px;
+      margin: 8px 0 20px;
+    }
+
+    button {
+      padding: 10px 16px;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+
+    #folder,
+    #status {
+      margin-top: 18px;
+      word-break: break-all;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>フォルダ送信</h1>
+
+  <label for="receiver">受信先</label>
+  <input id="receiver" value="http://192.168.10.2:3000">
+
+  <button id="choose">フォルダを選ぶ</button>
+  <button id="send">送信</button>
+
+  <div id="folder">未選択</div>
+  <div id="status"></div>
+
+  <script>
+    const receiver = document.getElementById('receiver');
+    const folder = document.getElementById('folder');
+    const status = document.getElementById('status');
+
+    document.getElementById('choose').addEventListener('click', async () => {
+      status.textContent = '';
+      const res = await fetch('/choose-folder', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error;
+        return;
+      }
+      folder.textContent = `選択中: ${data.folder}`;
+    });
+
+    document.getElementById('send').addEventListener('click', async () => {
+      status.textContent = '送信中...';
+      const res = await fetch('/send-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiver: receiver.value })
+      });
+      const data = await res.json();
+      status.textContent = res.ok
+        ? `${data.folder} を送信しました（${data.count}ファイル）`
+        : `送信失敗: ${data.error}`;
+    });
+  </script>
+</body>
+
+</html>
