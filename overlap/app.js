@@ -71,7 +71,7 @@
         let cropPopup = null;
         let cropPopupCanvas = null;
         let cropPopupFrameId = null;
-        let cropPopupCanvasId = DISPLAY_CANVAS_ID || "canvas";
+        const cropPopupCanvasId = DISPLAY_CANVAS_ID || "canvas";
         const outputFpsStats = {
             sampleStartedAt: performance.now(),
             frameCount: 0,
@@ -1249,31 +1249,11 @@
 </html>`;
         }
 
-        function requestCropPopupIdentifiers() {
-            let normalizedCanvasId = DISPLAY_CANVAS_ID;
-            while (!normalizedCanvasId) {
-                const canvasId = window.prompt(
-                    "ポップアップ内のCanvas IDを入力してください。",
-                    cropPopupCanvasId
-                );
-                if (canvasId === null) return null;
-
-                normalizedCanvasId = canvasId.trim();
-                if (!normalizedCanvasId) {
-                    alert("Canvas IDを入力してください。");
-                }
-            }
-
-            cropPopupCanvasId = normalizedCanvasId;
-            return {
+        function showCropPopup(rect = activeCropRect || getDefaultCropRect()) {
+            const identifiers = {
                 windowName: CROP_POPUP_WINDOW_NAME,
                 canvasId: cropPopupCanvasId
             };
-        }
-
-        function showCropPopup(rect = activeCropRect || getDefaultCropRect()) {
-            const identifiers = requestCropPopupIdentifiers();
-            if (!identifiers) return;
 
             setActiveCropRect(rect, { showSelection: true });
             if (IS_EMBEDDED) {
