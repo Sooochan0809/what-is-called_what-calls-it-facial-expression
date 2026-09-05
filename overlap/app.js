@@ -1,22 +1,11 @@
-import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
-
         const MAX_IMAGES = 7;
         const DEFAULT_OPACITY = 0.1;
         const DEFAULT_RANDOM_OPACITY_MIN = 0.05;
         const DEFAULT_RANDOM_OPACITY_MAX = 0.3;
-        const MODE_OVERLAY = "overlay";
-        const MODE_MORPH = "morph";
-        const RANDOM_OFF = "off";
-        const RANDOM_OPACITY = "opacity";
-        const RANDOM_MORPH = "morph";
         const DEFAULT_HIERARCHY_SHUFFLE_INTERVAL = 5000;
         const HIERARCHY_CROSSFADE_DURATION = 10000;
         const AUTO_RANDOM_FPS = 60;
         const DEFAULT_OUTPUT_FPS = 60;
-        const MORPH_WIDTH = 600;
-        const MORPH_HEIGHT = 800;
-        const MORPH_RATIO = MORPH_WIDTH / MORPH_HEIGHT;
-        const TRIANGLE_OVERDRAW_PX = 0.75;
         const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
         const FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
         const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
@@ -41,7 +30,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
         const status = document.getElementById("status");
         const stage = document.getElementById("stage");
         const stageImageArea = document.getElementById("stageImageArea");
-        const morphCanvas = document.getElementById("morphCanvas");
         const embeddedOutputCanvas = document.getElementById("embeddedOutputCanvas");
         const cropSelection = document.getElementById("cropSelection");
         const cropToggleButton = document.getElementById("cropToggleButton");
@@ -60,8 +48,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
         const layerList = document.getElementById("layerList");
         const layersContainer = document.getElementById("layers");
         const addLayerSlot = document.querySelector(".addLayerSlot");
-        const overlayModeButton = document.getElementById("overlayModeButton");
-        const morphModeButton = document.getElementById("morphModeButton");
         const randomOpacityTotalControl = document.getElementById("randomOpacityTotalControl");
         const randomOpacityTotalInput = document.getElementById("randomOpacityTotalInput");
 
@@ -73,7 +59,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
         let alignmentReferenceId = null;
         let monochromeEnabled = true;
         let averageBlendEnabled = false;
-        let mode = MODE_OVERLAY;
         let runtimeActive = true;
         let autoRandomFrameId = null;
         let lastAutoRandomTime = 0;
@@ -191,21 +176,19 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             return canvas;
         }
 
-        async function makeFaceData(media, includeMorph = true) {
+        async function makeFaceData(media, isVideo) {
             try {
                 const faceLandmarker = await getFaceLandmarker();
-                const source = includeMorph ? media : createVideoFrameCanvas(media);
+                const source = isVideo ? createVideoFrameCanvas(media) : media;
                 const { width, height } = getMediaSize(source);
 
                 return {
-                    landmarks: detectFaceLandmarksFromSource(faceLandmarker, source, width, height),
-                    morph: includeMorph ? makeMorphData(faceLandmarker, media) : null
+                    landmarks: detectFaceLandmarksFromSource(faceLandmarker, source, width, height)
                 };
             } catch (error) {
                 console.warn("Face data preparation failed.", error);
                 return {
-                    landmarks: null,
-                    morph: null
+                    landmarks: null
                 };
             }
         }
@@ -219,56 +202,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
                 x: point.x * width,
                 y: point.y * height
             }));
-        }
-
-        function getCenteredCropRect(srcWidth, srcHeight, targetRatio) {
-            const srcRatio = srcWidth / srcHeight;
-
-            if (srcRatio > targetRatio) {
-                const cropHeight = srcHeight;
-                const cropWidth = cropHeight * targetRatio;
-                return {
-                    sx: (srcWidth - cropWidth) / 2,
-                    sy: 0,
-                    sw: cropWidth,
-                    sh: cropHeight
-                };
-            }
-
-            const cropWidth = srcWidth;
-            const cropHeight = cropWidth / targetRatio;
-            return {
-                sx: 0,
-                sy: (srcHeight - cropHeight) / 2,
-                sw: cropWidth,
-                sh: cropHeight
-            };
-        }
-
-        function createMorphSourceCanvas(image) {
-            const canvas = document.createElement("canvas");
-            const ctx = prepareCanvas(canvas, MORPH_WIDTH, MORPH_HEIGHT);
-
-            const { sx, sy, sw, sh } = getCenteredCropRect(image.naturalWidth, image.naturalHeight, MORPH_RATIO);
-            ctx.drawImage(image, sx, sy, sw, sh, 0, 0, MORPH_WIDTH, MORPH_HEIGHT);
-            return canvas;
-        }
-
-        function makeMorphData(faceLandmarker, image) {
-            const canvas = createMorphSourceCanvas(image);
-            const landmarks = detectFaceLandmarksFromSource(faceLandmarker, canvas, MORPH_WIDTH, MORPH_HEIGHT);
-            if (!landmarks) return null;
-
-            const points = landmarks.map((point) => [point.x, point.y]);
-            points.push([0, 0]);
-            points.push([MORPH_WIDTH - 1, 0]);
-            points.push([MORPH_WIDTH - 1, MORPH_HEIGHT - 1]);
-            points.push([0, MORPH_HEIGHT - 1]);
-
-            return {
-                canvas,
-                points
-            };
         }
 
         async function makeLayer(file) {
@@ -285,7 +218,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             }
 
             const size = getMediaSize(media);
-            const { landmarks, morph } = await makeFaceData(media, !isVideo);
+            const { landmarks } = await makeFaceData(media, isVideo);
             if (isVideo) media.play().catch(() => {});
 
             return {
@@ -299,16 +232,12 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
                 width: size.width,
                 height: size.height,
                 landmarks,
-                morph,
-                morphWeight: 100,
                 opacity: DEFAULT_OPACITY,
                 autoRandom: false,
-                autoRandomType: RANDOM_OPACITY,
                 randomOpacityMin: DEFAULT_RANDOM_OPACITY_MIN,
                 randomOpacityMax: DEFAULT_RANDOM_OPACITY_MAX,
                 randomTargets: {
-                    opacity: DEFAULT_OPACITY,
-                    morphWeight: 100
+                    opacity: DEFAULT_OPACITY
                 }
             };
         }
@@ -399,17 +328,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             renderLayerOutputs();
         }
 
-        function setMorphWeight(id, value) {
-            layers = layers.map((layer) => {
-                if (layer.id !== id) return layer;
-                return { ...layer, morphWeight: Number(value) };
-            });
-            renderStage();
-            renderLayerOutputs();
-        }
-
         function getRandomOpacityLayers() {
-            if (mode !== MODE_OVERLAY) return [];
             return layers.filter((layer) => layer.autoRandom);
         }
 
@@ -495,14 +414,10 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             render();
         }
 
-        function setAutoRandom(id, selection) {
+        function setAutoRandom(id, enabled) {
             layers = layers.map((layer) => {
                 if (layer.id !== id) return layer;
-                const enabled = selection !== RANDOM_OFF;
-                const autoRandomType = mode === MODE_OVERLAY && enabled
-                    ? selection
-                    : layer.autoRandomType;
-                const opacity = mode === MODE_OVERLAY && enabled
+                const opacity = enabled
                     ? clamp(
                         layer.opacity,
                         layer.randomOpacityMin,
@@ -513,10 +428,8 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
                     ...layer,
                     opacity,
                     autoRandom: enabled,
-                    autoRandomType,
                     randomTargets: {
-                        opacity,
-                        morphWeight: layer.morphWeight
+                        opacity
                     }
                 };
             });
@@ -587,7 +500,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             const next = [...layers];
             const [draggedLayer] = next.splice(draggedIndex, 1);
             next.splice(targetIndex, 0, draggedLayer);
-            const hierarchySnapshot = mode === MODE_OVERLAY ? createHierarchySnapshot() : null;
+            const hierarchySnapshot = createHierarchySnapshot();
             layers = next;
             applyLayerOpacitySettings();
             render();
@@ -774,35 +687,8 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             return media;
         }
 
-        function getMorphLayers() {
-            return layers.filter((layer) => layer.morph);
-        }
-
-        function getNormalizedMorphWeights(morphLayers = getMorphLayers()) {
-            const total = morphLayers.reduce((sum, layer) => sum + Math.max(0, layer.morphWeight), 0);
-            if (total === 0) return new Map(morphLayers.map((layer) => [layer.id, 0]));
-
-            return new Map(morphLayers.map((layer) => [
-                layer.id,
-                Math.max(0, layer.morphWeight) / total
-            ]));
-        }
-
         function getAutoRandomConfig(layer) {
-            if (mode === MODE_MORPH) {
-                if (!layer.morph) return null;
-                return {
-                    type: RANDOM_MORPH,
-                    valueKey: "morphWeight",
-                    targetKey: "morphWeight",
-                    min: 0,
-                    max: 100,
-                    threshold: 1
-                };
-            }
-
             return {
-                type: RANDOM_OPACITY,
                 valueKey: "opacity",
                 targetKey: "opacity",
                 min: layer.randomOpacityMin,
@@ -943,7 +829,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
         function hasActiveAutoRandomLayer() {
             return runtimeActive && (
                 layers.some((layer) => layer.autoRandom && getAutoRandomConfig(layer))
-                || (mode === MODE_OVERLAY && hierarchyShuffleEnabled && layers.length > 1)
+                || (hierarchyShuffleEnabled && layers.length > 1)
             );
         }
 
@@ -1020,7 +906,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
 
             let hierarchyChanged = false;
             let hierarchySnapshot = null;
-            if (mode === MODE_OVERLAY && hierarchyShuffleEnabled && layers.length > 1) {
+            if (hierarchyShuffleEnabled && layers.length > 1) {
                 if (!nextHierarchyShuffleTime) {
                     nextHierarchyShuffleTime = timestamp + hierarchyShuffleInterval;
                 } else if (timestamp >= nextHierarchyShuffleTime) {
@@ -1054,76 +940,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             autoRandomFrameId = requestAnimationFrame(tickAutoRandom);
         }
 
-        function getExpandedTriangle(tri, expandPx = TRIANGLE_OVERDRAW_PX) {
-            const centroidX = (tri[0][0] + tri[1][0] + tri[2][0]) / 3;
-            const centroidY = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
-
-            return tri.map(([x, y]) => {
-                const dx = x - centroidX;
-                const dy = y - centroidY;
-                const length = Math.hypot(dx, dy);
-                if (length < 1e-6) return [x, y];
-
-                const scale = (length + expandPx) / length;
-                return [
-                    centroidX + dx * scale,
-                    centroidY + dy * scale
-                ];
-            });
-        }
-
-        function clipTriangle(ctx, tri) {
-            const expandedTri = getExpandedTriangle(tri);
-            ctx.beginPath();
-            ctx.moveTo(expandedTri[0][0], expandedTri[0][1]);
-            ctx.lineTo(expandedTri[1][0], expandedTri[1][1]);
-            ctx.lineTo(expandedTri[2][0], expandedTri[2][1]);
-            ctx.closePath();
-            ctx.clip();
-        }
-
-        function drawTriangleImage(ctx, image, srcTri, dstTri) {
-            const [sx0, sy0] = srcTri[0];
-            const [sx1, sy1] = srcTri[1];
-            const [sx2, sy2] = srcTri[2];
-            const [dx0, dy0] = dstTri[0];
-            const [dx1, dy1] = dstTri[1];
-            const [dx2, dy2] = dstTri[2];
-            const denom = sx0 * (sy1 - sy2) + sx1 * (sy2 - sy0) + sx2 * (sy0 - sy1);
-            if (Math.abs(denom) < 1e-6) return;
-
-            const a = (dx0 * (sy1 - sy2) + dx1 * (sy2 - sy0) + dx2 * (sy0 - sy1)) / denom;
-            const b = (dy0 * (sy1 - sy2) + dy1 * (sy2 - sy0) + dy2 * (sy0 - sy1)) / denom;
-            const c = (dx0 * (sx2 - sx1) + dx1 * (sx0 - sx2) + dx2 * (sx1 - sx0)) / denom;
-            const d = (dy0 * (sx2 - sx1) + dy1 * (sx0 - sx2) + dy2 * (sx1 - sx0)) / denom;
-            const e = (dx0 * (sx1 * sy2 - sx2 * sy1) + dx1 * (sx2 * sy0 - sx0 * sy2) + dx2 * (sx0 * sy1 - sx1 * sy0)) / denom;
-            const f = (dy0 * (sx1 * sy2 - sx2 * sy1) + dy1 * (sx2 * sy0 - sx0 * sy2) + dy2 * (sx0 * sy1 - sx1 * sy0)) / denom;
-
-            ctx.save();
-            clipTriangle(ctx, dstTri);
-            ctx.setTransform(a, b, c, d, e, f);
-            ctx.drawImage(image, 0, 0);
-            ctx.restore();
-        }
-
-        function blendPoints(weightedLayers) {
-            const pointCount = weightedLayers[0].layer.morph.points.length;
-            const points = [];
-
-            for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
-                const point = weightedLayers.reduce((sum, item) => {
-                    const sourcePoint = item.layer.morph.points[pointIndex];
-                    return [
-                        sum[0] + sourcePoint[0] * item.weight,
-                        sum[1] + sourcePoint[1] * item.weight
-                    ];
-                }, [0, 0]);
-                points.push(point);
-            }
-
-            return points;
-        }
-
         function prepareCanvas(targetCanvas, width, height) {
             targetCanvas.width = width;
             targetCanvas.height = height;
@@ -1141,11 +957,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
         function syncToggleButton(button, enabled) {
             button.classList.toggle("is-off", !enabled);
             button.setAttribute("aria-pressed", String(enabled));
-        }
-
-        function syncModeTab(button, selected) {
-            button.classList.toggle("is-active", selected);
-            button.setAttribute("aria-selected", String(selected));
         }
 
         function getStagePoint(event) {
@@ -1305,18 +1116,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             };
         }
 
-        function getObjectFitContainRect(containerWidth, containerHeight, contentWidth, contentHeight) {
-            const scale = Math.min(containerWidth / contentWidth, containerHeight / contentHeight);
-            const width = contentWidth * scale;
-            const height = contentHeight * scale;
-            return {
-                left: (containerWidth - width) / 2,
-                top: (containerHeight - height) / 2,
-                width,
-                height
-            };
-        }
-
         function drawStageCrop(targetCanvas, rect) {
             const width = Math.max(1, Math.round(rect.width));
             const height = Math.max(1, Math.round(rect.height));
@@ -1331,21 +1130,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             ctx.clearRect(0, 0, width, height);
             ctx.fillStyle = "#fff";
             ctx.fillRect(0, 0, width, height);
-
-            if (mode === MODE_MORPH) {
-                const stageSize = getRoundedStageSize();
-                const fit = getObjectFitContainRect(stageSize.width, stageSize.height, MORPH_WIDTH, MORPH_HEIGHT);
-                ctx.filter = monochromeEnabled ? "grayscale(1)" : "none";
-                ctx.drawImage(
-                    morphCanvas,
-                    fit.left - rect.left,
-                    fit.top - rect.top,
-                    fit.width,
-                    fit.height
-                );
-                ctx.filter = "none";
-                return { width, height };
-            }
 
             const transforms = getAlignedTransforms();
             drawOverlayLayers(ctx, transforms, { x: rect.left, y: rect.top });
@@ -1726,69 +1510,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             hideCropSelection();
         }
 
-        function renderWarpedImage(targetCanvas, image, sourcePoints, destinationPoints, triangles) {
-            const ctx = prepareCanvas(targetCanvas, MORPH_WIDTH, MORPH_HEIGHT);
-
-            for (let i = 0; i < triangles.length; i += 3) {
-                const i0 = triangles[i];
-                const i1 = triangles[i + 1];
-                const i2 = triangles[i + 2];
-                drawTriangleImage(
-                    ctx,
-                    image,
-                    [sourcePoints[i0], sourcePoints[i1], sourcePoints[i2]],
-                    [destinationPoints[i0], destinationPoints[i1], destinationPoints[i2]]
-                );
-            }
-        }
-
-        function renderMorphStage() {
-            const morphLayers = getMorphLayers();
-            const normalizedWeights = getNormalizedMorphWeights(morphLayers);
-            const activeMorphLayers = morphLayers
-                .map((layer) => ({
-                    layer,
-                    weight: normalizedWeights.get(layer.id) || 0
-                }))
-                .filter((item) => item.weight > 0);
-            const ctx = prepareCanvas(morphCanvas, MORPH_WIDTH, MORPH_HEIGHT);
-
-            if (morphLayers.length === 0 || activeMorphLayers.length === 0) {
-                return;
-            }
-
-            if (activeMorphLayers.length === 1) {
-                ctx.drawImage(activeMorphLayers[0].layer.morph.canvas, 0, 0);
-                return;
-            }
-
-            const blendedPoints = blendPoints(activeMorphLayers);
-            const triangles = Delaunator.from(blendedPoints).triangles;
-            let cumulativeWeight = 0;
-
-            activeMorphLayers.forEach((item) => {
-                const warpCanvas = document.createElement("canvas");
-                renderWarpedImage(warpCanvas, item.layer.morph.canvas, item.layer.morph.points, blendedPoints, triangles);
-                cumulativeWeight += item.weight;
-                ctx.globalAlpha = item.weight / cumulativeWeight;
-                ctx.drawImage(warpCanvas, 0, 0);
-            });
-
-            ctx.globalAlpha = 1;
-        }
-
         function renderStage() {
-            if (mode === MODE_MORPH) {
-                stage.querySelectorAll(".stageLayer").forEach((media) => media.remove());
-                stageImageArea.hidden = true;
-                morphCanvas.hidden = false;
-                morphCanvas.classList.toggle("is-monochrome", monochromeEnabled);
-                renderMorphStage();
-                return;
-            }
-
-            morphCanvas.hidden = true;
-            morphCanvas.classList.toggle("is-monochrome", monochromeEnabled);
             const transforms = getAlignedTransforms();
             updateStageImageArea(transforms);
             const activeLayerIds = new Set(layers.map((layer) => layer.id));
@@ -1805,7 +1527,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
         }
 
         function renderLayerOutputs() {
-            const normalizedMorphWeights = getNormalizedMorphWeights();
             layers.forEach((layer, layerIndex) => {
                 const displayOpacity = getOverlayOpacity(layer, layers.length - 1 - layerIndex);
                 const output = document.querySelector(`[data-opacity-output="${layer.id}"]`);
@@ -1818,14 +1539,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
                     opacityInput.value = String(Math.round(displayOpacity * 100));
                     opacityInput.disabled = averageBlendEnabled;
                 }
-
-                const morphOutput = document.querySelector(`[data-morph-output="${layer.id}"]`);
-                if (morphOutput) {
-                    morphOutput.value = `${Math.round((normalizedMorphWeights.get(layer.id) || 0) * 100)}%`;
-                    morphOutput.textContent = morphOutput.value;
-                }
-                const morphInput = document.querySelector(`[data-morph-input="${layer.id}"]`);
-                if (morphInput) morphInput.value = String(Math.round(layer.morphWeight));
             });
         }
 
@@ -1968,18 +1681,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             });
         }
 
-        function createMorphWeightControl(layer, item) {
-            return createRangeControl(layer, item, {
-                label: "モーフィング割合",
-                value: Math.round(layer.morphWeight),
-                disabled: !layer.morph,
-                inputDatasetKey: "morphInput",
-                outputDatasetKey: "morphOutput",
-                outputValue: "0%",
-                onInput: setMorphWeight
-            });
-        }
-
         function createAutoRandomControl(layer, item) {
             const group = document.createElement("div");
             group.className = "autoControlGroup";
@@ -1996,17 +1697,12 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             checkbox.draggable = false;
             checkbox.setAttribute("aria-label", `${layer.name}のランダム変化`);
             checkbox.addEventListener("dragstart", (event) => event.stopPropagation());
-            checkbox.addEventListener("change", (event) => setAutoRandom(
-                layer.id,
-                event.target.checked
-                    ? (mode === MODE_MORPH ? RANDOM_MORPH : RANDOM_OPACITY)
-                    : RANDOM_OFF
-            ));
+            checkbox.addEventListener("change", (event) => setAutoRandom(layer.id, event.target.checked));
 
             control.append(labelText, checkbox);
             group.appendChild(control);
 
-            if (mode === MODE_OVERLAY && layer.autoRandom) {
+            if (layer.autoRandom) {
                 const bounds = document.createElement("div");
                 bounds.className = "randomOpacityBounds";
 
@@ -2056,11 +1752,7 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             body.className = "layerBody";
 
             body.append(createLayerTitle(layer));
-            if (mode === MODE_OVERLAY) {
-                body.append(createOpacityControl(layer, item));
-            } else {
-                body.append(createMorphWeightControl(layer, item));
-            }
+            body.append(createOpacityControl(layer, item));
             body.append(createAutoRandomControl(layer, item));
             item.append(createRemoveButton(layer), createThumbnail(layer), body);
             return item;
@@ -2081,20 +1773,16 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             fileInput.disabled = layers.length >= MAX_IMAGES;
             addLayerSlot.hidden = layers.length >= MAX_IMAGES;
             syncToggleButton(monoToggleButton, monochromeEnabled);
-            averageBlendToggleButton.hidden = mode !== MODE_OVERLAY;
             syncToggleButton(averageBlendToggleButton, averageBlendEnabled);
-            alignToggleButton.hidden = mode !== MODE_OVERLAY;
             syncToggleButton(alignToggleButton, alignmentEnabled);
-            hierarchyToggleButton.hidden = mode !== MODE_OVERLAY;
             syncToggleButton(hierarchyToggleButton, hierarchyShuffleEnabled);
-            hierarchyIntervalControl.hidden = mode !== MODE_OVERLAY || !hierarchyShuffleEnabled;
-            randomOpacityTotalControl.hidden = mode !== MODE_OVERLAY || randomOpacityLayers.length === 0;
+            hierarchyIntervalControl.hidden = !hierarchyShuffleEnabled;
+            const hasRandomOpacityLayers = randomOpacityLayers.length > 0;
+            randomOpacityTotalControl.hidden = !hasRandomOpacityLayers;
             randomOpacityTotalInput.min = String(Math.round(randomOpacityRange.min * 1000) / 10);
             randomOpacityTotalInput.value = randomOpacityTotal === null
                 ? ""
                 : String(Math.round(randomOpacityTotal * 1000) / 10);
-            syncModeTab(overlayModeButton, mode === MODE_OVERLAY);
-            syncModeTab(morphModeButton, mode === MODE_MORPH);
         }
 
         function render() {
@@ -2103,13 +1791,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
             renderLayerOutputs();
             renderStatus();
             ensureAutoRandomLoop();
-        }
-
-        function setMode(nextMode) {
-            if (mode === nextMode) return;
-            mode = nextMode;
-            nextHierarchyShuffleTime = 0;
-            render();
         }
 
         fileInput.addEventListener("change", async (event) => {
@@ -2172,9 +1853,6 @@ import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
         stage.addEventListener("pointermove", handleCropPointerMove);
         stage.addEventListener("pointerup", handleCropPointerUp);
         stage.addEventListener("pointercancel", handleCropPointerCancel);
-
-        overlayModeButton.addEventListener("click", () => setMode(MODE_OVERLAY));
-        morphModeButton.addEventListener("click", () => setMode(MODE_MORPH));
 
         [cropXInput, cropYInput, cropWidthInput, cropHeightInput].forEach((input) => {
             input.addEventListener("input", () => {
