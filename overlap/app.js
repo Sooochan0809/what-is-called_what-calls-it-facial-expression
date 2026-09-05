@@ -8,7 +8,7 @@
         const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
         const FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
         const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
-        const REMOVE_ICON_SRC = "icon-clause.png";
+        const REMOVE_ICON_SRC = "./img/icon-clause.png";
         const DISPLAY_PARAMS = new URLSearchParams(window.location.search);
         const DISPLAY_SOURCE_ID = DISPLAY_PARAMS.get("sourceId");
         const DISPLAY_CANVAS_ID = DISPLAY_PARAMS.get("canvasId")?.trim() || null;
