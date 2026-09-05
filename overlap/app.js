@@ -1181,8 +1181,26 @@
             };
         }
 
+        function getSourceState() {
+            return {
+                layerCount: layers.length,
+                hasMedia: layers.length > 0
+            };
+        }
+
+        function clearLayers() {
+            layers.forEach(disposeLayer);
+            layers = [];
+            layerOpacitySettings = [];
+            alignmentReferenceId = null;
+            randomOpacityTotal = null;
+            render();
+        }
+
         function exposeOutputApi(targetWindow) {
             targetWindow.getOverlapOutputStats = getOutputStats;
+            targetWindow.getOverlapSourceState = getSourceState;
+            targetWindow.clearOverlapSource = clearLayers;
             targetWindow.setOverlapRuntimeActive = setRuntimeActive;
         }
 
@@ -1765,14 +1783,7 @@
             fileInput.value = "";
         });
 
-        clearButton.addEventListener("click", () => {
-            layers.forEach(disposeLayer);
-            layers = [];
-            layerOpacitySettings = [];
-            alignmentReferenceId = null;
-            randomOpacityTotal = null;
-            render();
-        });
+        clearButton.addEventListener("click", clearLayers);
 
         monoToggleButton.addEventListener("click", () => {
             monochromeEnabled = !monochromeEnabled;

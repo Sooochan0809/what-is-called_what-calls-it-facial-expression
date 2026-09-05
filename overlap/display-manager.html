@@ -14,6 +14,7 @@
             --line: #333;
             --text: #eee;
             --muted: #999;
+            --standby: #e1ad4f;
         }
 
         * {
@@ -168,13 +169,20 @@
         }
 
         .source-editor-tab.is-standby {
-            margin-left: 16px;
-            border-style: dashed;
+            border-color: var(--standby);
+            background: #2a2316;
+            color: #ffd786;
         }
 
         .source-editor-tab.is-active {
             border-color: #ddd;
             background: #ddd;
+            color: #111;
+        }
+
+        .source-editor-tab.is-standby.is-active {
+            border-color: var(--standby);
+            background: var(--standby);
             color: #111;
         }
 
@@ -261,11 +269,6 @@
                 grid-template-columns: repeat(3, minmax(0, 1fr));
             }
 
-            .source-editor-tab.is-standby {
-                grid-column: 1;
-                margin-left: 0;
-            }
-
             .fps-monitor {
                 grid-template-columns: 1fr;
             }
@@ -294,8 +297,8 @@
 
             <div class="settings">
                 <label>
-                    切り替え間隔（秒）
-                    <input id="intervalSeconds" type="number" min="2" value="5">
+                    待機時間（秒）
+                    <input id="intervalSeconds" type="number" min="0" step="1" value="15">
                 </label>
 
                 <label>
@@ -347,21 +350,20 @@
             const SOURCE_EDITOR_VERSION = "20260906-1";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
-            const viewerIndexes = Array.from({ length: VIEWER_COUNT }, (_, index) => index);
+            const STANDBY_POLL_INTERVAL = 250;
+            const INITIAL_SOURCE_IDS = ["source-1", "source-2", "source-3"];
 
             const sources = [
-                { id: "source-1", name: "source1", canvasId: DEFAULT_CANVAS_ID, isStandby: false },
-                { id: "source-2", name: "source2", canvasId: DEFAULT_CANVAS_ID, isStandby: false },
-                { id: "source-3", name: "source3", canvasId: DEFAULT_CANVAS_ID, isStandby: false },
-                { id: "source-4", name: "standby", canvasId: DEFAULT_CANVAS_ID, isStandby: true }
+                { id: "source-1", name: "source1", canvasId: DEFAULT_CANVAS_ID },
+                { id: "source-2", name: "source2", canvasId: DEFAULT_CANVAS_ID },
+                { id: "source-3", name: "source3", canvasId: DEFAULT_CANVAS_ID },
+                { id: "source-4", name: "source4", canvasId: DEFAULT_CANVAS_ID }
             ];
             const sourceById = new Map(sources.map(source => [source.id, source]));
 
             const registry = new Map();
             const viewers = Array(VIEWER_COUNT).fill(null);
             const assignments = Array(VIEWER_COUNT).fill(null);
-            const lastChangedAt = Array(VIEWER_COUNT).fill(0);
-            const usageCount = Object.fromEntries(sources.map(source => [source.id, 0]));
             const screenSelections = Array(VIEWER_COUNT).fill("");
             const sourceEditorFrames = new Map();
 
@@ -370,6 +372,8 @@
             let timer = null;
             let detectedScreens = [];
             let selectedEditorSourceId = sources[0].id;
+            let standbySourceId = "source-4";
+            let pendingStandbySourceId = null;
 
             const elements = {
                 sourceList: document.querySelector("#sourceList"),
@@ -512,6 +516,13 @@
                 });
             }
 
+            function updateStandbyPresentation() {
+                document.querySelectorAll("[data-editor-source-id]").forEach((button) => {
+                    button.classList.toggle("is-standby", button.dataset.editorSourceId === standbySourceId);
+                });
+                renderSources();
+            }
+
             function createSourceEditors() {
                 const tabs = document.querySelector("#sourceEditorTabs");
                 const viewport = document.querySelector("#sourceEditorViewport");
@@ -519,7 +530,7 @@
                 sources.forEach((source, index) => {
                     const button = document.createElement("button");
                     button.type = "button";
-                    button.className = `source-editor-tab${source.isStandby ? " is-standby" : ""}`;
+                    button.className = `source-editor-tab${source.id === standbySourceId ? " is-standby" : ""}`;
                     button.dataset.editorSourceId = source.id;
                     button.textContent = source.name;
                     button.addEventListener("click", () => selectSourceEditor(source.id));
@@ -554,17 +565,6 @@
                 return new Promise(resolve => setTimeout(resolve, ms));
             }
 
-            function shuffle(items) {
-                const copy = [...items];
-
-                for (let i = copy.length - 1; i > 0; i -= 1) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [copy[i], copy[j]] = [copy[j], copy[i]];
-                }
-
-                return copy;
-            }
-
             function numberInRange(input, fallback, min, max = Infinity) {
                 const value = Number(input.value);
                 return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
@@ -572,7 +572,7 @@
 
             function getSettings() {
                 return {
-                    intervalMs: numberInRange(elements.intervalSeconds, 20, 2) * 1000,
+                    intervalMs: numberInRange(elements.intervalSeconds, 5, 0) * 1000,
                     fadeMs: numberInRange(elements.fadeSeconds, 3, 0.1) * 1000,
                     fps: numberInRange(elements.streamFps, 60, 1, 60)
                 };
@@ -582,6 +582,30 @@
                 const registeredWindow = registry.get(sourceId)?.popupWindow;
                 if (registeredWindow && !registeredWindow.closed) return registeredWindow;
                 return sourceEditorFrames.get(sourceId)?.contentWindow || null;
+            }
+
+            function getSourceState(sourceId) {
+                try {
+                    return getSourceWindow(sourceId)?.getOverlapSourceState?.() || null;
+                } catch {
+                    return null;
+                }
+            }
+
+            function sourceHasMedia(sourceId) {
+                return Boolean(getSourceState(sourceId)?.hasMedia);
+            }
+
+            function clearSource(sourceId) {
+                try {
+                    const sourceWindow = getSourceWindow(sourceId);
+                    if (typeof sourceWindow?.clearOverlapSource !== "function") {
+                        throw new Error(`${sourceId}をクリアできません`);
+                    }
+                    sourceWindow.clearOverlapSource();
+                } catch (error) {
+                    throw new Error(`${sourceId}のクリアに失敗しました: ${error.message}`);
+                }
             }
 
             function canvasOf(sourceId) {
@@ -648,11 +672,14 @@
                     const status = document.createElement("span");
                     const openButton = document.createElement("button");
 
-                    row.className = `source-row${source.isStandby ? " is-standby" : ""}`;
+                    const isStandby = source.id === standbySourceId;
+                    row.className = `source-row${isStandby ? " is-standby" : ""}`;
                     id.textContent = source.id;
                     status.dataset.sourceStatus = source.id;
                     status.className = `status${ready ? " ready" : ""}`;
-                    status.textContent = ready ? "接続済み" : "未登録";
+                    status.textContent = ready
+                        ? isStandby ? "待機中" : "接続済み"
+                        : "未登録";
                     openButton.type = "button";
                     openButton.textContent = "編集";
                     openButton.dataset.sourceId = source.id;
@@ -706,7 +733,9 @@
                     if (!element) continue;
 
                     const ready = Boolean(canvasOf(source.id));
-                    element.textContent = ready ? "接続済み" : "未登録";
+                    element.textContent = ready
+                        ? source.id === standbySourceId ? "待機中" : "接続済み"
+                        : "未登録";
                     element.classList.toggle("ready", ready);
                 }
             }
@@ -1028,32 +1057,12 @@
             }
 
             function initialAssignments() {
-                return shuffle(availableSources().filter(source => !source.isStandby))
-                    .sort((a, b) => usageCount[a.id] - usageCount[b.id])
-                    .slice(0, VIEWER_COUNT)
-                    .map(source => source.id);
-            }
-
-            function nextChanges() {
-                const activeIds = new Set(assignments.filter(Boolean));
-                const inactive = sources
-                    .filter(source => !activeIds.has(source.id))
-                    .filter(source => canvasOf(source.id));
-
-                if (inactive.length < 1) throw new Error("非表示中のCanvasが1件必要です");
-
-                const changingViewerIndexes = shuffle(viewerIndexes)
-                    .sort((a, b) => lastChangedAt[a] - lastChangedAt[b])
-                    .slice(0, 1);
-
-                const incoming = shuffle(inactive)
-                    .sort((a, b) => usageCount[a.id] - usageCount[b.id])
-                    .slice(0, 1);
-
-                return changingViewerIndexes.map((viewerIndex, index) => ({
-                    viewerIndex,
-                    sourceId: incoming[index].id
-                }));
+                const availableIds = new Set(availableSources().map(source => source.id));
+                const missingIds = INITIAL_SOURCE_IDS.filter(sourceId => !availableIds.has(sourceId));
+                if (missingIds.length > 0) {
+                    throw new Error(`${missingIds.join(", ")}が未接続です`);
+                }
+                return [...INITIAL_SOURCE_IDS];
             }
 
             async function applyChanges(changes) {
@@ -1096,8 +1105,6 @@
 
                     prepared.forEach(change => {
                         assignments[change.viewerIndex] = change.sourceId;
-                        usageCount[change.sourceId] += 1;
-                        lastChangedAt[change.viewerIndex] = Date.now();
                     });
 
                     updateSourceActivity();
@@ -1110,29 +1117,73 @@
 
             async function initialize() {
                 assertReady();
+                standbySourceId = "source-4";
+                pendingStandbySourceId = null;
 
                 await applyChanges(
                     initialAssignments().map((sourceId, viewerIndex) => ({ viewerIndex, sourceId }))
                 );
+                updateStandbyPresentation();
             }
 
-            async function next() {
+            async function advanceStandby() {
+                if (switching) return;
                 assertReady();
 
                 if (assignments.some(sourceId => !sourceId)) {
                     await initialize();
-                } else {
-                    await applyChanges(nextChanges());
+                    return;
                 }
+
+                const incomingSourceId = standbySourceId;
+                if (!sourceHasMedia(incomingSourceId)) {
+                    throw new Error("standbyに画像がありません");
+                }
+
+                const previousAssignments = [...assignments];
+                const displacedSourceId = previousAssignments[VIEWER_COUNT - 1];
+                const nextAssignments = [
+                    incomingSourceId,
+                    ...previousAssignments.slice(0, VIEWER_COUNT - 1)
+                ];
+
+                await applyChanges(nextAssignments.map((sourceId, viewerIndex) => ({
+                    viewerIndex,
+                    sourceId
+                })));
+
+                clearSource(displacedSourceId);
+                standbySourceId = displacedSourceId;
+                pendingStandbySourceId = null;
+                updateStandbyPresentation();
+                log(`${displacedSourceId}をクリアして次のstandbyにしました`);
             }
 
             function scheduleNext() {
                 clearTimeout(timer);
                 if (!running) return;
 
+                const detectedStandbySourceId = standbySourceId;
+                const hasMedia = sourceHasMedia(detectedStandbySourceId);
+                const delay = hasMedia ? getSettings().intervalMs : STANDBY_POLL_INTERVAL;
+
+                if (hasMedia && pendingStandbySourceId !== detectedStandbySourceId) {
+                    pendingStandbySourceId = detectedStandbySourceId;
+                    log(`${detectedStandbySourceId}への画像挿入を検知しました`);
+                }
+
                 timer = setTimeout(async () => {
                     try {
-                        await next();
+                        if (
+                            !switching
+                            && pendingStandbySourceId === detectedStandbySourceId
+                            && standbySourceId === detectedStandbySourceId
+                            && sourceHasMedia(detectedStandbySourceId)
+                        ) {
+                            await advanceStandby();
+                        } else {
+                            pendingStandbySourceId = null;
+                        }
                     } catch (error) {
                         log(error.message);
                     } finally {
@@ -1152,7 +1203,7 @@
                     }
 
                     scheduleNext();
-                    log("自動切り替えを開始しました");
+                    log("standbyへの画像挿入を監視しています");
                 } catch (error) {
                     running = false;
                     throw error;
@@ -1168,6 +1219,7 @@
                 running = false;
                 clearTimeout(timer);
                 timer = null;
+                pendingStandbySourceId = null;
             }
 
             function stopViewer(viewerState) {
@@ -1227,7 +1279,7 @@
                 detectDisplays,
                 initialize: () => runAction(initialize),
                 start: () => runAction(start),
-                next: () => runAction(next),
+                next: () => runAction(advanceStandby),
                 stop,
                 closeAllPopups
             };
