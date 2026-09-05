@@ -249,9 +249,10 @@
 
         .randomOpacityTotalControl {
             display: grid;
-            grid-template-columns: 1fr 72px auto;
+            grid-template-columns: auto 72px auto;
             gap: 6px;
             align-items: center;
+            margin-right: auto;
             color: var(--muted);
             font-size: 0.76rem;
         }
@@ -572,12 +573,6 @@
                 </div>
             </div>
             <div class="sideFooter">
-                <label class="randomOpacityTotalControl" id="randomOpacityTotalControl" hidden>
-                    <span>合算</span>
-                    <input id="randomOpacityTotalInput" type="number" min="0" step="0.1"
-                        inputmode="decimal" placeholder="自由" aria-label="ランダム不透明度の合算値">
-                    <span>％</span>
-                </label>
                 <div class="cropControls" id="cropControls" hidden>
                     <label class="cropControl">X<input id="cropXInput" type="number" min="0" step="1"></label>
                     <label class="cropControl">Y<input id="cropYInput" type="number" min="0" step="1"></label>
@@ -586,12 +581,18 @@
                     <button class="cropShowButton" id="cropShowButton" type="button">表示</button>
                 </div>
                 <div class="footerMain">
+                    <label class="randomOpacityTotalControl" id="randomOpacityTotalControl" hidden>
+                        <span>合算</span>
+                        <input id="randomOpacityTotalInput" type="number" min="0" step="0.1"
+                            inputmode="decimal" placeholder="自由" aria-label="ランダム不透明度の合算値">
+                        <span>％</span>
+                    </label>
                     <button class="textButton" id="clearButton" type="button" disabled>クリア</button>
                 </div>
             </div>
         </aside>
     </div>
-    <script type="module" src="app.js?v=20260906-4"></script>
+    <script type="module" src="app.js?v=20260906-5"></script>
 </body>
 
 </html>
