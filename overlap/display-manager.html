@@ -162,9 +162,14 @@
 
         .source-editor-tabs {
             display: grid;
-            grid-template-columns: repeat(6, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 8px;
             margin-bottom: 12px;
+        }
+
+        .source-editor-tab.is-standby {
+            margin-left: 16px;
+            border-style: dashed;
         }
 
         .source-editor-tab.is-active {
@@ -256,6 +261,11 @@
                 grid-template-columns: repeat(3, minmax(0, 1fr));
             }
 
+            .source-editor-tab.is-standby {
+                grid-column: 1;
+                margin-left: 0;
+            }
+
             .fps-monitor {
                 grid-template-columns: 1fr;
             }
@@ -266,7 +276,7 @@
 <body>
     <h1>Overlap Display Manager</h1>
     <section class="panel">
-        <h2>ソース編集（1タブ運用）</h2>
+        <h2>ソース編集</h2>
         <div class="source-editor-tabs" id="sourceEditorTabs"></div>
         <div class="source-editor-viewport" id="sourceEditorViewport"></div>
     </section>
@@ -331,20 +341,20 @@
         (() => {
             "use strict";
 
-            const SOURCE_COUNT = 6;
-            const VIEWER_COUNT = 4;
+            const VIEWER_COUNT = 3;
             const DEFAULT_CANVAS_ID = "canvas";
             const DEFAULT_SOURCE_FPS = 60;
-            const SOURCE_EDITOR_VERSION = "20260716-5";
+            const SOURCE_EDITOR_VERSION = "20260906-1";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
             const viewerIndexes = Array.from({ length: VIEWER_COUNT }, (_, index) => index);
 
-            const sources = Array.from({ length: SOURCE_COUNT }, (_, index) => ({
-                id: `source-${index + 1}`,
-                name: `source${index + 1}`,
-                canvasId: DEFAULT_CANVAS_ID
-            }));
+            const sources = [
+                { id: "source-1", name: "source1", canvasId: DEFAULT_CANVAS_ID, isStandby: false },
+                { id: "source-2", name: "source2", canvasId: DEFAULT_CANVAS_ID, isStandby: false },
+                { id: "source-3", name: "source3", canvasId: DEFAULT_CANVAS_ID, isStandby: false },
+                { id: "source-4", name: "standby", canvasId: DEFAULT_CANVAS_ID, isStandby: true }
+            ];
             const sourceById = new Map(sources.map(source => [source.id, source]));
 
             const registry = new Map();
@@ -509,7 +519,7 @@
                 sources.forEach((source, index) => {
                     const button = document.createElement("button");
                     button.type = "button";
-                    button.className = "source-editor-tab";
+                    button.className = `source-editor-tab${source.isStandby ? " is-standby" : ""}`;
                     button.dataset.editorSourceId = source.id;
                     button.textContent = source.name;
                     button.addEventListener("click", () => selectSourceEditor(source.id));
@@ -638,7 +648,7 @@
                     const status = document.createElement("span");
                     const openButton = document.createElement("button");
 
-                    row.className = "source-row";
+                    row.className = `source-row${source.isStandby ? " is-standby" : ""}`;
                     id.textContent = source.id;
                     status.dataset.sourceStatus = source.id;
                     status.className = `status${ready ? " ready" : ""}`;
@@ -1007,7 +1017,7 @@
 
             function assertReady() {
                 if (availableSources().length < VIEWER_COUNT) {
-                    throw new Error("利用可能なCanvasが4件未満です");
+                    throw new Error(`利用可能なCanvasが${VIEWER_COUNT}件未満です`);
                 }
 
                 viewers.forEach((viewerState, index) => {
@@ -1018,7 +1028,7 @@
             }
 
             function initialAssignments() {
-                return shuffle(availableSources())
+                return shuffle(availableSources().filter(source => !source.isStandby))
                     .sort((a, b) => usageCount[a.id] - usageCount[b.id])
                     .slice(0, VIEWER_COUNT)
                     .map(source => source.id);
@@ -1030,15 +1040,15 @@
                     .filter(source => !activeIds.has(source.id))
                     .filter(source => canvasOf(source.id));
 
-                if (inactive.length < 2) throw new Error("非表示中のCanvasが2件必要です");
+                if (inactive.length < 1) throw new Error("非表示中のCanvasが1件必要です");
 
                 const changingViewerIndexes = shuffle(viewerIndexes)
                     .sort((a, b) => lastChangedAt[a] - lastChangedAt[b])
-                    .slice(0, 2);
+                    .slice(0, 1);
 
                 const incoming = shuffle(inactive)
                     .sort((a, b) => usageCount[a.id] - usageCount[b.id])
-                    .slice(0, 2);
+                    .slice(0, 1);
 
                 return changingViewerIndexes.map((viewerIndex, index) => ({
                     viewerIndex,
