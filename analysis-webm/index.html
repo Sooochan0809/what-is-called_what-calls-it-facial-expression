@@ -250,14 +250,18 @@
         <div id="empty" class="empty">動画を選ぶと、指定した表情が安定して出ているフレームを抽出します。</div>
     </main>
 
-    <script>
+    <script type="module">
+        import { FaceLandmarker, FilesetResolver } from "../faceAPI/mediapipe/vision_bundle.mjs";
+
         window.addEventListener("load", async () => {
             const $ = (id) => document.getElementById(id);
             const MODEL_URL = "../faceAPI/models";
+            const MEDIAPIPE_WASM_URL = new URL("../faceAPI/mediapipe/wasm", window.location.href).href.replace(/\/$/, "");
+            const FACE_LANDMARKER_URL = new URL("../faceAPI/models/face_landmarker.task", window.location.href).href;
             const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
             const BLINK_MAX_DURATION = 0.5;
             const BLINK_GUARD_SECONDS = 0.35;
-            const EYE_CLOSED_RATIO = 0.85;
+            const BLINK_SCORE_THRESHOLD = 0.5;
             const [file, video, emotion, count, interval, minScore, analyze, progress, message, results, empty, downloadAll] =
                 ["file", "video", "emotion", "count", "interval", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll"].map($);
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
@@ -269,11 +273,25 @@
             let samples = [];
             let picks = [];
             let token = 0;
+            let faceLandmarker = null;
+            let mediaPipeTimestamp = 0;
 
             const models = Promise.all([
                 faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
                 faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
-                faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+                faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+                (async () => {
+                    const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
+                    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+                        baseOptions: { modelAssetPath: FACE_LANDMARKER_URL },
+                        runningMode: "VIDEO",
+                        numFaces: 1,
+                        minFaceDetectionConfidence: 0.35,
+                        minFacePresenceConfidence: 0.35,
+                        minTrackingConfidence: 0.35,
+                        outputFaceBlendshapes: true
+                    });
+                })()
             ]);
 
             const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -311,26 +329,28 @@
                 x: mean(points.map((point) => point.x)),
                 y: mean(points.map((point) => point.y))
             });
-            const eyeAspectRatio = (points) => {
-                const horizontal = Math.max(1, distance(points[0], points[3]) * 2);
-                return (distance(points[1], points[5]) + distance(points[2], points[4])) / horizontal;
+            const blendshapeMapFrom = (result) => {
+                const categories = result.faceBlendshapes[0]?.categories || [];
+                return categories.reduce((memo, category) => ({
+                    ...memo,
+                    [category.categoryName]: category.score
+                }), {});
             };
-            const percentile = (values, ratio) => {
-                if (!values.length) return 0;
-                const sorted = [...values].sort((a, b) => a - b);
-                return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))];
+            const gazeScoreFrom = (blendshapes) => {
+                const leftHorizontal = Math.max(blendshapes.eyeLookInLeft || 0, blendshapes.eyeLookOutLeft || 0);
+                const rightHorizontal = Math.max(blendshapes.eyeLookInRight || 0, blendshapes.eyeLookOutRight || 0);
+                const leftVertical = Math.max(blendshapes.eyeLookUpLeft || 0, blendshapes.eyeLookDownLeft || 0);
+                const rightVertical = Math.max(blendshapes.eyeLookUpRight || 0, blendshapes.eyeLookDownRight || 0);
+                const horizontalDeviation = (leftHorizontal + rightHorizontal) / 2;
+                const verticalDeviation = (leftVertical + rightVertical) / 2;
+                return clamp(1 - horizontalDeviation * 0.65 - verticalDeviation * 0.35, 0, 1);
             };
 
             const markBlinkFrames = (analyzedSamples, detectedFrames, sampleStep) => {
                 if (!detectedFrames.length) return 0;
 
-                // 上位側の値を通常の開眼幅とみなし、顔や撮影条件によるEARの差を吸収する。
-                const leftBaseline = percentile(detectedFrames.map((frame) => frame.eye.left), 0.8);
-                const rightBaseline = percentile(detectedFrames.map((frame) => frame.eye.right), 0.8);
-                const leftClosedThreshold = clamp(leftBaseline * EYE_CLOSED_RATIO, 0.16, 0.25);
-                const rightClosedThreshold = clamp(rightBaseline * EYE_CLOSED_RATIO, 0.16, 0.25);
                 const isClosed = (frame) =>
-                    !frame.missing && frame.eye.left < leftClosedThreshold && frame.eye.right < rightClosedThreshold;
+                    !frame.missing && frame.blinkScore >= BLINK_SCORE_THRESHOLD;
                 const unstableRuns = [];
                 let run = [];
 
@@ -416,8 +436,11 @@
                         const values = neighbors.map((item) => item.expressions[selectedEmotion] || 0);
                         const expressionScore = frame.expressions[selectedEmotion] || 0;
                         const stabilityScore = clamp(1 - Math.sqrt(variance(values)) * 4, 0, 1);
-                        const totalScore = expressionScore * 0.48 + stabilityScore * 0.24 + frame.quality.quality * 0.28;
-                        return { ...frame, expressionScore, stabilityScore, totalScore };
+                        const gazeScore = frame.blinkScore < BLINK_SCORE_THRESHOLD ? frame.gazeScore : null;
+                        const totalScore = Number.isFinite(gazeScore)
+                            ? expressionScore * 0.42 + stabilityScore * 0.20 + frame.quality.quality * 0.23 + gazeScore * 0.15
+                            : expressionScore * 0.48 + stabilityScore * 0.24 + frame.quality.quality * 0.28;
+                        return { ...frame, expressionScore, stabilityScore, gazeScore, totalScore };
                     })
                     .filter((frame) => frame.expressionScore >= minEmotionScore)
                     .sort((a, b) => b.totalScore - a.totalScore);
@@ -467,7 +490,8 @@
                         <div class="meta">
                             <strong>total ${pick.totalScore.toFixed(3)} / ${formatTime(pick.time)}</strong>
                             <span>${selectedEmotion} ${pick.expressionScore.toFixed(3)} · stable ${pick.stabilityScore.toFixed(3)}</span>
-                            <span>front ${pick.quality.frontalScore.toFixed(3)} · detect ${pick.quality.detectionScore.toFixed(3)}</span>
+                            <span>front ${pick.quality.frontalScore.toFixed(3)} · gaze ${Number.isFinite(pick.gazeScore) ? pick.gazeScore.toFixed(3) : "n/a"}</span>
+                            <span>blink ${pick.blinkScore.toFixed(3)} · detect ${pick.quality.detectionScore.toFixed(3)}</span>
                             <button type="button">download</button>
                         </div>
                     `;
@@ -490,6 +514,10 @@
 
                 await models;
                 if (runToken !== token) return;
+                // 動画ごとにMediaPipeの追跡状態をリセットし、再解析でも同じ条件にする。
+                await faceLandmarker.setOptions({ runningMode: "IMAGE" });
+                await faceLandmarker.setOptions({ runningMode: "VIDEO" });
+                mediaPipeTimestamp = 0;
                 video.pause();
                 const currentTime = video.currentTime;
                 const step = clamp(Number(interval.value) || 0.5, 0.2, 10);
@@ -500,25 +528,34 @@
                     const time = Math.min(i * step, Math.max(0, video.duration - 0.04));
                     setStatus(`解析中 ${i + 1}/${total}`, i + 1, total);
                     await seek(time);
+                    mediaPipeTimestamp += Math.max(1, Math.round(step * 1000));
+                    const mediaPipeResult = faceLandmarker.detectForVideo(video, mediaPipeTimestamp);
+                    const blendshapes = blendshapeMapFrom(mediaPipeResult);
+                    const hasMediaPipeFace = mediaPipeResult.faceLandmarks.length > 0 && Object.keys(blendshapes).length > 0;
+                    const blinkLeft = blendshapes.eyeBlinkLeft || 0;
+                    const blinkRight = blendshapes.eyeBlinkRight || 0;
+                    const mediaPipeSample = {
+                        time,
+                        missing: !hasMediaPipeFace,
+                        blinkLeft,
+                        blinkRight,
+                        blinkScore: Math.min(blinkLeft, blinkRight),
+                        gazeScore: hasMediaPipeFace ? gazeScoreFrom(blendshapes) : null
+                    };
                     const detection = await faceapi
                         .detectSingleFace(video, detectorOptions)
                         .withFaceLandmarks(true)
                         .withFaceExpressions();
                     if (detection) {
-                        const positions = detection.landmarks.positions;
                         const frame = {
-                            time,
+                            ...mediaPipeSample,
                             expressions: EMOTIONS.reduce((memo, key) => ({ ...memo, [key]: detection.expressions[key] || 0 }), {}),
-                            eye: {
-                                left: eyeAspectRatio(positions.slice(36, 42)),
-                                right: eyeAspectRatio(positions.slice(42, 48))
-                            },
                             quality: qualityFrom(detection)
                         };
                         frames.push(frame);
                         samples.push(frame);
                     } else {
-                        samples.push({ time, missing: true });
+                        samples.push(mediaPipeSample);
                     }
                 }
 
