@@ -278,7 +278,7 @@
                 </label>
                 <label>
                     min score
-                    <input id="minScore" type="number" min="0" max="1" step="0.01" value="0.7">
+                    <input id="minScore" type="number" min="0" max="1" step="0.01" value="0.6">
                 </label>
                 <button id="analyze" class="primary" type="button" disabled>analyze all</button>
             </div>
@@ -302,12 +302,12 @@
             const MODEL_URL = "../module/faceAPI/models";
             const MEDIAPIPE_WASM_URL = new URL("../module/mediapipe/wasm", window.location.href).href.replace(/\/$/, "");
             const FACE_LANDMARKER_URL = new URL("../module/mediapipe/models/face_landmarker.task", window.location.href).href;
-            const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
+            const EMOTIONS = ["neutral", "happy", "surprised", "angry", "sad", "fearful", "disgusted"];
             const BLINK_MAX_DURATION = 0.5;
             const BLINK_GUARD_SECONDS = 0.35;
             const BLINK_SCORE_THRESHOLD = 0.5;
-            const ANALYSIS_CONCURRENCY = 4;
-            const QUALITY_PLAYBACK_RATE = 2;
+            const ANALYSIS_CONCURRENCY = 6;
+            const QUALITY_PLAYBACK_RATE = 3;
             const MEDIAPIPE_INPUT_WIDTH = 320;
             const FACE_API_INPUT_WIDTH = 320;
             const [video, count, interval, minScore, analyze, progress, message, results, empty, downloadAll, videoSlots] =
@@ -382,7 +382,8 @@
                         fileName: "",
                         picks: [],
                         frameCount: 0,
-                        blinkCount: 0
+                        blinkCount: 0,
+                        analysisState: null
                     };
                     slot.input.addEventListener("change", () => {
                         token += 1;
@@ -393,6 +394,7 @@
                         slot.picks = [];
                         slot.frameCount = 0;
                         slot.blinkCount = 0;
+                        slot.analysisState = null;
                         slot.status.textContent = selectedFile ? selectedFile.name : "未選択";
                         renderResults();
                         setStatus(`${slots.filter((item) => item.objectUrl).length} / 21 videos selected`, 0, 0);
@@ -603,8 +605,7 @@
                 return canvas.toDataURL("image/png");
             };
 
-            const shortlistFrames = (analyzedFrames, selectedEmotion, targetCount, sampleStep) => {
-                const candidateLimit = Math.min(analyzedFrames.length, Math.max(15, targetCount * 3));
+            const shortlistFrames = (analyzedFrames, selectedEmotion, sampleStep) => {
                 const candidates = analyzedFrames
                     .filter((frame) => !frame.blinkExcluded)
                     .map((frame) => {
@@ -626,14 +627,12 @@
                 const minGap = Math.max(0.4, sampleStep * 1.5);
                 const selected = [];
                 for (const frame of candidates) {
-                    if (selected.length >= candidateLimit) break;
                     if (selected.every((item) => Math.abs(item.time - frame.time) >= minGap)) selected.push(frame);
                 }
                 for (const frame of candidates) {
-                    if (selected.length >= candidateLimit) break;
                     if (!selected.includes(frame)) selected.push(frame);
                 }
-                return selected.sort((a, b) => a.time - b.time);
+                return selected;
             };
 
             const pickFrames = async (context, analyzedFrames, selectedEmotion, targetCount, minEmotionScore, runToken, slotLabel) => {
@@ -742,12 +741,60 @@
                 contextVideo.load();
             });
 
+            const analyzeNextCandidateBatch = async (context, slot, slotIndex, slotTotal, runToken) => {
+                const state = slot.analysisState;
+                if (!state || state.analyzedCandidateCount >= state.shortlistedFrames.length) return false;
+
+                const batchEnd = Math.min(
+                    state.shortlistedFrames.length,
+                    state.analyzedCandidateCount + state.candidateBatchSize
+                );
+                const batch = state.shortlistedFrames
+                    .slice(state.analyzedCandidateCount, batchEnd)
+                    .sort((a, b) => a.time - b.time);
+                const slotLabel = `${slot.emotion} ${slot.number}`;
+
+                for (let i = 0; i < batch.length; i++) {
+                    if (runToken !== token) return false;
+                    const candidate = batch[i];
+                    const currentCandidate = state.analyzedCandidateCount + i + 1;
+                    slot.status.textContent = `最終判定 ${currentCandidate}/${batchEnd}`;
+                    setStatus(`${slotLabel} (${slotIndex + 1}/${slotTotal}) · face-api ${currentCandidate}/${batchEnd}`, currentCandidate, batchEnd);
+                    await seek(context, candidate.time);
+                    const inferenceSource = drawInferenceFrame(context, FACE_API_INPUT_WIDTH);
+                    const detection = await faceapi
+                        .detectSingleFace(inferenceSource, detectorOptions)
+                        .withFaceLandmarks(true)
+                        .withFaceExpressions();
+                    if (!detection) continue;
+                    state.finalFrames.push({
+                        ...candidate,
+                        expressions: EMOTIONS.reduce((memo, key) => ({ ...memo, [key]: detection.expressions[key] || 0 }), {}),
+                        quality: qualityFrom(detection, inferenceSource)
+                    });
+                }
+
+                state.analyzedCandidateCount = batchEnd;
+                slot.picks = await pickFrames(
+                    context,
+                    state.finalFrames.sort((a, b) => a.time - b.time),
+                    slot.emotion,
+                    state.targetCount,
+                    state.minEmotionScore,
+                    runToken,
+                    slotLabel
+                );
+                if (runToken !== token) return false;
+                slot.status.textContent = `${slot.frameCount} frames · ${slot.blinkCount} blinks · ${slot.picks.length} images`;
+                renderResults();
+                return slot.picks.length > 0;
+            };
+
             const analyzeSlot = async (context, slot, slotIndex, slotTotal, runToken) => {
                 const { video: contextVideo, faceLandmarker } = context;
                 const slotLabel = `${slot.emotion} ${slot.number}`;
                 const frames = [];
                 const samples = [];
-                let picks = [];
                 slot.picks = [];
                 slot.status.textContent = "動画を読み込んでいます";
                 await loadSlotVideo(context, slot);
@@ -851,42 +898,42 @@
 
                 const blinkCount = markBlinkFrames(samples, frames, step);
                 const targetCount = clamp(Math.round(Number(count.value) || 8), 1, 24);
-                const shortlistedFrames = shortlistFrames(frames, slot.emotion, targetCount, step);
-                const finalFrames = [];
-                for (let i = 0; i < shortlistedFrames.length; i++) {
-                    if (runToken !== token) return;
-                    const candidate = shortlistedFrames[i];
-                    slot.status.textContent = `最終判定 ${i + 1}/${shortlistedFrames.length}`;
-                    setStatus(`${slotLabel} (${slotIndex + 1}/${slotTotal}) · face-api ${i + 1}/${shortlistedFrames.length}`, i + 1, shortlistedFrames.length);
-                    await seek(context, candidate.time);
-                    const inferenceSource = drawInferenceFrame(context, FACE_API_INPUT_WIDTH);
-                    const detection = await faceapi
-                        .detectSingleFace(inferenceSource, detectorOptions)
-                        .withFaceLandmarks(true)
-                        .withFaceExpressions();
-                    if (!detection) continue;
-                    finalFrames.push({
-                        ...candidate,
-                        expressions: EMOTIONS.reduce((memo, key) => ({ ...memo, [key]: detection.expressions[key] || 0 }), {}),
-                        quality: qualityFrom(detection, inferenceSource)
-                    });
-                }
-
-                picks = await pickFrames(
-                    context,
-                    finalFrames,
-                    slot.emotion,
-                    targetCount,
-                    clamp(Number(minScore.value) || 0, 0, 1),
-                    runToken,
-                    slotLabel
-                );
-                if (runToken !== token) return;
-                slot.picks = picks;
+                const shortlistedFrames = shortlistFrames(frames, slot.emotion, step);
+                const candidateBatchSize = Math.max(15, targetCount * 3);
+                const minEmotionScore = clamp(Number(minScore.value) || 0, 0, 1);
                 slot.frameCount = frames.length;
                 slot.blinkCount = blinkCount;
-                slot.status.textContent = `${frames.length} frames · ${blinkCount} blinks · ${picks.length} images`;
+                slot.analysisState = {
+                    shortlistedFrames,
+                    candidateBatchSize,
+                    minEmotionScore,
+                    targetCount,
+                    finalFrames: [],
+                    analyzedCandidateCount: 0
+                };
+                await analyzeNextCandidateBatch(
+                    context,
+                    slot,
+                    slotIndex,
+                    slotTotal,
+                    runToken
+                );
+                if (runToken !== token) return;
+                slot.status.textContent = `${frames.length} frames · ${blinkCount} blinks · ${slot.picks.length} images`;
                 renderResults();
+            };
+
+            const analyzeFallbackSlot = async (context, slot, selectedSlots, runToken) => {
+                slot.status.textContent = "追加候補を解析しています";
+                await loadSlotVideo(context, slot);
+                if (runToken !== token) return;
+                await analyzeNextCandidateBatch(
+                    context,
+                    slot,
+                    selectedSlots.indexOf(slot),
+                    selectedSlots.length,
+                    runToken
+                );
             };
 
             const analyzeAll = async () => {
@@ -902,6 +949,7 @@
                     slot.picks = [];
                     slot.frameCount = 0;
                     slot.blinkCount = 0;
+                    slot.analysisState = null;
                     slot.status.textContent = "解析待ち";
                 });
                 renderResults();
@@ -923,9 +971,57 @@
                                     slot.status.textContent = "解析に失敗しました";
                                 }
                             }
-                        });
+                    });
                     await Promise.all(workers);
                     if (runToken !== token) return;
+
+                    let fallbackGroups = EMOTIONS
+                        .map((emotion) => selectedSlots.filter((slot) => slot.emotion === emotion))
+                        .filter((emotionSlots) =>
+                            emotionSlots.length > 0 &&
+                            emotionSlots.every((slot) => slot.picks.length === 0) &&
+                            emotionSlots.some((slot) =>
+                                slot.analysisState &&
+                                slot.analysisState.analyzedCandidateCount < slot.analysisState.shortlistedFrames.length
+                            )
+                        );
+                    while (fallbackGroups.length && runToken === token) {
+                        const fallbackSlots = fallbackGroups.flatMap((emotionSlots) =>
+                            emotionSlots.filter((slot) =>
+                                slot.analysisState &&
+                                slot.analysisState.analyzedCandidateCount < slot.analysisState.shortlistedFrames.length
+                            )
+                        );
+                        let nextFallbackSlotIndex = 0;
+                        const fallbackWorkers = analysisContexts
+                            .slice(0, Math.min(ANALYSIS_CONCURRENCY, fallbackSlots.length))
+                            .map(async (context) => {
+                                while (runToken === token) {
+                                    const fallbackSlotIndex = nextFallbackSlotIndex++;
+                                    if (fallbackSlotIndex >= fallbackSlots.length) return;
+                                    const slot = fallbackSlots[fallbackSlotIndex];
+                                    const emotionSlots = fallbackGroups.find((group) => group.includes(slot));
+                                    if (emotionSlots?.some((item) => item.picks.length > 0)) continue;
+                                    try {
+                                        await analyzeFallbackSlot(context, slot, selectedSlots, runToken);
+                                    } catch (error) {
+                                        console.error(error);
+                                        slot.status.textContent = "追加解析に失敗しました";
+                                        slot.analysisState.analyzedCandidateCount = slot.analysisState.shortlistedFrames.length;
+                                    }
+                                }
+                            });
+                        await Promise.all(fallbackWorkers);
+                        if (runToken !== token) return;
+                        fallbackGroups = fallbackGroups.filter((emotionSlots) =>
+                            emotionSlots.every((slot) => slot.picks.length === 0) &&
+                            emotionSlots.some((slot) =>
+                                slot.analysisState &&
+                                slot.analysisState.analyzedCandidateCount < slot.analysisState.shortlistedFrames.length
+                            )
+                        );
+                    }
+
                     const totalFrames = selectedSlots.reduce((sum, slot) => sum + slot.frameCount, 0);
                     const totalBlinks = selectedSlots.reduce((sum, slot) => sum + slot.blinkCount, 0);
                     const totalImages = selectedSlots.reduce((sum, slot) => sum + slot.picks.length, 0);
