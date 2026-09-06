@@ -408,10 +408,6 @@
 
             const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
             const mean = (values) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
-            const variance = (values) => {
-                const avg = mean(values);
-                return mean(values.map((value) => (value - avg) ** 2));
-            };
             const formatTime = (seconds) => {
                 const min = Math.floor(seconds / 60);
                 const sec = (seconds - min * 60).toFixed(1).padStart(4, "0");
@@ -609,17 +605,11 @@
                 const candidates = analyzedFrames
                     .filter((frame) => !frame.blinkExcluded)
                     .map((frame) => {
-                        const sourceIndex = analyzedFrames.indexOf(frame);
-                        const from = Math.max(0, sourceIndex - 2);
-                        const to = Math.min(analyzedFrames.length, sourceIndex + 3);
-                        const neighbors = analyzedFrames.slice(from, to).filter((item) => !item.blinkExcluded);
-                        const values = neighbors.map((item) => item.expressionProxy[selectedEmotion] || 0);
                         const expressionScore = frame.expressionProxy[selectedEmotion] || 0;
-                        const stabilityScore = clamp(1 - Math.sqrt(variance(values)) * 4, 0, 1);
                         const gazeScore = frame.blinkScore < BLINK_SCORE_THRESHOLD ? frame.gazeScore : null;
                         const totalScore = Number.isFinite(gazeScore)
-                            ? expressionScore * 0.35 + stabilityScore * 0.18 + frame.quality.quality * 0.30 + gazeScore * 0.17
-                            : expressionScore * 0.42 + stabilityScore * 0.22 + frame.quality.quality * 0.36;
+                            ? (expressionScore * 0.35 + frame.quality.quality * 0.30 + gazeScore * 0.17) / 0.82
+                            : (expressionScore * 0.42 + frame.quality.quality * 0.36) / 0.78;
                         return { ...frame, proxyScore: expressionScore, proxyTotalScore: totalScore };
                     })
                     .sort((a, b) => b.proxyTotalScore - a.proxyTotalScore);
@@ -638,18 +628,12 @@
             const pickFrames = async (context, analyzedFrames, selectedEmotion, targetCount, minEmotionScore, runToken, slotLabel) => {
                 const candidates = analyzedFrames
                     .map((frame) => {
-                        const sourceIndex = analyzedFrames.indexOf(frame);
-                        const from = Math.max(0, sourceIndex - 2);
-                        const to = Math.min(analyzedFrames.length, sourceIndex + 3);
-                        const neighbors = analyzedFrames.slice(from, to);
-                        const values = neighbors.map((item) => item.expressions[selectedEmotion] || 0);
                         const expressionScore = frame.expressions[selectedEmotion] || 0;
-                        const stabilityScore = clamp(1 - Math.sqrt(variance(values)) * 4, 0, 1);
                         const gazeScore = frame.blinkScore < BLINK_SCORE_THRESHOLD ? frame.gazeScore : null;
                         const totalScore = Number.isFinite(gazeScore)
-                            ? expressionScore * 0.42 + stabilityScore * 0.20 + frame.quality.quality * 0.23 + gazeScore * 0.15
-                            : expressionScore * 0.48 + stabilityScore * 0.24 + frame.quality.quality * 0.28;
-                        return { ...frame, expressionScore, stabilityScore, gazeScore, totalScore };
+                            ? (expressionScore * 0.42 + frame.quality.quality * 0.23 + gazeScore * 0.15) / 0.80
+                            : (expressionScore * 0.48 + frame.quality.quality * 0.28) / 0.76;
+                        return { ...frame, expressionScore, gazeScore, totalScore };
                     })
                     .filter((frame) => frame.expressionScore >= minEmotionScore)
                     .sort((a, b) => b.totalScore - a.totalScore);
@@ -708,7 +692,7 @@
                             <img src="${pick.imageUrl}" alt="${slot.emotion} ${slot.number} frame ${index + 1}">
                             <div class="meta">
                                 <strong>total ${pick.totalScore.toFixed(3)} / ${formatTime(pick.time)}</strong>
-                                <span>${slot.emotion} ${pick.expressionScore.toFixed(3)} · stable ${pick.stabilityScore.toFixed(3)}</span>
+                                <span>${slot.emotion} ${pick.expressionScore.toFixed(3)}</span>
                                 <span>front ${pick.quality.frontalScore.toFixed(3)} · gaze ${Number.isFinite(pick.gazeScore) ? pick.gazeScore.toFixed(3) : "n/a"}</span>
                                 <span>blink ${pick.blinkScore.toFixed(3)} · detect ${pick.quality.detectionScore.toFixed(3)}</span>
                                 <button type="button">download</button>
