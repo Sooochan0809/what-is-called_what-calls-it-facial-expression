@@ -1159,8 +1159,9 @@
             let levelUpTimer = 0;
             let recordingEnabled = false;
             let archiveSessionName = "";
-            let recordingFileCount = 0;
-            let recordingFileNumber = 0;
+            let recordingAttemptCounts = new Map();
+            let recordingPartNumber = 0;
+            let recordingAttemptNumber = 0;
             let recordedFiles = [];
             let recordingArchiveDownloaded = false;
             let mediaRecorder = null;
@@ -1269,16 +1270,18 @@
                 const nextEnabled = Boolean(enabled);
                 if (nextEnabled && !recordingEnabled) {
                     archiveSessionName = timestampName();
-                    recordingFileCount = 0;
-                    recordingFileNumber = 0;
+                    recordingAttemptCounts = new Map();
+                    recordingPartNumber = 0;
+                    recordingAttemptNumber = 0;
                     recordedFiles = [];
                     recordingArchiveDownloaded = false;
                 }
                 recordingEnabled = nextEnabled;
                 if (!recordingEnabled) {
                     archiveSessionName = "";
-                    recordingFileCount = 0;
-                    recordingFileNumber = 0;
+                    recordingAttemptCounts = new Map();
+                    recordingPartNumber = 0;
+                    recordingAttemptNumber = 0;
                     recordedFiles = [];
                     recordingArchiveDownloaded = false;
                 }
@@ -1291,10 +1294,10 @@
                 return config.recording.mimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
             };
 
-            const recordingFilename = (level, fileNumber) => {
+            const recordingFilename = (level, partNumber, attemptNumber) => {
                 const target = targetFor(level.key);
-                const sequence = String(fileNumber).padStart(2, "0");
-                return `${sequence}_${safeName(`level${level.level}_${target.label}`)}.webm`;
+                const attempt = String(attemptNumber).padStart(2, "0");
+                return `p${partNumber}_${safeName(target.label)}_${attempt}.webm`;
             };
 
             const makeCrc32Table = () => {
@@ -1414,10 +1417,10 @@
                 }
             };
 
-            const saveRecording = (blob, level, fileNumber) => {
+            const saveRecording = (blob, level, partNumber, attemptNumber) => {
                 recordedFiles.push({
                     blob,
-                    filename: recordingFilename(level, fileNumber),
+                    filename: recordingFilename(level, partNumber, attemptNumber),
                     createdAt: new Date()
                 });
             };
@@ -1430,7 +1433,8 @@
             const resetRecordingBuffer = () => {
                 recordedChunks = [];
                 recordingLevel = null;
-                recordingFileNumber = 0;
+                recordingPartNumber = 0;
+                recordingAttemptNumber = 0;
             };
 
             const stopChallengeRecording = () => {
@@ -1484,8 +1488,7 @@
 
                 resetRecordingBuffer();
                 recordingLevel = currentLevel();
-                recordingFileCount += 1;
-                recordingFileNumber = recordingFileCount;
+                recordingPartNumber = currentLevelIndex + 1;
                 const mimeType = recordingMimeType();
                 recordingCanvas = recordingCanvas || document.createElement("canvas");
                 syncRecordingCanvasSize();
@@ -1504,6 +1507,8 @@
                     resetRecordingBuffer();
                     return;
                 }
+                recordingAttemptNumber = (recordingAttemptCounts.get(recordingPartNumber) || 0) + 1;
+                recordingAttemptCounts.set(recordingPartNumber, recordingAttemptNumber);
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data?.size) recordedChunks.push(event.data);
                 };
@@ -1511,7 +1516,7 @@
                     cancelRecordingFrame();
                     if (recordedChunks.length && recordingLevel) {
                         const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "video/webm" });
-                        saveRecording(blob, recordingLevel, recordingFileNumber);
+                        saveRecording(blob, recordingLevel, recordingPartNumber, recordingAttemptNumber);
                     }
                     resetRecordingBuffer();
                 };
