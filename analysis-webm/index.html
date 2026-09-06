@@ -231,7 +231,7 @@
                 </label>
                 <label>
                     interval sec
-                    <input id="interval" type="number" min="0.2" max="10" step="0.1" value="0.1">
+                    <input id="interval" type="number" min="0.2" max="10" step="0.1" value="0.2">
                 </label>
                 <label>
                     min score
@@ -255,6 +255,9 @@
             const $ = (id) => document.getElementById(id);
             const MODEL_URL = "../faceAPI/models";
             const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
+            const BLINK_MAX_DURATION = 0.5;
+            const BLINK_GUARD_SECONDS = 0.35;
+            const EYE_CLOSED_RATIO = 0.85;
             const [file, video, emotion, count, interval, minScore, analyze, progress, message, results, empty, downloadAll] =
                 ["file", "video", "emotion", "count", "interval", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll"].map($);
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
@@ -263,6 +266,7 @@
 
             let objectUrl = "";
             let frames = [];
+            let samples = [];
             let picks = [];
             let token = 0;
 
@@ -307,6 +311,62 @@
                 x: mean(points.map((point) => point.x)),
                 y: mean(points.map((point) => point.y))
             });
+            const eyeAspectRatio = (points) => {
+                const horizontal = Math.max(1, distance(points[0], points[3]) * 2);
+                return (distance(points[1], points[5]) + distance(points[2], points[4])) / horizontal;
+            };
+            const percentile = (values, ratio) => {
+                if (!values.length) return 0;
+                const sorted = [...values].sort((a, b) => a - b);
+                return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))];
+            };
+
+            const markBlinkFrames = (analyzedSamples, detectedFrames, sampleStep) => {
+                if (!detectedFrames.length) return 0;
+
+                // 上位側の値を通常の開眼幅とみなし、顔や撮影条件によるEARの差を吸収する。
+                const leftBaseline = percentile(detectedFrames.map((frame) => frame.eye.left), 0.8);
+                const rightBaseline = percentile(detectedFrames.map((frame) => frame.eye.right), 0.8);
+                const leftClosedThreshold = clamp(leftBaseline * EYE_CLOSED_RATIO, 0.16, 0.25);
+                const rightClosedThreshold = clamp(rightBaseline * EYE_CLOSED_RATIO, 0.16, 0.25);
+                const isClosed = (frame) =>
+                    !frame.missing && frame.eye.left < leftClosedThreshold && frame.eye.right < rightClosedThreshold;
+                const unstableRuns = [];
+                let run = [];
+
+                // 短い顔検出失敗も、完全閉眼でランドマークが取れなかった可能性があるため同じ区間として扱う。
+                for (const sample of analyzedSamples) {
+                    if (sample.missing || isClosed(sample)) {
+                        run.push(sample);
+                    } else {
+                        if (run.length) unstableRuns.push(run);
+                        run = [];
+                    }
+                }
+                if (run.length) unstableRuns.push(run);
+
+                detectedFrames.forEach((frame) => {
+                    frame.blinkExcluded = false;
+                });
+
+                let blinkCount = 0;
+                for (const unstableRun of unstableRuns) {
+                    const first = unstableRun[0];
+                    const last = unstableRun[unstableRun.length - 1];
+                    const unstableDuration = unstableRun.length * sampleStep;
+                    // 長く続く閉眼・検出欠落は意図的な状態とみなし、周辺を除外しない。
+                    if (unstableDuration > BLINK_MAX_DURATION) continue;
+
+                    blinkCount += 1;
+                    const excludedFrom = first.time - sampleStep / 2 - BLINK_GUARD_SECONDS;
+                    const excludedTo = last.time + sampleStep / 2 + BLINK_GUARD_SECONDS;
+                    detectedFrames.forEach((frame) => {
+                        if (frame.time >= excludedFrom && frame.time <= excludedTo) frame.blinkExcluded = true;
+                    });
+                }
+
+                return blinkCount;
+            };
 
             const qualityFrom = (detection) => {
                 const box = detection.detection.box;
@@ -347,10 +407,12 @@
 
             const pickFrames = async (selectedEmotion, targetCount, minEmotionScore, runToken) => {
                 const candidates = frames
-                    .map((frame, index) => {
-                        const from = Math.max(0, index - 2);
-                        const to = Math.min(frames.length, index + 3);
-                        const neighbors = frames.slice(from, to);
+                    .filter((frame) => !frame.blinkExcluded)
+                    .map((frame) => {
+                        const sourceIndex = frames.indexOf(frame);
+                        const from = Math.max(0, sourceIndex - 2);
+                        const to = Math.min(frames.length, sourceIndex + 3);
+                        const neighbors = frames.slice(from, to).filter((item) => !item.blinkExcluded);
                         const values = neighbors.map((item) => item.expressions[selectedEmotion] || 0);
                         const expressionScore = frame.expressions[selectedEmotion] || 0;
                         const stabilityScore = clamp(1 - Math.sqrt(variance(values)) * 4, 0, 1);
@@ -423,6 +485,7 @@
                 empty.hidden = false;
                 empty.textContent = "解析中です。";
                 frames = [];
+                samples = [];
                 picks = [];
 
                 await models;
@@ -442,14 +505,24 @@
                         .withFaceLandmarks(true)
                         .withFaceExpressions();
                     if (detection) {
-                        frames.push({
+                        const positions = detection.landmarks.positions;
+                        const frame = {
                             time,
                             expressions: EMOTIONS.reduce((memo, key) => ({ ...memo, [key]: detection.expressions[key] || 0 }), {}),
+                            eye: {
+                                left: eyeAspectRatio(positions.slice(36, 42)),
+                                right: eyeAspectRatio(positions.slice(42, 48))
+                            },
                             quality: qualityFrom(detection)
-                        });
+                        };
+                        frames.push(frame);
+                        samples.push(frame);
+                    } else {
+                        samples.push({ time, missing: true });
                     }
                 }
 
+                const blinkCount = markBlinkFrames(samples, frames, step);
                 const targetCount = clamp(Math.round(Number(count.value) || 8), 1, 24);
                 picks = await pickFrames(emotion.value, targetCount, clamp(Number(minScore.value) || 0, 0, 1), runToken);
                 await seek(currentTime);
@@ -459,7 +532,7 @@
                 empty.textContent = picks.length
                     ? ""
                     : "条件に合うフレームがありませんでした。min scoreを下げるか、別の表情を選んでください。";
-                setStatus(`${frames.length} frames analyzed / ${picks.length} images`, 0, 0);
+                setStatus(`${frames.length} frames analyzed / ${blinkCount} blinks excluded / ${picks.length} images`, 0, 0);
                 analyze.disabled = false;
             };
 
@@ -470,6 +543,7 @@
                 objectUrl = URL.createObjectURL(file.files[0]);
                 video.src = objectUrl;
                 frames = [];
+                samples = [];
                 picks = [];
                 results.innerHTML = "";
                 empty.hidden = false;
