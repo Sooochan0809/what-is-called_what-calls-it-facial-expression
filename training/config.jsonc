@@ -2,7 +2,7 @@
   // face-api.jsの学習済みモデルを格納した場所
   "paths": {
     // training/index.htmlを基準にしたモデルフォルダのURL
-    "modelUrl": "../faceAPI/models"
+    "modelUrl": "../module/faceAPI/models"
   },
 
   // 画面遷移や判定に使う時間（単位: ミリ秒）

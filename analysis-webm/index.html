@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebM Expression Picker</title>
-    <script defer src="../faceAPI/face-api.min.js"></script>
+    <script defer src="../module/faceAPI/face-api.min.js"></script>
     <style>
         :root {
             color-scheme: light;
@@ -251,13 +251,13 @@
     </main>
 
     <script type="module">
-        import { FaceLandmarker, FilesetResolver } from "../faceAPI/mediapipe/vision_bundle.mjs";
+        import { FaceLandmarker, FilesetResolver } from "../module/mediapipe/vision_bundle.mjs";
 
         window.addEventListener("load", async () => {
             const $ = (id) => document.getElementById(id);
-            const MODEL_URL = "../faceAPI/models";
-            const MEDIAPIPE_WASM_URL = new URL("../faceAPI/mediapipe/wasm", window.location.href).href.replace(/\/$/, "");
-            const FACE_LANDMARKER_URL = new URL("../faceAPI/models/face_landmarker.task", window.location.href).href;
+            const MODEL_URL = "../module/faceAPI/models";
+            const MEDIAPIPE_WASM_URL = new URL("../module/mediapipe/wasm", window.location.href).href.replace(/\/$/, "");
+            const FACE_LANDMARKER_URL = new URL("../module/mediapipe/models/face_landmarker.task", window.location.href).href;
             const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
             const BLINK_MAX_DURATION = 0.5;
             const BLINK_GUARD_SECONDS = 0.35;

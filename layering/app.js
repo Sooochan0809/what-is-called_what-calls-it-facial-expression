@@ -5,9 +5,10 @@
         const HIERARCHY_CROSSFADE_DURATION = 10000;
         const AUTO_RANDOM_FPS = 60;
         const DEFAULT_OUTPUT_FPS = 60;
-        const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
-        const FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
-        const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
+        const MEDIAPIPE_MODULE_URL = new URL("../module/mediapipe/", import.meta.url);
+        const MEDIAPIPE_TASKS_URL = new URL("vision_bundle.mjs", MEDIAPIPE_MODULE_URL).href;
+        const FACE_MODEL_URL = new URL("models/face_landmarker.task", MEDIAPIPE_MODULE_URL).href;
+        const MEDIAPIPE_WASM_URL = new URL("wasm", MEDIAPIPE_MODULE_URL).href.replace(/\/$/, "");
         const REMOVE_ICON_SRC = "./img/icon-clause.png";
         const DISPLAY_PARAMS = new URLSearchParams(window.location.search);
         const DISPLAY_SOURCE_ID = DISPLAY_PARAMS.get("sourceId");
