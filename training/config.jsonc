@@ -1,0 +1,189 @@
+{
+  // face-api.jsの学習済みモデルを格納した場所
+  "paths": {
+    // training/index.htmlを基準にしたモデルフォルダのURL
+    "modelUrl": "../faceAPI/models"
+  },
+
+  // 画面遷移や判定に使う時間（単位: ミリ秒）
+  "timingMs": {
+    // お手本開始前の説明表示時間
+    "demoIntro": 4000,
+    // 合格スコアを維持する時間
+    "clearHold": 3000,
+    // 結果表示から次のレベルへ移るまでの時間
+    "levelUp": 4000,
+    // 通常のコーチング説明の表示時間
+    "coachTip": 5000,
+    // 判定コメント説明の表示時間
+    "coachStatusTip": 8000,
+    // 挑戦時間説明の表示時間
+    "coachTimerTip": 9000,
+    // 顔位置説明の表示時間
+    "coachFaceTip": 10000,
+    // ZIPダウンロード後に再読み込みするまでの時間
+    "finalReload": 30000,
+    // 無操作状態を不在と判定するまでの時間
+    "participantAbsence": 60000,
+    // 1回の挑戦の制限時間
+    "challengeAttempt": 60000
+  },
+
+  // トレーニングと表情判定の設定
+  "training": {
+    // お手本動画を繰り返す回数
+    "demoLoopCount": 3,
+    // 基本のクリア判定スコア（0〜1）
+    "clearScore": 0.82,
+    // 表情ごとに上書きするクリア判定スコア
+    "clearScoreByExpression": {
+      "fearful": 0.72,
+      "disgusted": 0.76
+    },
+    // 1レベルで挑戦できる最大回数
+    "maxChallengeAttempts": 3,
+    // 達成率バーの目盛り数
+    "scoreSegmentCount": 10,
+    // face-api.jsの顔検出設定
+    "detector": {
+      // 検出に使う入力画像サイズ
+      "inputSize": 224,
+      // 顔として採用する最低信頼度（0〜1）
+      "scoreThreshold": 0.45
+    }
+  },
+
+  // 挑戦中の映像記録設定
+  "recording": {
+    // 録画フレームレート（fps）
+    "frameRate": 30,
+    // 上から順に使用可否を確認する録画形式
+    "mimeTypes": [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm"
+    ]
+  },
+
+  // 一時停止中に表示する文章
+  "pause": {
+    // 一時停止画面の見出し
+    "title": "休憩中...",
+    // 一時停止画面の説明文
+    "text": "少し休んで、表情筋の強張りをほぐしましょう"
+  },
+
+  // 達成スコアに応じて表示する文章
+  "scoreMessages": {
+    // クリア可能なスコアに到達したとき
+    "clear": "かなり好ましい表情です！そのままキープしてください。",
+    // クリア未満だが改善しているとき
+    "improving": "だんだん好ましい表情に近づいています！",
+    // スコアが低いとき
+    "low": "好ましい表情ではありません"
+  },
+
+  // 各表情をクリアしたときに表示する文章
+  "levelClearMessages": {
+    "neutral": "3秒キープでクリアになります。\nその調子で頑張りましょう。",
+    "happy": "素敵な笑顔ですね。とても好印象です。",
+    "surprised": "素晴らしい驚きの表現です。\nしっかりと目や口を開くことがポイントです。",
+    "angry": "素晴らしい怒りの表現です。\n怒りは、大袈裟に表現するくらいがちょうどいいのかもしれません",
+    "sad": "悲しみがよく伝わる表情です。\n思わず慰めたくなるような素晴らしい表現力です。",
+    "fearful": "緊張感が伝わる素晴らしい恐れの表現ができています。",
+    "disgusted": "素晴らしいです。相手にしっかり伝わる嫌悪感の表現ができています。"
+  },
+
+  // face-api.jsが返す表情キー（通常は変更しない）
+  "expressionKeys": [
+    "happy",
+    "surprised",
+    "angry",
+    "sad",
+    "fearful",
+    "disgusted",
+    "neutral"
+  ],
+
+  // 混同されやすい表情をスコアへ部分加算する重み（0〜1）
+  "confusionCredit": {
+    // 恐怖では怒りと悲しみの推定値も加算する
+    "fearful": {
+      "angry": 0.32,
+      "sad": 0.44
+    },
+    // 嫌悪では怒りと悲しみの推定値も加算する
+    "disgusted": {
+      "angry": 0.28,
+      "sad": 0.08
+    }
+  },
+
+  // 各表情の表示名と目標となる感情確率
+  "targets": {
+    // 喜びの目標値
+    "happy": {
+      "label": "喜び",
+      "vector": { "happy": 0.82, "surprised": 0.08, "angry": 0, "sad": 0, "fearful": 0, "disgusted": 0, "neutral": 0.1 }
+    },
+    // 驚きの目標値
+    "surprised": {
+      "label": "驚き",
+      "vector": { "happy": 0.08, "surprised": 0.74, "angry": 0, "sad": 0, "fearful": 0.1, "disgusted": 0, "neutral": 0.08 }
+    },
+    // 怒りの目標値
+    "angry": {
+      "label": "怒り",
+      "vector": { "happy": 0, "surprised": 0.02, "angry": 0.78, "sad": 0.04, "fearful": 0, "disgusted": 0.08, "neutral": 0.08 }
+    },
+    // 悲しみの目標値
+    "sad": {
+      "label": "悲しみ",
+      "vector": { "happy": 0, "surprised": 0, "angry": 0.04, "sad": 0.78, "fearful": 0.06, "disgusted": 0, "neutral": 0.12 }
+    },
+    // 恐怖の目標値
+    "fearful": {
+      "label": "恐怖",
+      "vector": { "happy": 0, "surprised": 0.02, "angry": 0.18, "sad": 0.34, "fearful": 0.38, "disgusted": 0.02, "neutral": 0.06 }
+    },
+    // 嫌悪の目標値
+    "disgusted": {
+      "label": "嫌悪",
+      "vector": { "happy": 0, "surprised": 0.02, "angry": 0.22, "sad": 0.04, "fearful": 0.02, "disgusted": 0.58, "neutral": 0.12 }
+    },
+    // 無表情の目標値
+    "neutral": {
+      "label": "無表情",
+      "vector": { "happy": 0.02, "surprised": 0.02, "angry": 0.02, "sad": 0.02, "fearful": 0.02, "disgusted": 0.02, "neutral": 0.88 }
+    }
+  },
+
+  // 実際に進行するレベルの順番
+  "levels": [
+    { "level": 0, "key": "neutral" },
+    { "level": 1, "key": "happy" },
+    { "level": 2, "key": "surprised" },
+    { "level": 3, "key": "angry" },
+    { "level": 4, "key": "sad" },
+    { "level": 5, "key": "fearful" },
+    { "level": 6, "key": "disgusted" }
+  ],
+
+  // お手本動画の検索設定
+  "sampleVideos": {
+    // training/index.htmlを基準にした動画フォルダ
+    "directory": "samplevideo",
+    // 代替ファイル名で試す拡張子
+    "extensions": ["mp4", "webm", "mov"],
+    // 表情ごとの正式ファイル名と代替ファイル名
+    "items": {
+      "happy": { "preferred": "01_happy_100.mov", "aliases": ["happy", "喜び", "joy"] },
+      "surprised": { "preferred": "05_surprised_100.mov", "aliases": ["surprised", "驚き", "surprise"] },
+      "angry": { "preferred": "03_angry_99.mov", "aliases": ["angry", "怒り", "anger"] },
+      "sad": { "preferred": "02_sad_100.mov", "aliases": ["sad", "悲しみ"] },
+      "fearful": { "preferred": "04_fearful_85.mov", "aliases": ["fearful", "恐れ", "fear"] },
+      "disgusted": { "preferred": "06_disgusted_99.mov", "aliases": ["disgusted", "嫌悪", "disgust"] },
+      "neutral": { "preferred": "00_natural.mov", "aliases": ["neutral", "無表情"] }
+    }
+  }
+}

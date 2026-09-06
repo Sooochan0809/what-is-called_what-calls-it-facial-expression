@@ -281,6 +281,20 @@
             line-height: 1.2;
         }
 
+        .demoIntroHeading {
+            display: grid;
+            gap: 4px;
+        }
+
+        .demoIntroPart {
+            margin: 0;
+            color: var(--muted);
+            font-size: clamp(0.72rem, 1.5vw, 0.88rem);
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            line-height: 1.6;
+        }
+
         .demoIntroText {
             margin: 0;
             color: var(--muted);
@@ -895,7 +909,10 @@
             </article>
             <div id="demoIntroOverlay" class="sceneOverlay demoIntroOverlay" hidden>
                 <div class="demoIntroCard">
-                    <h2 id="demoIntroTitle" class="demoIntroTitle">レベル0：無表情</h2>
+                    <div class="demoIntroHeading">
+                        <p id="demoIntroPart" class="demoIntroPart">パート1</p>
+                        <h2 id="demoIntroTitle" class="demoIntroTitle">無表情</h2>
+                    </div>
                     <p id="demoIntroText" class="demoIntroText">まずは、お手本動画をよく見て観察しましょう。</p>
                 </div>
             </div>
@@ -946,7 +963,10 @@
                         <div class="ellipseGuide" aria-hidden="true"></div>
                         <div id="challengeIntroOverlay" class="sceneOverlay challengeIntroOverlay" hidden>
                             <div class="demoIntroCard">
-                                <h2 id="challengeIntroTitle" class="demoIntroTitle">レベル0：無表情</h2>
+                                <div class="demoIntroHeading">
+                                    <p id="challengeIntroPart" class="demoIntroPart">パート1</p>
+                                    <h2 id="challengeIntroTitle" class="demoIntroTitle">無表情</h2>
+                                </div>
                                 <p id="challengeIntroText" class="demoIntroText">次はあなたの番です。無表情に挑戦してみましょう！</p>
                             </div>
                         </div>
@@ -971,89 +991,100 @@
     </div>
 
     <script>
-        window.addEventListener("load", () => {
-            const MODEL_URL = "../faceAPI/models";
-            const DEMO_INTRO_MS = 4000;
-            const DEMO_LOOP_COUNT = 3;
-            const CLEAR_SCORE = 0.82;
-            const CLEAR_SCORE_BY_EXPRESSION = {
-                fearful: 0.72,
-                disgusted: 0.76
+        window.addEventListener("load", async () => {
+            const stripJsonComments = (source) => {
+                let result = "";
+                let inString = false;
+                let escaped = false;
+
+                for (let index = 0; index < source.length; index += 1) {
+                    const character = source[index];
+                    const nextCharacter = source[index + 1];
+
+                    if (inString) {
+                        result += character;
+                        if (escaped) {
+                            escaped = false;
+                        } else if (character === "\\") {
+                            escaped = true;
+                        } else if (character === '"') {
+                            inString = false;
+                        }
+                        continue;
+                    }
+
+                    if (character === '"') {
+                        inString = true;
+                        result += character;
+                        continue;
+                    }
+
+                    if (character === "/" && nextCharacter === "/") {
+                        while (index < source.length && source[index] !== "\n") index += 1;
+                        result += "\n";
+                        continue;
+                    }
+
+                    result += character;
+                }
+                return result;
             };
-            const CLEAR_HOLD_MS = 3000;
-            const LEVEL_UP_MS = 4000;
-            const COACH_TIP_MS = 5000;
-            const COACH_STATUS_TIP_MS = 8000;
-            const COACH_TIMER_TIP_MS = 9000;
-            const COACH_FACE_TIP_MS = 10 * 1000;
-            const FINAL_RELOAD_MS = 30 * 1000;
-            const PARTICIPANT_ABSENCE_MS = 60 * 1000;
-            const CHALLENGE_ATTEMPT_MS = 60 * 1000;
-            const MAX_CHALLENGE_ATTEMPTS = 3;
-            const PAUSE_TITLE = "休憩中...";
-            const PAUSE_TEXT = "少し休んで、表情筋の強張りをほぐしましょう";
-            const SCORE_SEGMENT_COUNT = 10;
-            const SAMPLE_VIDEO_DIR = "samplevideo";
-            const ARCHIVE_DIR = "training/archives";
-            const SCORE_MESSAGES = {
-                clear: "かなり好ましい表情です！そのままキープしてください。",
-                improving: "だんだん好ましい表情に近づいています！",
-                low: "好ましい表情ではありません"
-            };
-            const LEVEL_CLEAR_MESSAGES = {
-                neutral: "3秒キープでクリアになります。\nその調子で頑張りましょう。",
-                happy: "素敵な笑顔ですね。とても好印象です。",
-                surprised: "素晴らしい驚きの表現です。\nしっかりと目や口を開くことがポイントです。",
-                angry: "素晴らしい怒りの表現です。\n怒りは、大袈裟に表現するくらいがちょうどいいのかもしれません",
-                sad: "悲しみがよく伝わる表情です。\n思わず慰めたくなるような素晴らしい表現力です。",
-                fearful: "緊張感が伝わる素晴らしい恐れの表現ができています。",
-                disgusted: "素晴らしいです。相手にしっかり伝わる嫌悪感の表現ができています。"
-            };
-            const EXPRESSION_KEYS = ["happy", "surprised", "angry", "sad", "fearful", "disgusted", "neutral"];
-            const CONFUSION_CREDIT = {
-                fearful: { angry: 0.32, sad: 0.44 },
-                disgusted: { angry: 0.28, sad: 0.08 }
-            };
-            const TARGETS = {
-                happy: { label: "喜び", vector: { happy: 0.82, surprised: 0.08, angry: 0, sad: 0, fearful: 0, disgusted: 0, neutral: 0.10 } },
-                surprised: { label: "驚き", vector: { happy: 0.08, surprised: 0.74, angry: 0, sad: 0, fearful: 0.10, disgusted: 0, neutral: 0.08 } },
-                angry: { label: "怒り", vector: { happy: 0, surprised: 0.02, angry: 0.78, sad: 0.04, fearful: 0, disgusted: 0.08, neutral: 0.08 } },
-                sad: { label: "悲しみ", vector: { happy: 0, surprised: 0, angry: 0.04, sad: 0.78, fearful: 0.06, disgusted: 0, neutral: 0.12 } },
-                fearful: { label: "恐怖", vector: { happy: 0, surprised: 0.02, angry: 0.18, sad: 0.34, fearful: 0.38, disgusted: 0.02, neutral: 0.06 } },
-                disgusted: { label: "嫌悪", vector: { happy: 0, surprised: 0.02, angry: 0.22, sad: 0.04, fearful: 0.02, disgusted: 0.58, neutral: 0.12 } },
-                neutral: { label: "無表情", vector: { happy: 0.02, surprised: 0.02, angry: 0.02, sad: 0.02, fearful: 0.02, disgusted: 0.02, neutral: 0.88 } }
-            };
-            const LEVELS = [
-                { level: 0, key: "neutral" },
-                { level: 1, key: "happy" },
-                { level: 2, key: "surprised" },
-                { level: 3, key: "angry" },
-                { level: 4, key: "sad" },
-                { level: 5, key: "fearful" },
-                { level: 6, key: "disgusted" }
-            ];
+
+            let config;
+            try {
+                const response = await fetch("./config.jsonc", { cache: "no-store" });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                config = JSON.parse(stripJsonComments(await response.text()));
+            } catch (error) {
+                console.error("training/config.jsonc を読み込めませんでした。", error);
+                window.alert("設定ファイルを読み込めません。ローカルサーバーを起動してください。");
+                return;
+            }
+
+            const MODEL_URL = config.paths.modelUrl;
+            const DEMO_INTRO_MS = config.timingMs.demoIntro;
+            const DEMO_LOOP_COUNT = config.training.demoLoopCount;
+            const CLEAR_SCORE = config.training.clearScore;
+            const CLEAR_SCORE_BY_EXPRESSION = config.training.clearScoreByExpression;
+            const CLEAR_HOLD_MS = config.timingMs.clearHold;
+            const LEVEL_UP_MS = config.timingMs.levelUp;
+            const COACH_TIP_MS = config.timingMs.coachTip;
+            const COACH_STATUS_TIP_MS = config.timingMs.coachStatusTip;
+            const COACH_TIMER_TIP_MS = config.timingMs.coachTimerTip;
+            const COACH_FACE_TIP_MS = config.timingMs.coachFaceTip;
+            const FINAL_RELOAD_MS = config.timingMs.finalReload;
+            const PARTICIPANT_ABSENCE_MS = config.timingMs.participantAbsence;
+            const CHALLENGE_ATTEMPT_MS = config.timingMs.challengeAttempt;
+            const MAX_CHALLENGE_ATTEMPTS = config.training.maxChallengeAttempts;
+            const PAUSE_TITLE = config.pause.title;
+            const PAUSE_TEXT = config.pause.text;
+            const SCORE_SEGMENT_COUNT = config.training.scoreSegmentCount;
+            const SAMPLE_VIDEO_DIR = config.sampleVideos.directory;
+            const SCORE_MESSAGES = config.scoreMessages;
+            const LEVEL_CLEAR_MESSAGES = config.levelClearMessages;
+            const EXPRESSION_KEYS = config.expressionKeys;
+            const CONFUSION_CREDIT = config.confusionCredit;
+            const TARGETS = config.targets;
+            const LEVELS = config.levels;
             const videoFiles = (...names) => {
-                const extensions = ["mp4", "webm", "mov"];
-                return names.flatMap((name) => extensions.map((extension) => `${name}.${extension}`));
+                return names.flatMap((name) => config.sampleVideos.extensions.map((extension) => `${name}.${extension}`));
             };
-            const SAMPLE_VIDEO_CANDIDATES = {
-                happy: ["01_happy_100.mov", ...videoFiles("happy", "喜び", "joy")],
-                surprised: ["05_surprised_100.mov", ...videoFiles("surprised", "驚き", "surprise")],
-                angry: ["03_angry_99.mov", ...videoFiles("angry", "怒り", "anger")],
-                sad: ["02_sad_100.mov", ...videoFiles("sad", "悲しみ")],
-                fearful: ["04_fearful_85.mov", ...videoFiles("fearful", "恐れ", "fear")],
-                disgusted: ["06_disgusted_99.mov", ...videoFiles("disgusted", "嫌悪", "disgust")],
-                neutral: ["00_natural.mov", ...videoFiles("neutral", "無表情")]
-            };
+            const SAMPLE_VIDEO_CANDIDATES = Object.fromEntries(
+                Object.entries(config.sampleVideos.items).map(([key, item]) => [
+                    key,
+                    [item.preferred, ...videoFiles(...item.aliases)]
+                ])
+            );
 
             const $ = (id) => document.getElementById(id);
             const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, Number(value || 0)));
-            const detectOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
+            const detectOptions = new faceapi.TinyFaceDetectorOptions(config.training.detector);
 
             const demoPanel = $("demoPanel");
             const demoVideo = $("demoVideo");
             const demoPlaceholder = $("demoPlaceholder");
             const demoIntroOverlay = $("demoIntroOverlay");
+            const demoIntroPart = $("demoIntroPart");
             const demoIntroTitle = $("demoIntroTitle");
             const demoIntroText = $("demoIntroText");
             const viewer = document.querySelector(".viewer");
@@ -1076,6 +1107,7 @@
             const levelUpProgress = $("levelUpProgress");
             const levelUpProgressFill = $("levelUpProgressFill");
             const challengeIntroOverlay = $("challengeIntroOverlay");
+            const challengeIntroPart = $("challengeIntroPart");
             const challengeIntroTitle = $("challengeIntroTitle");
             const challengeIntroText = $("challengeIntroText");
             const scoreBar = $("scoreBar");
@@ -1127,6 +1159,10 @@
             let levelUpTimer = 0;
             let recordingEnabled = false;
             let archiveSessionName = "";
+            let recordingFileCount = 0;
+            let recordingFileNumber = 0;
+            let recordedFiles = [];
+            let recordingArchiveDownloaded = false;
             let mediaRecorder = null;
             let recordedChunks = [];
             let recordingLevel = null;
@@ -1169,7 +1205,9 @@
                 fill.style.width = `${Math.round(clamp(progress) * 100)}%`;
             };
 
-            const setChallengeOverlay = (title, text) => {
+            const setChallengeOverlay = (title, text, showPart = false) => {
+                challengeIntroPart.hidden = !showPart;
+                if (showPart) challengeIntroPart.textContent = `パート${currentLevelIndex + 1}`;
                 challengeIntroTitle.textContent = title;
                 challengeIntroText.textContent = text;
                 challengeIntroOverlay.hidden = false;
@@ -1221,40 +1259,167 @@
                     pad(date.getDate())
                 ].join("-") + "_" + [
                     pad(date.getHours()),
-                    pad(date.getMinutes()),
-                    pad(date.getSeconds())
-                ].join("-");
+                    pad(date.getMinutes())
+                ].join("");
             };
 
             const safeName = (value) => String(value).replace(/[^\w\u3040-\u30ff\u3400-\u9fff-]+/g, "_");
 
             const setRecordingEnabled = (enabled) => {
-                recordingEnabled = Boolean(enabled);
-                archiveSessionName = recordingEnabled ? timestampName() : "";
+                const nextEnabled = Boolean(enabled);
+                if (nextEnabled && !recordingEnabled) {
+                    archiveSessionName = timestampName();
+                    recordingFileCount = 0;
+                    recordingFileNumber = 0;
+                    recordedFiles = [];
+                    recordingArchiveDownloaded = false;
+                }
+                recordingEnabled = nextEnabled;
+                if (!recordingEnabled) {
+                    archiveSessionName = "";
+                    recordingFileCount = 0;
+                    recordingFileNumber = 0;
+                    recordedFiles = [];
+                    recordingArchiveDownloaded = false;
+                }
                 startButton.classList.toggle("is-recording", recordingEnabled);
             };
 
-            const toggleRecordingEnabled = () => {
-                setRecordingEnabled(!recordingEnabled);
-            };
+            const toggleRecordingEnabled = () => setRecordingEnabled(!recordingEnabled);
 
             const recordingMimeType = () => {
-                const types = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
-                return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+                return config.recording.mimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
             };
 
-            const downloadRecording = (blob, level) => {
+            const recordingFilename = (level, fileNumber) => {
                 const target = targetFor(level.key);
-                const filename = `${archiveSessionName}_${safeName(`level${level.level}_${target.label}`)}.webm`;
-                const url = URL.createObjectURL(blob);
-                const anchor = document.createElement("a");
-                anchor.href = url;
-                anchor.download = filename;
-                anchor.dataset.archivePath = `${ARCHIVE_DIR}/${archiveSessionName}/${filename}`;
-                document.body.append(anchor);
-                anchor.click();
-                anchor.remove();
-                URL.revokeObjectURL(url);
+                const sequence = String(fileNumber).padStart(2, "0");
+                return `${sequence}_${safeName(`level${level.level}_${target.label}`)}.webm`;
+            };
+
+            const makeCrc32Table = () => {
+                return Uint32Array.from({ length: 256 }, (_, index) => {
+                    let value = index;
+                    for (let bit = 0; bit < 8; bit += 1) {
+                        value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+                    }
+                    return value >>> 0;
+                });
+            };
+            const crc32Table = makeCrc32Table();
+
+            const blobCrc32 = async (blob) => {
+                let crc = 0xffffffff;
+                const reader = blob.stream().getReader();
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    for (const byte of value) {
+                        crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+                    }
+                }
+                return (crc ^ 0xffffffff) >>> 0;
+            };
+
+            const zipDateTime = (date) => {
+                const year = Math.max(1980, date.getFullYear());
+                return {
+                    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+                    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2)
+                };
+            };
+
+            const createRecordingZip = async () => {
+                const encoder = new TextEncoder();
+                const localParts = [];
+                const centralEntries = [];
+                let offset = 0;
+
+                for (const file of recordedFiles) {
+                    const name = `${archiveSessionName}/${file.filename}`;
+                    const nameBytes = encoder.encode(name);
+                    const size = file.blob.size;
+                    if (size > 0xffffffff || offset + size > 0xffffffff) {
+                        throw new Error("録画データがZIPの上限（4GB）を超えています。");
+                    }
+
+                    const crc = await blobCrc32(file.blob);
+                    const stamp = zipDateTime(file.createdAt);
+                    const localHeader = new Uint8Array(30 + nameBytes.length);
+                    const localView = new DataView(localHeader.buffer);
+                    localView.setUint32(0, 0x04034b50, true);
+                    localView.setUint16(4, 20, true);
+                    localView.setUint16(6, 0x0800, true);
+                    localView.setUint16(8, 0, true);
+                    localView.setUint16(10, stamp.time, true);
+                    localView.setUint16(12, stamp.date, true);
+                    localView.setUint32(14, crc, true);
+                    localView.setUint32(18, size, true);
+                    localView.setUint32(22, size, true);
+                    localView.setUint16(26, nameBytes.length, true);
+                    localHeader.set(nameBytes, 30);
+                    localParts.push(localHeader, file.blob);
+                    centralEntries.push({ nameBytes, size, crc, stamp, offset });
+                    offset += localHeader.length + size;
+                }
+
+                const centralParts = centralEntries.map((entry) => {
+                    const header = new Uint8Array(46 + entry.nameBytes.length);
+                    const view = new DataView(header.buffer);
+                    view.setUint32(0, 0x02014b50, true);
+                    view.setUint16(4, 20, true);
+                    view.setUint16(6, 20, true);
+                    view.setUint16(8, 0x0800, true);
+                    view.setUint16(10, 0, true);
+                    view.setUint16(12, entry.stamp.time, true);
+                    view.setUint16(14, entry.stamp.date, true);
+                    view.setUint32(16, entry.crc, true);
+                    view.setUint32(20, entry.size, true);
+                    view.setUint32(24, entry.size, true);
+                    view.setUint16(28, entry.nameBytes.length, true);
+                    view.setUint32(42, entry.offset, true);
+                    header.set(entry.nameBytes, 46);
+                    return header;
+                });
+                const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+                if (offset + centralSize > 0xffffffff) {
+                    throw new Error("録画データがZIPの上限（4GB）を超えています。");
+                }
+                const end = new Uint8Array(22);
+                const endView = new DataView(end.buffer);
+                endView.setUint32(0, 0x06054b50, true);
+                endView.setUint16(8, centralEntries.length, true);
+                endView.setUint16(10, centralEntries.length, true);
+                endView.setUint32(12, centralSize, true);
+                endView.setUint32(16, offset, true);
+                return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+            };
+
+            const downloadRecordingArchive = async () => {
+                if (!recordingEnabled || recordingArchiveDownloaded || recordedFiles.length === 0) return;
+                recordingArchiveDownloaded = true;
+                try {
+                    const zip = await createRecordingZip();
+                    const url = URL.createObjectURL(zip);
+                    const anchor = document.createElement("a");
+                    anchor.href = url;
+                    anchor.download = `${archiveSessionName}.zip`;
+                    document.body.append(anchor);
+                    anchor.click();
+                    anchor.remove();
+                    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                } catch (error) {
+                    recordingArchiveDownloaded = false;
+                    console.error("録画ZIPを作成できませんでした。", error);
+                }
+            };
+
+            const saveRecording = (blob, level, fileNumber) => {
+                recordedFiles.push({
+                    blob,
+                    filename: recordingFilename(level, fileNumber),
+                    createdAt: new Date()
+                });
             };
 
             const cancelRecordingFrame = () => {
@@ -1265,6 +1430,7 @@
             const resetRecordingBuffer = () => {
                 recordedChunks = [];
                 recordingLevel = null;
+                recordingFileNumber = 0;
             };
 
             const stopChallengeRecording = () => {
@@ -1318,6 +1484,8 @@
 
                 resetRecordingBuffer();
                 recordingLevel = currentLevel();
+                recordingFileCount += 1;
+                recordingFileNumber = recordingFileCount;
                 const mimeType = recordingMimeType();
                 recordingCanvas = recordingCanvas || document.createElement("canvas");
                 syncRecordingCanvasSize();
@@ -1328,7 +1496,10 @@
                 }
 
                 try {
-                    mediaRecorder = new MediaRecorder(recordingCanvas.captureStream(30), mimeType ? { mimeType } : undefined);
+                    mediaRecorder = new MediaRecorder(
+                        recordingCanvas.captureStream(config.recording.frameRate),
+                        mimeType ? { mimeType } : undefined
+                    );
                 } catch {
                     resetRecordingBuffer();
                     return;
@@ -1340,7 +1511,7 @@
                     cancelRecordingFrame();
                     if (recordedChunks.length && recordingLevel) {
                         const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "video/webm" });
-                        downloadRecording(blob, recordingLevel);
+                        saveRecording(blob, recordingLevel, recordingFileNumber);
                     }
                     resetRecordingBuffer();
                 };
@@ -1355,7 +1526,7 @@
 
             const levelText = () => {
                 const level = currentLevel();
-                return `レベル${level.level}：${targetFor(level.key).label}`;
+                return targetFor(level.key).label;
             };
 
             const setDemoVideoSource = (key) => {
@@ -1391,8 +1562,13 @@
 
             const syncLevelCopy = () => {
                 const text = levelText();
+                const part = `part ${currentLevelIndex + 1}`;
+                demoIntroPart.hidden = false;
+                demoIntroPart.textContent = part;
                 demoIntroTitle.textContent = text;
                 demoIntroText.textContent = "まずは、お手本動画をよく見て観察しましょう。";
+                challengeIntroPart.hidden = false;
+                challengeIntroPart.textContent = part;
                 challengeIntroTitle.textContent = text;
                 challengeIntroText.textContent = challengeCopy();
             };
@@ -1416,6 +1592,7 @@
             };
 
             const setDemoOverlay = (title, text) => {
+                demoIntroPart.hidden = true;
                 demoIntroTitle.textContent = title;
                 demoIntroText.textContent = text;
                 demoPanel.classList.add("is-previewing");
@@ -1925,9 +2102,12 @@
                     if (unclearedLabels.length > 0) {
                         finalWarning.prepend(document.createElement("br"));
                     }
-                    finalReloadTimer = window.setTimeout(() => {
-                        window.location.reload();
-                    }, FINAL_RELOAD_MS);
+                    downloadRecordingArchive().finally(() => {
+                        if (finalScene.hidden) return;
+                        finalReloadTimer = window.setTimeout(() => {
+                            window.location.reload();
+                        }, FINAL_RELOAD_MS);
+                    });
                 }
             };
 
@@ -1994,7 +2174,8 @@
                 hideAssistOverlay();
                 setChallengeOverlay(
                     levelText(),
-                    challengeCopy()
+                    challengeCopy(),
+                    true
                 );
                 loadModels().catch(() => {
                     scoreTitle.textContent = "モデルを読み込めません";
