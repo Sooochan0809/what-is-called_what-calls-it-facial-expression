@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebM Expression Picker</title>
+    <script defer src="../faceAPI/face-api.min.js"></script>
+    <style>
+        :root {
+            color-scheme: light;
+            --line: #d8d8d8;
+            --muted: #666;
+            --text: #171717;
+            --bg: #fff;
+            --soft: #f6f6f6;
+            --accent: #111;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        main {
+            width: clamp(320px, calc(100vw - 32px), 1040px);
+            margin: 24px auto 40px;
+        }
+
+        h1 {
+            margin: 0 0 18px;
+            font-size: 22px;
+            font-weight: 650;
+        }
+
+        .panel {
+            display: grid;
+            gap: 14px;
+            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(120px, 160px));
+            gap: 10px;
+            align-items: end;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        input,
+        select,
+        button {
+            width: 100%;
+            min-height: 36px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--text);
+            font: inherit;
+        }
+
+        input,
+        select {
+            padding: 6px 8px;
+        }
+
+        button {
+            padding: 7px 12px;
+            cursor: pointer;
+        }
+
+        button.primary {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: #fff;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+
+        video {
+            width: 100%;
+            max-height: 56vh;
+            display: block;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #eee;
+        }
+
+        .status {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 16px;
+            align-items: center;
+            min-height: 22px;
+            color: var(--muted);
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        progress {
+            width: 160px;
+            height: 8px;
+            accent-color: #111;
+        }
+
+        .results {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .card {
+            position: relative;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .rank {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.78);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.2;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .card img {
+            width: 100%;
+            height: auto;
+            display: block;
+            background: var(--soft);
+        }
+
+        .meta {
+            display: grid;
+            gap: 5px;
+            padding: 10px;
+            font-size: 12px;
+            color: var(--muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .meta strong {
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .meta button {
+            margin-top: 4px;
+            min-height: 32px;
+        }
+
+        .empty {
+            margin-top: 16px;
+            padding: 18px;
+            border: 1px dashed var(--line);
+            border-radius: 8px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        @media (max-width: 820px) {
+            main {
+                width: clamp(320px, calc(100vw - 20px), 1040px);
+                margin-top: 12px;
+            }
+
+            .controls {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .controls label:first-child,
+            .controls button {
+                grid-column: 1 / -1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>WebM Expression Picker</h1>
+        <section class="panel">
+            <div class="controls">
+                <label>
+                    video
+                    <input id="file" type="file" accept="video/webm,video/*">
+                </label>
+                <label>
+                    emotion
+                    <select id="emotion">
+                        <option value="happy">happy</option>
+                        <option value="neutral">neutral</option>
+                        <option value="sad">sad</option>
+                        <option value="angry">angry</option>
+                        <option value="fearful">fearful</option>
+                        <option value="disgusted">disgusted</option>
+                        <option value="surprised">surprised</option>
+                    </select>
+                </label>
+                <label>
+                    images
+                    <input id="count" type="number" min="1" max="24" step="1" value="5">
+                </label>
+                <label>
+                    interval sec
+                    <input id="interval" type="number" min="0.2" max="10" step="0.1" value="0.1">
+                </label>
+                <label>
+                    min score
+                    <input id="minScore" type="number" min="0" max="1" step="0.01" value="0.7">
+                </label>
+                <button id="analyze" class="primary" type="button" disabled>analyze</button>
+            </div>
+            <video id="video" controls playsinline muted></video>
+            <div class="status">
+                <span id="message">モデルを読み込んでいます</span>
+                <progress id="progress" value="0" max="1" hidden></progress>
+                <button id="downloadAll" type="button" disabled>download all</button>
+            </div>
+        </section>
+        <div id="results" class="results"></div>
+        <div id="empty" class="empty">動画を選ぶと、指定した表情が安定して出ているフレームを抽出します。</div>
+    </main>
+
+    <script>
+        window.addEventListener("load", async () => {
+            const $ = (id) => document.getElementById(id);
+            const MODEL_URL = "../faceAPI/models";
+            const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
+            const [file, video, emotion, count, interval, minScore, analyze, progress, message, results, empty, downloadAll] =
+                ["file", "video", "emotion", "count", "interval", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll"].map($);
+            const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
+            const frameCanvas = document.createElement("canvas");
+            const frameCtx = frameCanvas.getContext("2d");
+
+            let objectUrl = "";
+            let frames = [];
+            let picks = [];
+            let token = 0;
+
+            const models = Promise.all([
+                faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+                faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+            ]);
+
+            const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+            const mean = (values) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+            const variance = (values) => {
+                const avg = mean(values);
+                return mean(values.map((value) => (value - avg) ** 2));
+            };
+            const formatTime = (seconds) => {
+                const min = Math.floor(seconds / 60);
+                const sec = (seconds - min * 60).toFixed(1).padStart(4, "0");
+                return `${min}:${sec}`;
+            };
+
+            const setStatus = (text, current = 0, total = 0) => {
+                message.textContent = text;
+                progress.hidden = !total;
+                progress.max = Math.max(1, total);
+                progress.value = current;
+            };
+
+            const seek = (time) => new Promise((resolve) => {
+                const duration = Number.isFinite(video.duration) ? video.duration : 0;
+                const target = clamp(time, 0, Math.max(0, duration - 0.04));
+                if (Math.abs(video.currentTime - target) < 0.002 && video.readyState >= 2) {
+                    requestAnimationFrame(resolve);
+                    return;
+                }
+                video.addEventListener("seeked", () => requestAnimationFrame(resolve), { once: true });
+                video.currentTime = target;
+            });
+
+            const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+            const centerOf = (points) => ({
+                x: mean(points.map((point) => point.x)),
+                y: mean(points.map((point) => point.y))
+            });
+
+            const qualityFrom = (detection) => {
+                const box = detection.detection.box;
+                const positions = detection.landmarks.positions;
+                const leftEye = centerOf(positions.slice(36, 42));
+                const rightEye = centerOf(positions.slice(42, 48));
+                const nose = positions[30];
+                const mouth = centerOf(positions.slice(48, 68));
+                const eyeDistance = Math.max(1, distance(leftEye, rightEye));
+                const faceCenterX = box.x + box.width / 2;
+                const faceCenterY = box.y + box.height / 2;
+                const videoArea = Math.max(1, video.videoWidth * video.videoHeight);
+                const faceArea = box.width * box.height / videoArea;
+                const sizeScore = clamp((faceArea - 0.035) / 0.18, 0, 1);
+                const centerOffset = Math.hypot(
+                    (faceCenterX - video.videoWidth / 2) / video.videoWidth,
+                    (faceCenterY - video.videoHeight / 2) / video.videoHeight
+                );
+                const centerScore = clamp(1 - centerOffset * 2.4, 0, 1);
+                const yawScore = clamp(1 - Math.abs(distance(nose, leftEye) - distance(nose, rightEye)) / eyeDistance * 1.8, 0, 1);
+                const rollScore = clamp(1 - Math.abs(leftEye.y - rightEye.y) / eyeDistance * 2.2, 0, 1);
+                const pitchScore = clamp(1 - Math.abs((mouth.y - nose.y) / eyeDistance - 0.55), 0, 1);
+                const frontalScore = (yawScore + rollScore + pitchScore) / 3;
+                const detectionScore = clamp(detection.detection.score, 0, 1);
+                const quality = detectionScore * 0.22 + sizeScore * 0.22 + centerScore * 0.18 + frontalScore * 0.38;
+
+                return { quality, sizeScore, centerScore, frontalScore, detectionScore, box };
+            };
+
+            const captureFrame = async (time) => {
+                await seek(time);
+                frameCanvas.width = video.videoWidth;
+                frameCanvas.height = video.videoHeight;
+                frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+                frameCtx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+                return frameCanvas.toDataURL("image/png");
+            };
+
+            const pickFrames = async (selectedEmotion, targetCount, minEmotionScore, runToken) => {
+                const candidates = frames
+                    .map((frame, index) => {
+                        const from = Math.max(0, index - 2);
+                        const to = Math.min(frames.length, index + 3);
+                        const neighbors = frames.slice(from, to);
+                        const values = neighbors.map((item) => item.expressions[selectedEmotion] || 0);
+                        const expressionScore = frame.expressions[selectedEmotion] || 0;
+                        const stabilityScore = clamp(1 - Math.sqrt(variance(values)) * 4, 0, 1);
+                        const totalScore = expressionScore * 0.48 + stabilityScore * 0.24 + frame.quality.quality * 0.28;
+                        return { ...frame, expressionScore, stabilityScore, totalScore };
+                    })
+                    .filter((frame) => frame.expressionScore >= minEmotionScore)
+                    .sort((a, b) => b.totalScore - a.totalScore);
+
+                const minGap = Math.max(0.8, Number(interval.value) * 1.8);
+                const selected = [];
+                for (const frame of candidates) {
+                    if (selected.length >= targetCount) break;
+                    if (selected.every((item) => Math.abs(item.time - frame.time) >= minGap)) selected.push(frame);
+                }
+                for (const frame of candidates) {
+                    if (selected.length >= targetCount) break;
+                    if (!selected.includes(frame)) selected.push(frame);
+                }
+
+                const captured = [];
+                for (let i = 0; i < selected.length; i++) {
+                    if (runToken !== token) return [];
+                    setStatus(`画像を書き出しています ${i + 1}/${selected.length}`, i + 1, selected.length);
+                    captured.push({
+                        ...selected[i],
+                        imageUrl: await captureFrame(selected[i].time)
+                    });
+                }
+                return captured;
+            };
+
+            const downloadDataUrl = (url, name) => {
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = name;
+                anchor.click();
+            };
+
+            const renderResults = () => {
+                results.innerHTML = "";
+                empty.hidden = picks.length > 0;
+                downloadAll.disabled = picks.length === 0;
+                const selectedEmotion = emotion.value;
+                picks.forEach((pick, index) => {
+                    const filename = `${selectedEmotion}_${String(index + 1).padStart(2, "0")}_${pick.time.toFixed(1)}s.png`;
+                    const card = document.createElement("article");
+                    card.className = "card";
+                    card.innerHTML = `
+                        <div class="rank">${index + 1}位</div>
+                        <img src="${pick.imageUrl}" alt="${selectedEmotion} frame ${index + 1}">
+                        <div class="meta">
+                            <strong>total ${pick.totalScore.toFixed(3)} / ${formatTime(pick.time)}</strong>
+                            <span>${selectedEmotion} ${pick.expressionScore.toFixed(3)} · stable ${pick.stabilityScore.toFixed(3)}</span>
+                            <span>front ${pick.quality.frontalScore.toFixed(3)} · detect ${pick.quality.detectionScore.toFixed(3)}</span>
+                            <button type="button">download</button>
+                        </div>
+                    `;
+                    card.querySelector("button").addEventListener("click", () => downloadDataUrl(pick.imageUrl, filename));
+                    results.appendChild(card);
+                });
+            };
+
+            const analyzeVideo = async () => {
+                if (!video.src || !Number.isFinite(video.duration)) return;
+                const runToken = ++token;
+                analyze.disabled = true;
+                downloadAll.disabled = true;
+                results.innerHTML = "";
+                empty.hidden = false;
+                empty.textContent = "解析中です。";
+                frames = [];
+                picks = [];
+
+                await models;
+                if (runToken !== token) return;
+                video.pause();
+                const currentTime = video.currentTime;
+                const step = clamp(Number(interval.value) || 0.5, 0.2, 10);
+                const total = Math.max(1, Math.ceil(video.duration / step));
+
+                for (let i = 0; i < total; i++) {
+                    if (runToken !== token) return;
+                    const time = Math.min(i * step, Math.max(0, video.duration - 0.04));
+                    setStatus(`解析中 ${i + 1}/${total}`, i + 1, total);
+                    await seek(time);
+                    const detection = await faceapi
+                        .detectSingleFace(video, detectorOptions)
+                        .withFaceLandmarks(true)
+                        .withFaceExpressions();
+                    if (detection) {
+                        frames.push({
+                            time,
+                            expressions: EMOTIONS.reduce((memo, key) => ({ ...memo, [key]: detection.expressions[key] || 0 }), {}),
+                            quality: qualityFrom(detection)
+                        });
+                    }
+                }
+
+                const targetCount = clamp(Math.round(Number(count.value) || 8), 1, 24);
+                picks = await pickFrames(emotion.value, targetCount, clamp(Number(minScore.value) || 0, 0, 1), runToken);
+                await seek(currentTime);
+                if (runToken !== token) return;
+
+                renderResults();
+                empty.textContent = picks.length
+                    ? ""
+                    : "条件に合うフレームがありませんでした。min scoreを下げるか、別の表情を選んでください。";
+                setStatus(`${frames.length} frames analyzed / ${picks.length} images`, 0, 0);
+                analyze.disabled = false;
+            };
+
+            file.addEventListener("change", () => {
+                if (!file.files[0]) return;
+                token += 1;
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                objectUrl = URL.createObjectURL(file.files[0]);
+                video.src = objectUrl;
+                frames = [];
+                picks = [];
+                results.innerHTML = "";
+                empty.hidden = false;
+                empty.textContent = "動画を読み込みました。analyzeを押してください。";
+                setStatus(file.files[0].name, 0, 0);
+                analyze.disabled = false;
+                downloadAll.disabled = true;
+            });
+
+            analyze.addEventListener("click", analyzeVideo);
+            downloadAll.addEventListener("click", async () => {
+                const selectedEmotion = emotion.value;
+                downloadAll.disabled = true;
+                picks.forEach((pick, index) => {
+                    const filename = `${selectedEmotion}_${String(index + 1).padStart(2, "0")}_${pick.time.toFixed(1)}s.png`;
+                    setTimeout(() => downloadDataUrl(pick.imageUrl, filename), index * 180);
+                });
+                setTimeout(() => {
+                    downloadAll.disabled = picks.length === 0;
+                }, Math.max(300, picks.length * 180));
+            });
+
+            try {
+                await models;
+                setStatus("動画を選択してください", 0, 0);
+            } catch (error) {
+                console.error(error);
+                setStatus("モデルの読み込みに失敗しました", 0, 0);
+            }
+        });
+    </script>
+</body>
+
+</html>
