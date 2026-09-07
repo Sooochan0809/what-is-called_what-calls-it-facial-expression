@@ -1044,6 +1044,8 @@
                 frameId: null
             };
             focusSequenceState = state;
+            // 平均合成時の実効不透明度を開始待機中も維持し、暗転を防ぐ。
+            setFocusSequenceRestingFrame(state);
             renderControls();
             state.frameId = requestAnimationFrame((timestamp) => tickFocusSequence(timestamp, state));
             return {
