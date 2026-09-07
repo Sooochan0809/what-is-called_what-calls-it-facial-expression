@@ -33,6 +33,7 @@
         const clearButton = document.getElementById("clearButton");
         const stage = document.getElementById("stage");
         const stageImageArea = document.getElementById("stageImageArea");
+        const stageLayerGroup = document.getElementById("stageLayerGroup");
         const embeddedOutputCanvas = document.getElementById("embeddedOutputCanvas");
         const cropSelection = document.getElementById("cropSelection");
         const cropToggleButton = document.getElementById("cropToggleButton");
@@ -44,6 +45,7 @@
         const cropShowButton = document.getElementById("cropShowButton");
         const monoToggleButton = document.getElementById("monoToggleButton");
         const averageBlendToggleButton = document.getElementById("averageBlendToggleButton");
+        const blendModeSelect = document.getElementById("blendModeSelect");
         const alignToggleButton = document.getElementById("alignToggleButton");
         const hierarchyToggleButton = document.getElementById("hierarchyToggleButton");
         const hierarchyIntervalControl = document.getElementById("hierarchyIntervalControl");
@@ -66,6 +68,7 @@
         let alignmentReferenceId = null;
         let monochromeEnabled = true;
         let averageBlendEnabled = false;
+        let blendMode = "normal";
         let runtimeActive = true;
         let autoRandomFrameId = null;
         let lastAutoRandomTime = 0;
@@ -95,6 +98,7 @@
         };
         let devicePixelRatioQuery = null;
         let devicePixelRatioListener = null;
+        const blendBufferCanvas = document.createElement("canvas");
 
         const createId = () => {
             if (crypto.randomUUID) return crypto.randomUUID();
@@ -712,6 +716,7 @@
             media.style.width = `${layer.width}px`;
             media.style.height = `${layer.height}px`;
             media.style.opacity = opacity;
+            media.style.mixBlendMode = blendMode;
             media.style.transformOrigin = "0 0";
             media.style.transform = `matrix(${transform.a}, ${transform.b}, ${transform.c}, ${transform.d}, ${transform.e}, ${transform.f})`;
             media.classList.toggle("is-monochrome", monochromeEnabled);
@@ -767,14 +772,23 @@
         }
 
         function drawOverlayLayers(ctx, transforms, offset = { x: 0, y: 0 }) {
+            ensureCanvasSize(blendBufferCanvas, ctx.canvas.width, ctx.canvas.height);
+            const blendCtx = blendBufferCanvas.getContext("2d");
+            blendCtx.setTransform(1, 0, 0, 1, 0, 0);
+            blendCtx.globalAlpha = 1;
+            blendCtx.globalCompositeOperation = "source-over";
+            blendCtx.filter = "none";
+            blendCtx.clearRect(0, 0, blendBufferCanvas.width, blendBufferCanvas.height);
+
             layers.slice().reverse().forEach((layer, drawIndex) => {
                 const transform = transforms.get(layer.id);
                 if (!transform || !layer.image) return;
 
-                ctx.save();
-                ctx.globalAlpha = getOverlayOpacity(layer, drawIndex);
-                ctx.filter = monochromeEnabled ? "grayscale(1)" : "none";
-                ctx.setTransform(
+                blendCtx.save();
+                blendCtx.globalAlpha = getOverlayOpacity(layer, drawIndex);
+                blendCtx.globalCompositeOperation = blendMode === "plus-lighter" ? "lighter" : blendMode === "normal" ? "source-over" : blendMode;
+                blendCtx.filter = monochromeEnabled ? "grayscale(1)" : "none";
+                blendCtx.setTransform(
                     transform.a,
                     transform.b,
                     transform.c,
@@ -782,9 +796,17 @@
                     transform.e - offset.x,
                     transform.f - offset.y
                 );
-                ctx.drawImage(layer.image, 0, 0, layer.width, layer.height);
-                ctx.restore();
+                blendCtx.drawImage(layer.image, 0, 0, layer.width, layer.height);
+                blendCtx.restore();
             });
+
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = "source-over";
+            ctx.filter = "none";
+            ctx.drawImage(blendBufferCanvas, 0, 0);
+            ctx.restore();
         }
 
         function crossfadeHierarchy(snapshot) {
@@ -1484,6 +1506,7 @@
             return {
                 layerCount: layers.length,
                 hasMedia: layers.length > 0,
+                blendMode,
                 focusSequenceSlots: createFocusSequenceSlots().map((id, index) => id ? index + 1 : null).filter(Boolean)
             };
         }
@@ -1810,11 +1833,11 @@
             const transforms = getAlignedTransforms();
             updateStageImageArea(transforms);
             const activeLayerIds = new Set(layers.map((layer) => layer.id));
-            stage.querySelectorAll(".stageLayer").forEach((media) => {
+            stageLayerGroup.querySelectorAll(".stageLayer").forEach((media) => {
                 if (!activeLayerIds.has(media.dataset.layerId)) media.remove();
             });
             layers.slice().reverse().forEach((layer, drawIndex) => {
-                stage.appendChild(createStageMedia(
+                stageLayerGroup.appendChild(createStageMedia(
                     layer,
                     transforms.get(layer.id),
                     getOverlayOpacity(layer, drawIndex)
@@ -2067,6 +2090,7 @@
             clearButton.disabled = layers.length === 0;
             syncToggleButton(monoToggleButton, monochromeEnabled);
             syncToggleButton(averageBlendToggleButton, averageBlendEnabled);
+            blendModeSelect.value = blendMode;
             syncToggleButton(alignToggleButton, alignmentEnabled);
             syncToggleButton(hierarchyToggleButton, hierarchyShuffleEnabled);
             hierarchyIntervalControl.hidden = !hierarchyShuffleEnabled;
@@ -2106,6 +2130,11 @@
         averageBlendToggleButton.addEventListener("click", () => {
             averageBlendEnabled = !averageBlendEnabled;
             render();
+        });
+
+        blendModeSelect.addEventListener("change", () => {
+            blendMode = blendModeSelect.value;
+            renderStage();
         });
 
         alignToggleButton.addEventListener("click", () => {

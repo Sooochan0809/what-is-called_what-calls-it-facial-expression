@@ -36,7 +36,8 @@
         }
 
         button,
-        input {
+        input,
+        select {
             font: inherit;
         }
 
@@ -127,6 +128,14 @@
             display: none;
         }
 
+        .stageLayerGroup {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            isolation: isolate;
+            pointer-events: none;
+        }
+
         .stageControls {
             position: absolute;
             top: 10px;
@@ -157,7 +166,8 @@
         }
 
         .hierarchyIntervalControl,
-        .focusSequenceControls {
+        .focusSequenceControls,
+        .blendModeControl {
             display: grid;
             grid-template-columns: auto 48px auto;
             gap: 5px;
@@ -170,7 +180,8 @@
         }
 
         .hierarchyIntervalControl input,
-        .focusSequenceControls input {
+        .focusSequenceControls input,
+        .blendModeControl select {
             min-width: 0;
             width: 48px;
             height: 26px;
@@ -179,6 +190,15 @@
             border-radius: 5px;
             background: #fff;
             color: var(--ink);
+        }
+
+        .blendModeControl {
+            grid-template-columns: auto minmax(100px, 1fr);
+        }
+
+        .blendModeControl select {
+            width: 118px;
+            padding: 0 4px;
         }
 
         .hierarchyIntervalControl[hidden],
@@ -548,11 +568,32 @@
             <section class="stageWrap" aria-label="プレビュー">
                 <div class="stage" id="stage">
                     <div class="stageImageArea" id="stageImageArea" hidden></div>
+                    <div class="stageLayerGroup" id="stageLayerGroup"></div>
                     <canvas id="embeddedOutputCanvas" hidden></canvas>
                     <div class="cropSelection" id="cropSelection" hidden></div>
                     <div class="stageControls">
-                        <button class="stageToggleButton cropToggleButton is-off" id="cropToggleButton" type="button"
-                            aria-pressed="false">トリミング</button>
+                        <label class="blendModeControl">
+                            <span>合成</span>
+                            <select id="blendModeSelect" aria-label="画像レイヤーの合成モード">
+                                <option value="normal">normal</option>
+                                <option value="multiply">multiply</option>
+                                <option value="darken">darken</option>
+                                <option value="color-burn">color-burn</option>
+                                <option value="screen">screen</option>
+                                <option value="lighten">lighten</option>
+                                <option value="color-dodge">color-dodge</option>
+                                <option value="overlay">overlay</option>
+                                <option value="soft-light">soft-light</option>
+                                <option value="hard-light">hard-light</option>
+                                <option value="difference">difference</option>
+                                <option value="exclusion">exclusion</option>
+                                <option value="hue">hue</option>
+                                <option value="saturation">saturation</option>
+                                <option value="color">color</option>
+                                <option value="luminosity">luminosity</option>
+                                <option value="plus-lighter">plus-lighter</option>
+                            </select>
+                        </label>
                         <button class="stageToggleButton monoToggleButton" id="monoToggleButton" type="button"
                             aria-pressed="true">モノクロ</button>
                         <button class="stageToggleButton averageBlendToggleButton is-off" id="averageBlendToggleButton"
@@ -578,8 +619,11 @@
                             <input id="focusSequenceDurationInput" type="number" min="0.1" step="0.1" value="3"
                                 inputmode="decimal" aria-label="一枚演出の切替時間（秒）">
                             <span>秒</span>
-                            <button class="focusSequenceRunButton" id="focusSequenceRunButton" type="button">今すぐ実行</button>
+                            <button class="focusSequenceRunButton" id="focusSequenceRunButton"
+                                type="button">今すぐ実行</button>
                         </div>
+                        <button class="stageToggleButton cropToggleButton is-off" id="cropToggleButton" type="button"
+                            aria-pressed="false">トリミング</button>
                     </div>
                 </div>
             </section>
@@ -606,8 +650,8 @@
                 <div class="footerMain">
                     <label class="randomOpacityTotalControl" id="randomOpacityTotalControl" hidden>
                         <span>合算</span>
-                        <input id="randomOpacityTotalInput" type="number" min="0" step="0.1"
-                            inputmode="decimal" placeholder="自由" aria-label="ランダム不透明度の合算値">
+                        <input id="randomOpacityTotalInput" type="number" min="0" step="0.1" inputmode="decimal"
+                            placeholder="自由" aria-label="ランダム不透明度の合算値">
                         <span>％</span>
                     </label>
                     <button class="textButton" id="clearButton" type="button" disabled>クリア</button>
@@ -615,7 +659,7 @@
             </div>
         </aside>
     </div>
-    <script type="module" src="app.js?v=20260907-7"></script>
+    <script type="module" src="app.js?v=20260908-1"></script>
 </body>
 
 </html>
