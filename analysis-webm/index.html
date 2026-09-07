@@ -269,10 +269,6 @@
         <section class="panel">
             <div class="controls">
                 <label>
-                    images / video
-                    <input id="count" type="number" min="1" max="24" step="1" value="5">
-                </label>
-                <label>
                     interval sec
                     <input id="interval" type="number" min="0.1" max="10" step="0.1" value="0.1">
                 </label>
@@ -287,7 +283,7 @@
             <div class="status">
                 <span id="message">モデルを読み込んでいます</span>
                 <progress id="progress" value="0" max="1" hidden></progress>
-                <button id="downloadAll" type="button" disabled>download all</button>
+                <button id="downloadAll" type="button" disabled>download zip</button>
             </div>
         </section>
         <div id="results" class="results"></div>
@@ -318,12 +314,17 @@
             const IRIS_UP_RANGE = 0.06;
             const ANALYSIS_CONCURRENCY = 6;
             const QUALITY_PLAYBACK_RATE = 2.5;
+            const DETERMINISTIC_RETRY_STEP = 0.1;
+            const DETERMINISTIC_RETRY_COARSE_STEP = 0.2;
+            const DETERMINISTIC_RETRY_RADIUS = 0.1;
+            const DETERMINISTIC_RETRY_ANCHORS = 5;
+            const DETERMINISTIC_RETRY_CANDIDATES = 30;
             const MEDIAPIPE_INPUT_WIDTH = 320;
             const FACE_API_INPUT_WIDTH = 320;
             const AUTO_JOBS_URL = "/api/uploads/jobs";
             const AUTO_COMPLETE_URL = "/api/uploads/complete";
-            const [video, count, interval, minScore, analyze, progress, message, results, empty, downloadAll, videoSlots] =
-                ["video", "count", "interval", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll", "videoSlots"].map($);
+            const [video, interval, minScore, analyze, progress, message, results, empty, downloadAll, videoSlots] =
+                ["video", "interval", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll", "videoSlots"].map($);
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
             let token = 0;
             let modelsReady = false;
@@ -543,6 +544,10 @@
 
                 // 短い顔検出失敗も、完全閉眼でランドマークが取れなかった可能性があるため同じ区間として扱う。
                 for (const sample of analyzedSamples) {
+                    if (run.length && sample.time - run[run.length - 1].time > sampleStep * 1.5) {
+                        unstableRuns.push(run);
+                        run = [];
+                    }
                     if (sample.missing || isClosed(sample)) {
                         run.push(sample);
                     } else {
@@ -715,17 +720,116 @@
                 anchor.click();
             };
 
+            const crc32Table = Array.from({ length: 256 }, (_, index) => {
+                let value = index;
+                for (let bit = 0; bit < 8; bit++) {
+                    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+                }
+                return value >>> 0;
+            });
+            const crc32 = (bytes) => {
+                let value = 0xffffffff;
+                for (const byte of bytes) value = crc32Table[(value ^ byte) & 0xff] ^ (value >>> 8);
+                return (value ^ 0xffffffff) >>> 0;
+            };
+            const concatBytes = (parts) => {
+                const output = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+                let offset = 0;
+                for (const part of parts) {
+                    output.set(part, offset);
+                    offset += part.length;
+                }
+                return output;
+            };
+            const createStoredZip = async (files) => {
+                const encoder = new TextEncoder();
+                const localParts = [];
+                const centralParts = [];
+                let localOffset = 0;
+                const now = new Date();
+                const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+                const dosDate = ((Math.max(1980, now.getFullYear()) - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+
+                for (const file of files) {
+                    const nameBytes = encoder.encode(file.name);
+                    const response = await fetch(file.url);
+                    const data = new Uint8Array(await response.arrayBuffer());
+                    const checksum = crc32(data);
+                    const localHeader = new Uint8Array(30);
+                    const localView = new DataView(localHeader.buffer);
+                    localView.setUint32(0, 0x04034b50, true);
+                    localView.setUint16(4, 20, true);
+                    localView.setUint16(6, 0x0800, true);
+                    localView.setUint16(8, 0, true);
+                    localView.setUint16(10, dosTime, true);
+                    localView.setUint16(12, dosDate, true);
+                    localView.setUint32(14, checksum, true);
+                    localView.setUint32(18, data.length, true);
+                    localView.setUint32(22, data.length, true);
+                    localView.setUint16(26, nameBytes.length, true);
+                    localParts.push(localHeader, nameBytes, data);
+
+                    const centralHeader = new Uint8Array(46);
+                    const centralView = new DataView(centralHeader.buffer);
+                    centralView.setUint32(0, 0x02014b50, true);
+                    centralView.setUint16(4, 20, true);
+                    centralView.setUint16(6, 20, true);
+                    centralView.setUint16(8, 0x0800, true);
+                    centralView.setUint16(10, 0, true);
+                    centralView.setUint16(12, dosTime, true);
+                    centralView.setUint16(14, dosDate, true);
+                    centralView.setUint32(16, checksum, true);
+                    centralView.setUint32(20, data.length, true);
+                    centralView.setUint32(24, data.length, true);
+                    centralView.setUint16(28, nameBytes.length, true);
+                    centralView.setUint32(42, localOffset, true);
+                    centralParts.push(centralHeader, nameBytes);
+                    localOffset += localHeader.length + nameBytes.length + data.length;
+                }
+
+                const centralDirectory = concatBytes(centralParts);
+                const end = new Uint8Array(22);
+                const endView = new DataView(end.buffer);
+                endView.setUint32(0, 0x06054b50, true);
+                endView.setUint16(8, files.length, true);
+                endView.setUint16(10, files.length, true);
+                endView.setUint32(12, centralDirectory.length, true);
+                endView.setUint32(16, localOffset, true);
+                return new Blob([...localParts, centralDirectory, end], { type: "application/zip" });
+            };
+            const downloadBlob = (blob, name) => {
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = name;
+                anchor.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            };
+
             const rankedPicksByEmotion = () => EMOTIONS.map((emotion) => ({
                 emotion,
                 entries: slots
                     .filter((slot) => slot.emotion === emotion)
                     .flatMap((slot) => slot.picks.map((pick) => ({ slot, pick })))
                     .sort((a, b) => b.pick.totalScore - a.pick.totalScore)
-                    .map((entry, index) => ({ ...entry, rank: index + 1 }))
+                    .slice(0, 1)
+                    .map((entry) => ({ ...entry, rank: 1 }))
             })).filter((group) => group.entries.length);
 
-            const rankedFilename = ({ emotion, rank, slot, pick }) =>
-                `${emotion}_${String(rank).padStart(2, "0")}_video${slot.number}_${pick.time.toFixed(1)}s.png`;
+            const rankedFilename = ({ emotion, pick }) => {
+                const emotionNumber = EMOTIONS.indexOf(emotion) + 1;
+                const emotionLabel = emotion === "happy" ? " happy" : emotion;
+                return `p${emotionNumber}_${emotionLabel}_${pick.expressionScore.toFixed(3)}.png`;
+            };
+            const downloadTopPicksZip = async (zipName) => {
+                const files = rankedPicksByEmotion().map(({ emotion, entries }) => ({
+                    name: rankedFilename({ emotion, pick: entries[0].pick }),
+                    url: entries[0].pick.imageUrl
+                }));
+                if (!files.length) throw new Error("ZIPに保存できる画像がありません");
+                downloadBlob(await createStoredZip(files), zipName);
+                return files.length;
+            };
 
             const renderResults = () => {
                 results.innerHTML = "";
@@ -738,12 +842,12 @@
                     const group = document.createElement("section");
                     group.className = "result-group";
                     group.innerHTML = `
-                        <h2>${emotion} · videos 1 / 2 / 3 統合順位</h2>
+                        <h2>${emotion} · videos 1 / 2 / 3 の1位</h2>
                         <div class="result-grid"></div>
                     `;
                     const grid = group.querySelector(".result-grid");
                     entries.forEach(({ slot, pick, rank }) => {
-                        const filename = rankedFilename({ emotion, rank, slot, pick });
+                        const filename = rankedFilename({ emotion, pick });
                         const card = document.createElement("article");
                         card.className = "card";
                         card.innerHTML = `
@@ -966,7 +1070,7 @@
                 }
 
                 const blinkCount = markBlinkFrames(samples, frames, step);
-                const targetCount = clamp(Math.round(Number(count.value) || 8), 1, 24);
+                const targetCount = 1;
                 const shortlistedFrames = shortlistFrames(frames, slot.emotion, step);
                 const candidateBatchSize = Math.max(15, targetCount * 3);
                 const minEmotionScore = clamp(Number(minScore.value) || 0, 0, 1);
@@ -1004,6 +1108,131 @@
                     runToken,
                     true
                 );
+            };
+
+            // 高負荷時の再生コールバックでは短い表情を飛ばすことがある。
+            // 感情全体が0枚の場合だけ固定時刻へseekし、負荷に依存しない候補列を作り直す。
+            const analyzeDeterministicRetrySlot = async (context, slot, selectedSlots, runToken) => {
+                const { video: contextVideo, faceLandmarker } = context;
+                const slotLabel = `${slot.emotion} ${slot.number}`;
+                const frames = [];
+                const samples = [];
+                slot.status.textContent = "固定時刻で再走査しています";
+                await loadSlotVideo(context, slot);
+                if (runToken !== token) return;
+
+                contextVideo.pause();
+                await faceLandmarker.setOptions({ runningMode: "IMAGE" });
+                const maxTime = Math.max(0, contextVideo.duration - 0.04);
+                const coarseTotal = Math.max(1, Math.ceil(contextVideo.duration / DETERMINISTIC_RETRY_COARSE_STEP));
+                const analyzedTimes = new Set();
+                const analyzeFixedTime = async (time, phase, index, total) => {
+                    if (runToken !== token) return;
+                    const fixedTime = Math.round(clamp(time, 0, maxTime) * 1000) / 1000;
+                    const timeKey = fixedTime.toFixed(3);
+                    if (analyzedTimes.has(timeKey)) return;
+                    analyzedTimes.add(timeKey);
+                    slot.status.textContent = `固定時刻再走査 ${phase} ${index + 1}/${total}`;
+                    setStatus(`${slotLabel} (${selectedSlots.indexOf(slot) + 1}/${selectedSlots.length}) · 固定時刻 ${phase} ${index + 1}/${total}`, index + 1, total);
+                    await seek(context, fixedTime);
+                    const inferenceSource = drawInferenceFrame(context, MEDIAPIPE_INPUT_WIDTH);
+                    const mediaPipeResult = faceLandmarker.detect(inferenceSource);
+                    const blendshapes = blendshapeMapFrom(mediaPipeResult);
+                    const mediaPipeLandmarks = mediaPipeResult.faceLandmarks[0];
+                    const hasMediaPipeFace = Boolean(mediaPipeLandmarks) && Object.keys(blendshapes).length > 0;
+                    const sample = {
+                        time: fixedTime,
+                        missing: !hasMediaPipeFace,
+                        blinkLeft: blendshapes.eyeBlinkLeft || 0,
+                        blinkRight: blendshapes.eyeBlinkRight || 0,
+                        blinkScore: Math.min(blendshapes.eyeBlinkLeft || 0, blendshapes.eyeBlinkRight || 0),
+                        gazeScore: hasMediaPipeFace ? gazeScoreFrom(mediaPipeLandmarks) : null
+                    };
+                    samples.push(sample);
+                    if (hasMediaPipeFace) {
+                        frames.push({
+                            ...sample,
+                            expressionProxy: expressionProxyFrom(blendshapes),
+                            quality: qualityFromMediaPipe(mediaPipeLandmarks)
+                        });
+                    }
+                };
+
+                for (let i = 0; i < coarseTotal; i++) {
+                    await analyzeFixedTime(i * DETERMINISTIC_RETRY_COARSE_STEP, "1/2", i, coarseTotal);
+                }
+
+                const rankedCoarseFrames = [...frames]
+                    .sort((a, b) =>
+                        (b.expressionProxy[slot.emotion] || 0) - (a.expressionProxy[slot.emotion] || 0)
+                    );
+                const anchors = [
+                    ...rankedCoarseFrames.slice(0, DETERMINISTIC_RETRY_ANCHORS),
+                    ...rankedCoarseFrames
+                        .filter((frame) =>
+                            Number.isFinite(frame.gazeScore) && frame.gazeScore >= GAZE_SCORE_THRESHOLD
+                        )
+                        .slice(0, DETERMINISTIC_RETRY_ANCHORS)
+                ].filter((frame, index, items) =>
+                    items.findIndex((item) => item.time === frame.time) === index
+                );
+                const refinementTimes = anchors.flatMap((anchor) => {
+                    const times = [];
+                    for (
+                        let offset = -DETERMINISTIC_RETRY_RADIUS;
+                        offset <= DETERMINISTIC_RETRY_RADIUS + 0.001;
+                        offset += DETERMINISTIC_RETRY_STEP
+                    ) {
+                        times.push(anchor.time + offset);
+                    }
+                    return times;
+                });
+                for (let i = 0; i < refinementTimes.length; i++) {
+                    await analyzeFixedTime(refinementTimes[i], "2/2", i, refinementTimes.length);
+                }
+
+                samples.sort((a, b) => a.time - b.time);
+                frames.sort((a, b) => a.time - b.time);
+                const blinkCount = markBlinkFrames(samples, frames, DETERMINISTIC_RETRY_STEP);
+                const targetCount = 1;
+                const deterministicShortlist = shortlistFrames(frames, slot.emotion, DETERMINISTIC_RETRY_STEP);
+                const gazePrioritizedFrames = [
+                    ...deterministicShortlist.filter((frame) =>
+                        Number.isFinite(frame.gazeScore) && frame.gazeScore >= GAZE_SCORE_THRESHOLD
+                    ),
+                    ...deterministicShortlist.filter((frame) =>
+                        !Number.isFinite(frame.gazeScore) || frame.gazeScore < GAZE_SCORE_THRESHOLD
+                    )
+                ];
+                slot.frameCount = frames.length;
+                slot.blinkCount = blinkCount;
+                slot.analysisState = {
+                    shortlistedFrames: gazePrioritizedFrames.slice(0, DETERMINISTIC_RETRY_CANDIDATES),
+                    candidateBatchSize: Math.max(15, targetCount * 3),
+                    minEmotionScore: clamp(Number(minScore.value) || 0, 0, 1),
+                    targetCount,
+                    finalFrames: [],
+                    analyzedCandidateCount: 0
+                };
+
+                while (
+                    runToken === token &&
+                    slot.picks.length === 0 &&
+                    slot.analysisState.analyzedCandidateCount < slot.analysisState.shortlistedFrames.length
+                ) {
+                    await analyzeNextCandidateBatch(
+                        context,
+                        slot,
+                        selectedSlots.indexOf(slot),
+                        selectedSlots.length,
+                        runToken,
+                        true
+                    );
+                }
+                if (runToken === token) {
+                    slot.status.textContent = resultStatusFor(slot);
+                    renderResults();
+                }
             };
 
             const analyzeAll = async () => {
@@ -1094,9 +1323,33 @@
                         );
                     }
 
+                    // 通常候補をすべて調べても感情全体が0枚なら、動画1→2→3の順に
+                    // 固定時刻で再走査する。どれか1本で取得できた時点で残りは省略する。
+                    const deterministicRetryGroups = EMOTIONS
+                        .map((emotion) => selectedSlots.filter((slot) => slot.emotion === emotion))
+                        .filter((emotionSlots) =>
+                            emotionSlots.length > 0 && emotionSlots.every((slot) => slot.picks.length === 0)
+                        );
+                    for (const emotionSlots of deterministicRetryGroups) {
+                        for (const slot of emotionSlots) {
+                            if (runToken !== token || emotionSlots.some((item) => item.picks.length > 0)) break;
+                            try {
+                                await analyzeDeterministicRetrySlot(
+                                    analysisContexts[0],
+                                    slot,
+                                    selectedSlots,
+                                    runToken
+                                );
+                            } catch (error) {
+                                console.error(error);
+                                slot.status.textContent = "固定時刻再走査に失敗しました";
+                            }
+                        }
+                    }
+
                     const totalFrames = selectedSlots.reduce((sum, slot) => sum + slot.frameCount, 0);
                     const totalBlinks = selectedSlots.reduce((sum, slot) => sum + slot.blinkCount, 0);
-                    const totalImages = selectedSlots.reduce((sum, slot) => sum + slot.picks.length, 0);
+                    const totalImages = rankedPicksByEmotion().length;
                     empty.textContent = totalImages
                         ? ""
                         : "条件に合うフレームがありませんでした。min scoreを下げてください。";
@@ -1165,6 +1418,8 @@
                             loadAutomaticJob(job);
                             const completed = await analyzeAll();
                             if (!completed) throw new Error(`${job.zipName}の自動解析が中断されました`);
+                            const sourceFolderName = job.zipName.replace(/\.zip$/i, "");
+                            await downloadTopPicksZip(`ac-${sourceFolderName}.zip`);
                             await acknowledgeAutomaticJob(job);
                         } catch (error) {
                             console.error(error);
@@ -1202,20 +1457,16 @@
             };
 
             analyze.addEventListener("click", analyzeAll);
-            downloadAll.addEventListener("click", () => {
-                const downloads = rankedPicksByEmotion().flatMap(({ emotion, entries }) =>
-                    entries.map(({ slot, pick, rank }) => ({
-                        pick,
-                        filename: rankedFilename({ emotion, rank, slot, pick })
-                    }))
-                );
+            downloadAll.addEventListener("click", async () => {
                 downloadAll.disabled = true;
-                downloads.forEach(({ pick, filename }, index) => {
-                    setTimeout(() => downloadDataUrl(pick.imageUrl, filename), index * 180);
-                });
-                setTimeout(() => {
-                    downloadAll.disabled = downloads.length === 0;
-                }, Math.max(300, downloads.length * 180));
+                try {
+                    await downloadTopPicksZip("ac-manual-analysis.zip");
+                } catch (error) {
+                    console.error(error);
+                    setStatus(error.message || "ZIPの作成に失敗しました", 0, 0);
+                } finally {
+                    downloadAll.disabled = rankedPicksByEmotion().length === 0;
+                }
             });
 
             try {
