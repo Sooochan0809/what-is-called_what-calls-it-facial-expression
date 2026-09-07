@@ -10,6 +10,7 @@
         const FACE_MODEL_URL = new URL("models/face_landmarker.task", MEDIAPIPE_MODULE_URL).href;
         const MEDIAPIPE_WASM_URL = new URL("wasm", MEDIAPIPE_MODULE_URL).href.replace(/\/$/, "");
         const REMOVE_ICON_SRC = "./img/icon-clause.png";
+        const OUTPUT_BACKGROUND_COLOR = "#000";
         const DISPLAY_PARAMS = new URLSearchParams(window.location.search);
         const DISPLAY_SOURCE_ID = DISPLAY_PARAMS.get("sourceId");
         const DISPLAY_CANVAS_ID = DISPLAY_PARAMS.get("canvasId")?.trim() || null;
@@ -738,7 +739,7 @@
             canvas.style.width = `${width}px`;
             canvas.style.height = `${height}px`;
 
-            ctx.fillStyle = "#fff";
+            ctx.fillStyle = OUTPUT_BACKGROUND_COLOR;
             ctx.fillRect(area.left, area.top, area.right - area.left, area.bottom - area.top);
             drawOverlayLayers(ctx, transforms);
 
@@ -1139,7 +1140,7 @@
             ctx.globalAlpha = 1;
             ctx.filter = "none";
             ctx.clearRect(0, 0, width, height);
-            ctx.fillStyle = "#fff";
+            ctx.fillStyle = OUTPUT_BACKGROUND_COLOR;
             ctx.fillRect(0, 0, width, height);
 
             const transforms = getAlignedTransforms();
@@ -1273,7 +1274,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background: #fff;
+            background: ${OUTPUT_BACKGROUND_COLOR};
         }
         canvas {
             display: block;
