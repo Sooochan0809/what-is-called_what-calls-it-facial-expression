@@ -336,6 +336,13 @@
                     一枚演出クロスフェード（秒）
                     <input id="focusFadeSeconds" type="number" min="0.1" step="0.1" value="3">
                 </label>
+                <label>
+                    戻り方
+                    <select id="focusReturnMode">
+                        <option value="direct">一括で戻す</option>
+                        <option value="layered">1枚ずつ重ねて戻す</option>
+                    </select>
+                </label>
             </div>
             <p class="status" id="focusStatus">停止中</p>
             <div class="buttons">
@@ -370,7 +377,7 @@
             const VIEWER_COUNT = 3;
             const DEFAULT_CANVAS_ID = "canvas";
             const DEFAULT_SOURCE_FPS = 60;
-            const SOURCE_EDITOR_VERSION = "20260907-3";
+            const SOURCE_EDITOR_VERSION = "20260907-4";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
             const STANDBY_POLL_INTERVAL = 250;
@@ -422,6 +429,7 @@
                 focusIntervalMinutes: document.querySelector("#focusIntervalMinutes"),
                 focusHoldSeconds: document.querySelector("#focusHoldSeconds"),
                 focusFadeSeconds: document.querySelector("#focusFadeSeconds"),
+                focusReturnMode: document.querySelector("#focusReturnMode"),
                 focusStatus: document.querySelector("#focusStatus"),
                 focusAutomationToggle: document.querySelector("#focusAutomationToggle"),
                 focusRunNow: document.querySelector("#focusRunNow"),
@@ -624,7 +632,8 @@
                 return {
                     intervalMs: numberInRange(elements.focusIntervalMinutes, 3, 0.1) * 60 * 1000,
                     holdMs: numberInRange(elements.focusHoldSeconds, 1, 0) * 1000,
-                    crossfadeMs: numberInRange(elements.focusFadeSeconds, 3, 0.1) * 1000
+                    crossfadeMs: numberInRange(elements.focusFadeSeconds, 3, 0.1) * 1000,
+                    returnMode: elements.focusReturnMode.value === "layered" ? "layered" : "direct"
                 };
             }
 
@@ -705,13 +714,16 @@
                 clearTimeout(timer);
                 timer = null;
                 clearFocusAutomationTimer();
-                const { holdMs, crossfadeMs } = getFocusSettings();
+                const { holdMs, crossfadeMs, returnMode } = getFocusSettings();
                 const startAt = Date.now() + FOCUS_START_LEAD_TIME;
-                const endAt = startAt + FOCUS_SLOT_COUNT * (crossfadeMs + holdMs) + crossfadeMs;
+                const returnDuration = returnMode === "layered"
+                    ? (FOCUS_SLOT_COUNT - 1) * crossfadeMs
+                    : crossfadeMs;
+                const endAt = startAt + FOCUS_SLOT_COUNT * (crossfadeMs + holdMs) + returnDuration;
                 updateSourceActivity(targets.map(({ sourceId }) => sourceId));
 
                 targets.forEach(({ sourceWindow }) => {
-                    sourceWindow.scheduleOverlapFocusSequence({ startAt, holdMs, crossfadeMs });
+                    sourceWindow.scheduleOverlapFocusSequence({ startAt, holdMs, crossfadeMs, returnMode });
                 });
                 focusRunActive = true;
                 renderFocusControls();

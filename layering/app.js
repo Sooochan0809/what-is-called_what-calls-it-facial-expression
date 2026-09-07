@@ -955,6 +955,42 @@
             applyFocusSequenceOpacities(opacityById);
         }
 
+        function applyLayeredReturnBoundary(state, opacityById, boundary) {
+            const upperId = state.slots[boundary];
+            const lowerId = state.slots[boundary - 1];
+            if (upperId && upperId === state.finalFocusedId) {
+                opacityById.set(upperId, state.displayOpacities.get(upperId) ?? 0);
+            }
+            if (lowerId) {
+                opacityById.set(lowerId, state.displayOpacities.get(lowerId) ?? 0);
+            }
+            if (boundary === 1) {
+                state.layerIds.forEach((id) => {
+                    if (!opacityById.has(id) || opacityById.get(id) === 0) {
+                        opacityById.set(id, state.displayOpacities.get(id) ?? 0);
+                    }
+                });
+            }
+        }
+
+        function setFocusSequenceLayeredReturnFrame(state, boundary, progress) {
+            const fromOpacities = new Map(state.layerIds.map((id) => [
+                id,
+                id === state.finalFocusedId ? 1 : 0
+            ]));
+            for (let completedBoundary = 6; completedBoundary > boundary; completedBoundary -= 1) {
+                applyLayeredReturnBoundary(state, fromOpacities, completedBoundary);
+            }
+            const toOpacities = new Map(fromOpacities);
+            applyLayeredReturnBoundary(state, toOpacities, boundary);
+            const easedProgress = easeFocusSequenceProgress(progress);
+            applyFocusSequenceOpacities(new Map(state.layerIds.map((id) => {
+                const fromOpacity = fromOpacities.get(id) ?? 0;
+                const toOpacity = toOpacities.get(id) ?? 0;
+                return [id, fromOpacity + (toOpacity - fromOpacity) * easedProgress];
+            })));
+        }
+
         function finishFocusSequence(state) {
             if (focusSequenceState !== state) return;
             restoreFocusSequenceSnapshot(state);
@@ -997,7 +1033,17 @@
                 elapsed -= state.holdDuration;
             }
 
-            if (elapsed < state.duration) {
+            state.finalFocusedId = currentId;
+            if (state.returnMode === "layered") {
+                for (let boundary = 6; boundary >= 1; boundary -= 1) {
+                    if (elapsed < state.duration) {
+                        setFocusSequenceLayeredReturnFrame(state, boundary, elapsed / state.duration);
+                        state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
+                        return;
+                    }
+                    elapsed -= state.duration;
+                }
+            } else if (elapsed < state.duration) {
                 setFocusSequenceTransitionFrame(state, currentId, null, elapsed / state.duration);
                 state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
                 return;
@@ -1036,6 +1082,7 @@
                 holdDuration: Number.isFinite(requestedHoldMs)
                     ? Math.max(0, requestedHoldMs)
                     : FOCUS_SEQUENCE_HOLD_DURATION,
+                returnMode: options.returnMode === "layered" ? "layered" : "direct",
                 startAt: Number(options.startAt) || Date.now(),
                 snapshot: new Map(layers.map((layer) => [layer.id, {
                     opacity: layer.opacity,
@@ -1050,7 +1097,9 @@
             state.frameId = requestAnimationFrame((timestamp) => tickFocusSequence(timestamp, state));
             return {
                 startAt: state.startAt,
-                endAt: state.startAt + state.slots.length * (state.duration + state.holdDuration) + state.duration,
+                endAt: state.startAt
+                    + state.slots.length * (state.duration + state.holdDuration)
+                    + (state.returnMode === "layered" ? state.slots.length - 1 : 1) * state.duration,
                 populatedSlots: state.slots.map((id, index) => id ? index + 1 : null).filter(Boolean)
             };
         }
