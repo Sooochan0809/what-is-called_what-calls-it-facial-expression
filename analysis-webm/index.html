@@ -586,9 +586,6 @@
                 const faceCenterY = box.y + box.height / 2;
                 const sourceWidth = source.videoWidth || source.width;
                 const sourceHeight = source.videoHeight || source.height;
-                const videoArea = Math.max(1, sourceWidth * sourceHeight);
-                const faceArea = box.width * box.height / videoArea;
-                const sizeScore = clamp((faceArea - 0.035) / 0.18, 0, 1);
                 const centerOffset = Math.hypot(
                     (faceCenterX - sourceWidth / 2) / sourceWidth,
                     (faceCenterY - sourceHeight / 2) / sourceHeight
@@ -598,9 +595,8 @@
                 const rollScore = clamp(1 - Math.abs(leftEye.y - rightEye.y) / eyeDistance * 2.2, 0, 1);
                 const pitchScore = clamp(1 - Math.abs((mouth.y - nose.y) / eyeDistance - 0.55), 0, 1);
                 const frontalScore = (yawScore + rollScore + pitchScore) / 3;
-                const detectionScore = clamp(detection.detection.score, 0, 1);
-                const quality = detectionScore * 0.22 + sizeScore * 0.22 + centerScore * 0.18 + frontalScore * 0.38;
-                return { quality, sizeScore, centerScore, frontalScore, detectionScore, box };
+                const quality = centerScore * 0.3 + frontalScore * 0.7;
+                return { quality, centerScore, frontalScore, box };
             };
 
             const qualityFromMediaPipe = (positions) => {
@@ -615,20 +611,16 @@
                 const maxX = Math.max(...xs);
                 const minY = Math.min(...ys);
                 const maxY = Math.max(...ys);
-                const faceArea = Math.max(0, maxX - minX) * Math.max(0, maxY - minY);
-                const sizeScore = clamp((faceArea - 0.035) / 0.18, 0, 1);
                 const centerScore = clamp(1 - Math.hypot((minX + maxX) / 2 - 0.5, (minY + maxY) / 2 - 0.5) * 2.4, 0, 1);
                 const yawScore = clamp(1 - Math.abs(distance(nose, leftEye) - distance(nose, rightEye)) / eyeDistance * 1.8, 0, 1);
                 const rollScore = clamp(1 - Math.abs(leftEye.y - rightEye.y) / eyeDistance * 2.2, 0, 1);
                 const pitchScore = clamp(1 - Math.abs((mouth.y - nose.y) / eyeDistance - 0.55), 0, 1);
                 const frontalScore = (yawScore + rollScore + pitchScore) / 3;
-                const quality = sizeScore * 0.28 + centerScore * 0.22 + frontalScore * 0.5;
+                const quality = centerScore * 0.3 + frontalScore * 0.7;
                 return {
                     quality,
-                    sizeScore,
                     centerScore,
-                    frontalScore,
-                    detectionScore: 1
+                    frontalScore
                 };
             };
 
@@ -657,19 +649,13 @@
 
             const shortlistFrames = (analyzedFrames, selectedEmotion, sampleStep) => {
                 const candidates = analyzedFrames
-                    .filter((frame) =>
-                        !frame.blinkExcluded &&
-                        (frame.blinkScore >= BLINK_SCORE_THRESHOLD || frame.gazeScore >= GAZE_SCORE_THRESHOLD)
-                    )
+                    // 瞬きだけは時間情報が必要なため先に除外する。視線・正面度などの品質は最終判定まで使わない。
+                    .filter((frame) => !frame.blinkExcluded)
                     .map((frame) => {
                         const expressionScore = frame.expressionProxy[selectedEmotion] || 0;
-                        const gazeScore = frame.blinkScore < BLINK_SCORE_THRESHOLD ? frame.gazeScore : null;
-                        const totalScore = Number.isFinite(gazeScore)
-                            ? (expressionScore * 0.35 + frame.quality.quality * 0.30 + gazeScore * 0.17) / 0.82
-                            : (expressionScore * 0.42 + frame.quality.quality * 0.36) / 0.78;
-                        return { ...frame, proxyScore: expressionScore, proxyTotalScore: totalScore };
+                        return { ...frame, proxyScore: expressionScore };
                     })
-                    .sort((a, b) => b.proxyTotalScore - a.proxyTotalScore);
+                    .sort((a, b) => b.proxyScore - a.proxyScore);
 
                 const minGap = Math.max(0.4, sampleStep * 1.5);
                 const selected = [];
@@ -767,7 +753,7 @@
                                 <span>video ${slot.number} · ${slot.fileName}</span>
                                 <span>${emotion} ${pick.expressionScore.toFixed(3)}</span>
                                 <span>front ${pick.quality.frontalScore.toFixed(3)} · gaze ${Number.isFinite(pick.gazeScore) ? pick.gazeScore.toFixed(3) : "n/a"}</span>
-                                <span>blink ${pick.blinkScore.toFixed(3)} · detect ${pick.quality.detectionScore.toFixed(3)}</span>
+                                <span>blink ${pick.blinkScore.toFixed(3)}</span>
                                 <button type="button">download</button>
                             </div>
                         `;
