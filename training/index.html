@@ -1076,6 +1076,11 @@
             const CAPTURE_MEDIAPIPE_INTERVAL_MS = Math.max(100, Number(REALTIME_CAPTURE.mediaPipeIntervalMs) || 250);
             const CAPTURE_BLINK_THRESHOLD = clamp(REALTIME_CAPTURE.blinkThreshold ?? 0.5);
             const CAPTURE_BLINK_GUARD_MS = Math.max(0, Number(REALTIME_CAPTURE.blinkGuardMs) || 350);
+            const CAPTURE_OUTPUT_WIDTH = Math.max(10, Math.round(Number(REALTIME_CAPTURE.outputWidth) || 600));
+            const CAPTURE_OUTPUT_HEIGHT = Math.max(16, Math.round(Number(REALTIME_CAPTURE.outputHeight) || 960));
+            const CAPTURE_CROP_WIDTH_SCALE = Math.max(1, Number(REALTIME_CAPTURE.cropWidthScale) || 1.22);
+            const CAPTURE_CROP_HEIGHT_SCALE = Math.max(1, Number(REALTIME_CAPTURE.cropHeightScale) || 1.18);
+            const CAPTURE_FACE_Y_SHIFT_RATIO = Number(REALTIME_CAPTURE.faceYShiftRatio) || 0.13;
             const TARGETS = config.targets;
             const LEVELS = config.levels;
             const videoFiles = (...names) => {
@@ -1466,6 +1471,51 @@
                 x: mean(points.map((point) => point.x)),
                 y: mean(points.map((point) => point.y))
             });
+            const landmarkBounds = (positions) => {
+                if (!positions?.length) return null;
+                const bounds = positions.reduce((box, point) => ({
+                    minX: Math.min(box.minX, point.x),
+                    minY: Math.min(box.minY, point.y),
+                    maxX: Math.max(box.maxX, point.x),
+                    maxY: Math.max(box.maxY, point.y)
+                }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+                return Number.isFinite(bounds.minX) && bounds.maxX > bounds.minX && bounds.maxY > bounds.minY
+                    ? bounds
+                    : null;
+            };
+            const realtimeFaceCrop = (positions, sourceWidth, sourceHeight) => {
+                const bounds = landmarkBounds(positions);
+                if (!bounds || !sourceWidth || !sourceHeight) return null;
+
+                const targetAspect = CAPTURE_OUTPUT_WIDTH / CAPTURE_OUTPUT_HEIGHT;
+                const faceWidth = (bounds.maxX - bounds.minX) * sourceWidth;
+                const faceHeight = (bounds.maxY - bounds.minY) * sourceHeight;
+                if (faceWidth < 1 || faceHeight < 1) return null;
+
+                let cropWidth = faceWidth * CAPTURE_CROP_WIDTH_SCALE;
+                let cropHeight = faceHeight * CAPTURE_CROP_HEIGHT_SCALE;
+                if (cropWidth / cropHeight > targetAspect) {
+                    cropHeight = cropWidth / targetAspect;
+                } else {
+                    cropWidth = cropHeight * targetAspect;
+                }
+
+                const fitScale = Math.min(1, sourceWidth / cropWidth, sourceHeight / cropHeight);
+                cropWidth *= fitScale;
+                cropHeight *= fitScale;
+
+                const faceCenterX = (bounds.minX + bounds.maxX) / 2 * sourceWidth;
+                const faceCenterY = (
+                    (bounds.minY + bounds.maxY) / 2
+                    - (bounds.maxY - bounds.minY) * CAPTURE_FACE_Y_SHIFT_RATIO
+                ) * sourceHeight;
+                return {
+                    sourceX: clamp(faceCenterX - cropWidth / 2, 0, sourceWidth - cropWidth),
+                    sourceY: clamp(faceCenterY - cropHeight / 2, 0, sourceHeight - cropHeight),
+                    cropWidth,
+                    cropHeight
+                };
+            };
             const irisHorizontalRatio = (positions, cornerA, cornerB, irisCenter) => {
                 const start = positions[cornerA];
                 const end = positions[cornerB];
@@ -1603,9 +1653,21 @@
 
                     realtimeCaptureCanvas = realtimeCaptureCanvas || document.createElement("canvas");
                     realtimeCaptureContext = realtimeCaptureContext || realtimeCaptureCanvas.getContext("2d");
-                    realtimeCaptureCanvas.width = recordingCanvas.width;
-                    realtimeCaptureCanvas.height = recordingCanvas.height;
-                    realtimeCaptureContext.drawImage(recordingCanvas, 0, 0);
+                    const crop = realtimeFaceCrop(positions, recordingCanvas.width, recordingCanvas.height);
+                    if (!crop) return;
+                    realtimeCaptureCanvas.width = CAPTURE_OUTPUT_WIDTH;
+                    realtimeCaptureCanvas.height = CAPTURE_OUTPUT_HEIGHT;
+                    realtimeCaptureContext.drawImage(
+                        recordingCanvas,
+                        crop.sourceX,
+                        crop.sourceY,
+                        crop.cropWidth,
+                        crop.cropHeight,
+                        0,
+                        0,
+                        CAPTURE_OUTPUT_WIDTH,
+                        CAPTURE_OUTPUT_HEIGHT
+                    );
                     const totalScore = (
                         expressionScore * 0.42 + quality.quality * 0.23 + gazeScore * 0.15
                     ) / 0.8;

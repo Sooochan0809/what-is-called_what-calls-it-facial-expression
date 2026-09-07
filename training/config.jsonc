@@ -65,7 +65,14 @@
     "mediaPipeIntervalMs": 250,
     // 瞬き判定と、その前後を候補から外す時間
     "blinkThreshold": 0.5,
-    "blinkGuardMs": 350
+    "blinkGuardMs": 350,
+    // 1位画像の出力サイズ（10:16）
+    "outputWidth": 600,
+    "outputHeight": 960,
+    // 顔の外接範囲に加える余白と、切り抜き中心の上方向補正
+    "cropWidthScale": 1.22,
+    "cropHeightScale": 1.18,
+    "faceYShiftRatio": 0.13
   },
 
   // 挑戦中の映像記録設定
