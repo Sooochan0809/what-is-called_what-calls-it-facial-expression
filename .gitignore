@@ -1,6 +1,8 @@
 # Logs
 logs
 *.log
+__pycache__/
+*.pyc
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -149,4 +151,6 @@ vite.config.ts.timestamp-*
 # macOS files
 .DS_Store
 
-analysis-webm/uploads/2026-0906-164545.zip
+analysis-webm/uploads/*.zip
+analysis-webm/uploads/*/
+analysis-webm/uploads/.processed-zips.json
