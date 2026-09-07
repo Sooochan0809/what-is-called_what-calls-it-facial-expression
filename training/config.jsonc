@@ -8,11 +8,11 @@
   // 画面遷移や判定に使う時間（単位: ミリ秒）
   "timingMs": {
     // お手本開始前の説明表示時間
-    "demoIntro": 4000,
+    "demoIntro": 3000,
     // 合格スコアを維持する時間
     "clearHold": 3000,
     // 結果表示から次のレベルへ移るまでの時間
-    "levelUp": 4000,
+    "levelUp": 3000,
     // 通常のコーチング説明の表示時間
     "coachTip": 5000,
     // 判定コメント説明の表示時間
@@ -26,7 +26,7 @@
     // 無操作状態を不在と判定するまでの時間
     "participantAbsence": 60000,
     // 1回の挑戦の制限時間
-    "challengeAttempt": 60000
+    "challengeAttempt": 30000
   },
 
   // トレーニングと表情判定の設定
@@ -34,11 +34,11 @@
     // お手本動画を繰り返す回数
     "demoLoopCount": 3,
     // 基本のクリア判定スコア（0〜1）
-    "clearScore": 0.82,
+    "clearScore": 0.80,
     // 表情ごとに上書きするクリア判定スコア
     "clearScoreByExpression": {
-      "fearful": 0.72,
-      "disgusted": 0.76
+      "fearful": 0.70,
+      "disgusted": 0.70
     },
     // 1レベルで挑戦できる最大回数
     "maxChallengeAttempts": 3,
@@ -49,8 +49,23 @@
       // 検出に使う入力画像サイズ
       "inputSize": 224,
       // 顔として採用する最低信頼度（0〜1）
-      "scoreThreshold": 0.45
+      "scoreThreshold": 0.40
     }
+  },
+
+  // 体験中に解析済み画像を選出する設定
+  "realtimeCapture": {
+    // 通常感情を画像候補にするface-api感情値
+    "emotionMinScore": 0.6,
+    // 恐怖だけ候補不足時に使用する感情値
+    "fearfulMinScore": 0.5,
+    // カメラ目線として採用する最低値
+    "gazeMinScore": 0.5,
+    // 高感情フレームに対するMediaPipe確認の最短間隔
+    "mediaPipeIntervalMs": 250,
+    // 瞬き判定と、その前後を候補から外す時間
+    "blinkThreshold": 0.5,
+    "blinkGuardMs": 350
   },
 
   // 挑戦中の映像記録設定
