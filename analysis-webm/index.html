@@ -274,7 +274,7 @@
                 </label>
                 <label>
                     interval sec
-                    <input id="interval" type="number" min="0.2" max="10" step="0.1" value="0.1">
+                    <input id="interval" type="number" min="0.1" max="10" step="0.1" value="0.1">
                 </label>
                 <label>
                     min score
@@ -308,6 +308,7 @@
             const BLINK_SCORE_THRESHOLD = 0.5;
             const GAZE_SCORE_THRESHOLD = 0.6;
             const GAZE_DEVIATION_MULTIPLIER = 1.5;
+            const FEARFUL_FALLBACK_MIN_SCORE = 0.5;
             const IRIS_HORIZONTAL_TOLERANCE = 0.08;
             const IRIS_HORIZONTAL_RANGE = 0.22;
             const IRIS_VERTICAL_CENTER = -0.05;
@@ -784,7 +785,19 @@
                 contextVideo.load();
             });
 
-            const analyzeNextCandidateBatch = async (context, slot, slotIndex, slotTotal, runToken) => {
+            const resultStatusFor = (slot) => {
+                const base = `${slot.frameCount} frames · ${slot.blinkCount} blinks · ${slot.picks.length} images`;
+                if (slot.picks.length || !slot.analysisState?.finalFrames.length) return base;
+                const emotionScores = slot.analysisState.finalFrames.map((frame) => frame.expressions[slot.emotion] || 0);
+                const gazeEligibleScores = slot.analysisState.finalFrames
+                    .filter((frame) => frame.blinkScore >= BLINK_SCORE_THRESHOLD || frame.gazeScore >= GAZE_SCORE_THRESHOLD)
+                    .map((frame) => frame.expressions[slot.emotion] || 0);
+                const maxEmotion = Math.max(0, ...emotionScores);
+                const maxGazeEligible = Math.max(0, ...gazeEligibleScores);
+                return `${base} · max ${maxEmotion.toFixed(3)} / gaze-pass ${maxGazeEligible.toFixed(3)}`;
+            };
+
+            const analyzeNextCandidateBatch = async (context, slot, slotIndex, slotTotal, runToken, allowEmotionFallback = false) => {
                 const state = slot.analysisState;
                 if (!state || state.analyzedCandidateCount >= state.shortlistedFrames.length) return false;
                 const { faceLandmarker } = context;
@@ -828,17 +841,20 @@
                 }
 
                 state.analyzedCandidateCount = batchEnd;
+                const effectiveMinEmotionScore = allowEmotionFallback && slot.emotion === "fearful"
+                    ? Math.min(state.minEmotionScore, FEARFUL_FALLBACK_MIN_SCORE)
+                    : state.minEmotionScore;
                 slot.picks = await pickFrames(
                     context,
                     state.finalFrames.sort((a, b) => a.time - b.time),
                     slot.emotion,
                     state.targetCount,
-                    state.minEmotionScore,
+                    effectiveMinEmotionScore,
                     runToken,
                     slotLabel
                 );
                 if (runToken !== token) return false;
-                slot.status.textContent = `${slot.frameCount} frames · ${slot.blinkCount} blinks · ${slot.picks.length} images`;
+                slot.status.textContent = resultStatusFor(slot);
                 renderResults();
                 return slot.picks.length > 0;
             };
@@ -857,7 +873,7 @@
                 await faceLandmarker.setOptions({ runningMode: "VIDEO" });
                 context.mediaPipeTimestamp = 0;
                 contextVideo.pause();
-                const step = clamp(Number(interval.value) || 0.5, 0.2, 10);
+                const step = clamp(Number(interval.value) || 0.5, 0.1, 10);
                 const total = Math.max(1, Math.ceil(contextVideo.duration / step));
 
                 const analyzeCurrentFrame = (time) => {
@@ -972,7 +988,7 @@
                     runToken
                 );
                 if (runToken !== token) return;
-                slot.status.textContent = `${frames.length} frames · ${blinkCount} blinks · ${slot.picks.length} images`;
+                slot.status.textContent = resultStatusFor(slot);
                 renderResults();
             };
 
@@ -985,7 +1001,8 @@
                     slot,
                     selectedSlots.indexOf(slot),
                     selectedSlots.length,
-                    runToken
+                    runToken,
+                    true
                 );
             };
 
@@ -1211,7 +1228,7 @@
                 console.error(error);
                 setStatus("モデルの読み込みに失敗しました", 0, 0);
             }
-            setInterval(pollAutomaticJobs, 1000);
+            setInterval(pollAutomaticJobs, 3000);
             void pollAutomaticJobs();
         });
     </script>
