@@ -305,6 +305,26 @@
             render();
         }
 
+        async function addMediaUrls(files) {
+            const downloadedFiles = await Promise.all(Array.from(files || []).map(async (item) => {
+                if (!item || typeof item.url !== "string") {
+                    throw new Error("画像URLが不正です");
+                }
+                const response = await fetch(item.url, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`${item.name || item.url}を取得できませんでした`);
+                }
+                const blob = await response.blob();
+                if (!blob.type.startsWith("image/")) {
+                    throw new Error(`${item.name || item.url}は画像ではありません`);
+                }
+                const name = item.name || decodeURIComponent(new URL(item.url, window.location.href).pathname.split("/").pop());
+                return new File([blob], name, { type: blob.type });
+            }));
+            await addFiles(downloadedFiles);
+            return downloadedFiles.length;
+        }
+
         function setOpacity(id, value) {
             const layerIndex = layers.findIndex((layer) => layer.id === id);
             if (layerIndex === -1) return;
@@ -1202,6 +1222,7 @@
             targetWindow.getOverlapOutputStats = getOutputStats;
             targetWindow.getOverlapSourceState = getSourceState;
             targetWindow.clearOverlapSource = clearLayers;
+            targetWindow.addOverlapMediaUrls = addMediaUrls;
             targetWindow.setOverlapRuntimeActive = setRuntimeActive;
         }
 

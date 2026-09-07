@@ -347,11 +347,14 @@
             const VIEWER_COUNT = 3;
             const DEFAULT_CANVAS_ID = "canvas";
             const DEFAULT_SOURCE_FPS = 60;
-            const SOURCE_EDITOR_VERSION = "20260906-1";
+            const SOURCE_EDITOR_VERSION = "20260907-1";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
             const STANDBY_POLL_INTERVAL = 250;
             const INITIAL_SOURCE_IDS = ["source-1", "source-2", "source-3"];
+            const AUTO_JOBS_URL = "/api/layering/uploads/jobs";
+            const AUTO_COMPLETE_URL = "/api/layering/uploads/complete";
+            const AUTO_UPLOAD_POLL_INTERVAL = 1000;
 
             const sources = [
                 { id: "source-1", name: "source1", canvasId: DEFAULT_CANVAS_ID },
@@ -374,6 +377,10 @@
             let selectedEditorSourceId = sources[0].id;
             let standbySourceId = "source-4";
             let pendingStandbySourceId = null;
+            let autoUploadBusy = false;
+            const autoUploadQueue = [];
+            const queuedAutoUploadIds = new Set();
+            const reportedAutoUploadErrors = new Set();
 
             const elements = {
                 sourceList: document.querySelector("#sourceList"),
@@ -594,6 +601,80 @@
 
             function sourceHasMedia(sourceId) {
                 return Boolean(getSourceState(sourceId)?.hasMedia);
+            }
+
+            function findEmptySource() {
+                const preferredOrder = [
+                    sourceById.get(standbySourceId),
+                    ...sources.filter((source) => source.id !== standbySourceId)
+                ].filter(Boolean);
+                return preferredOrder.find((source) => {
+                    const state = getSourceState(source.id);
+                    return state && !state.hasMedia;
+                }) || null;
+            }
+
+            async function acknowledgeAutomaticUpload(job) {
+                const response = await fetch(AUTO_COMPLETE_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: job.id })
+                });
+                if (!response.ok) throw new Error(`${job.zipName}の完了状態を保存できませんでした`);
+            }
+
+            async function runAutomaticUploads() {
+                if (autoUploadBusy || !autoUploadQueue.length) return;
+                autoUploadBusy = true;
+                try {
+                    while (autoUploadQueue.length) {
+                        const job = autoUploadQueue[0];
+                        if (!job.assignment) {
+                            const target = findEmptySource();
+                            if (!target) break;
+                            const targetWindow = getSourceWindow(target.id);
+                            if (typeof targetWindow?.addOverlapMediaUrls !== "function") break;
+                            const count = await targetWindow.addOverlapMediaUrls(job.files || []);
+                            if (!count) throw new Error(`${job.zipName}に画像がありません`);
+                            job.assignment = { sourceId: target.id, sourceName: target.name, count };
+                            updateSourceActivity([target.id]);
+                        }
+                        await acknowledgeAutomaticUpload(job);
+                        autoUploadQueue.shift();
+                        log(`${job.zipName}の${job.assignment.count}枚を${job.assignment.sourceName}へ自動追加しました`);
+                    }
+                } catch (error) {
+                    log(`ZIP自動追加エラー: ${error.message}`);
+                } finally {
+                    autoUploadBusy = false;
+                }
+            }
+
+            async function pollAutomaticUploads() {
+                try {
+                    const response = await fetch(AUTO_JOBS_URL, { cache: "no-store" });
+                    if (!response.ok) return;
+                    const data = await response.json();
+                    for (const job of data.jobs || []) {
+                        if (!job?.id || queuedAutoUploadIds.has(job.id)) continue;
+                        queuedAutoUploadIds.add(job.id);
+                        autoUploadQueue.push(job);
+                    }
+                    const currentErrorKeys = new Set();
+                    for (const error of data.errors || []) {
+                        const key = `${error.zipName}:${error.message}`;
+                        currentErrorKeys.add(key);
+                        if (reportedAutoUploadErrors.has(key)) continue;
+                        reportedAutoUploadErrors.add(key);
+                        log(`ZIP読込エラー: ${error.zipName} · ${error.message}`);
+                    }
+                    for (const key of reportedAutoUploadErrors) {
+                        if (!currentErrorKeys.has(key)) reportedAutoUploadErrors.delete(key);
+                    }
+                    await runAutomaticUploads();
+                } catch {
+                    // 通常の静的サーバーで開いた場合も、既存の手動操作は継続する。
+                }
             }
 
             function clearSource(sourceId) {
@@ -1290,6 +1371,7 @@
             setInterval(refreshSourceStatuses, 1500);
             setInterval(renderFpsMonitor, 1000);
             setInterval(appendFpsLog, 5000);
+            setInterval(pollAutomaticUploads, AUTO_UPLOAD_POLL_INTERVAL);
 
             renderSources();
             renderAssignments();
@@ -1297,6 +1379,7 @@
             appendFpsLog();
             createSourceEditors();
             log("管理画面を起動しました");
+            void pollAutomaticUploads();
         })();
     </script>
 </body>
