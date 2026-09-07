@@ -3,6 +3,9 @@
         const DEFAULT_RANDOM_OPACITY_MAX = 0.3;
         const DEFAULT_HIERARCHY_SHUFFLE_INTERVAL = 5000;
         const HIERARCHY_CROSSFADE_DURATION = 10000;
+        const DEFAULT_FOCUS_SEQUENCE_INTERVAL = 3 * 60 * 1000;
+        const DEFAULT_FOCUS_SEQUENCE_DURATION = 3000;
+        const FOCUS_SEQUENCE_HOLD_DURATION = 1000;
         const AUTO_RANDOM_FPS = 60;
         const DEFAULT_OUTPUT_FPS = 60;
         const MEDIAPIPE_MODULE_URL = new URL("../module/mediapipe/", import.meta.url);
@@ -45,6 +48,11 @@
         const hierarchyToggleButton = document.getElementById("hierarchyToggleButton");
         const hierarchyIntervalControl = document.getElementById("hierarchyIntervalControl");
         const hierarchyIntervalInput = document.getElementById("hierarchyIntervalInput");
+        const focusSequenceToggleButton = document.getElementById("focusSequenceToggleButton");
+        const focusSequenceControls = document.getElementById("focusSequenceControls");
+        const focusSequenceIntervalInput = document.getElementById("focusSequenceIntervalInput");
+        const focusSequenceDurationInput = document.getElementById("focusSequenceDurationInput");
+        const focusSequenceRunButton = document.getElementById("focusSequenceRunButton");
         const layerList = document.getElementById("layerList");
         const layersContainer = document.getElementById("layers");
         const randomOpacityTotalControl = document.getElementById("randomOpacityTotalControl");
@@ -65,6 +73,11 @@
         let hierarchyShuffleInterval = DEFAULT_HIERARCHY_SHUFFLE_INTERVAL;
         let nextHierarchyShuffleTime = 0;
         let activeHierarchyTransition = null;
+        let focusSequenceEnabled = false;
+        let focusSequenceInterval = DEFAULT_FOCUS_SEQUENCE_INTERVAL;
+        let focusSequenceDuration = DEFAULT_FOCUS_SEQUENCE_DURATION;
+        let focusSequenceTimerId = null;
+        let focusSequenceState = null;
         let randomOpacityTotal = null;
         let cropEnabled = false;
         let cropDrag = null;
@@ -288,6 +301,7 @@
         }
 
         async function addFiles(fileList) {
+            cancelFocusSequence(true);
             const mediaFiles = Array.from(fileList).filter((file) => (
                 file.type.startsWith("image/") || file.type.startsWith("video/")
             ));
@@ -327,6 +341,7 @@
         }
 
         function setOpacity(id, value) {
+            cancelFocusSequence(true);
             const layerIndex = layers.findIndex((layer) => layer.id === id);
             if (layerIndex === -1) return;
             getLayerOpacitySetting(layerIndex).opacity = Number(value) / 100;
@@ -405,6 +420,7 @@
         }
 
         function setRandomOpacityTotal(value) {
+            cancelFocusSequence(true);
             if (String(value).trim() === "") {
                 randomOpacityTotal = null;
                 layers = layers.map((layer) => ({
@@ -427,6 +443,7 @@
         }
 
         function setAutoRandom(id, enabled) {
+            cancelFocusSequence(true);
             layers = layers.map((layer) => {
                 if (layer.id !== id) return layer;
                 const opacity = enabled
@@ -451,6 +468,7 @@
         }
 
         function setRandomOpacityBounds(id, minValue, maxValue) {
+            cancelFocusSequence(true);
             let min = Number(minValue);
             let max = Number(maxValue);
             if (!Number.isFinite(min) || !Number.isFinite(max)) return;
@@ -492,6 +510,7 @@
         }
 
         function removeLayer(id) {
+            cancelFocusSequence(true);
             disposeLayer(layers.find((layer) => layer.id === id));
             layers = layers.filter((layer) => layer.id !== id);
             applyLayerOpacitySettings();
@@ -504,6 +523,7 @@
 
         function reorderByDrop(targetId) {
             if (!draggedId || draggedId === targetId) return;
+            cancelFocusSequence(true);
 
             const draggedIndex = layers.findIndex((layer) => layer.id === draggedId);
             const targetIndex = layers.findIndex((layer) => layer.id === targetId);
@@ -668,7 +688,7 @@
         }
 
         function getOverlayOpacity(layer, drawIndex) {
-            return averageBlendEnabled ? 1 / (drawIndex + 1) : layer.opacity;
+            return averageBlendEnabled && !focusSequenceState ? 1 / (drawIndex + 1) : layer.opacity;
         }
 
         function createStageMedia(layer, transform, opacity) {
@@ -838,8 +858,214 @@
             return 1 - easedProgress;
         }
 
+        function clearFocusSequenceTimer() {
+            if (focusSequenceTimerId) clearTimeout(focusSequenceTimerId);
+            focusSequenceTimerId = null;
+        }
+
+        function restoreFocusSequenceSnapshot(state) {
+            if (!state?.snapshot) return;
+            layers = layers.map((layer) => {
+                const saved = state.snapshot.get(layer.id);
+                if (!saved) return layer;
+                return {
+                    ...layer,
+                    opacity: saved.opacity,
+                    randomTargets: { ...saved.randomTargets }
+                };
+            });
+        }
+
+        function cancelFocusSequence(restore = true) {
+            const state = focusSequenceState;
+            if (!state) return;
+            if (state.frameId) cancelAnimationFrame(state.frameId);
+            if (restore) restoreFocusSequenceSnapshot(state);
+            focusSequenceState = null;
+            renderStage();
+            renderLayerOutputs();
+            ensureAutoRandomLoop();
+        }
+
+        function applyFocusSequenceOpacities(opacityById) {
+            layers = layers.map((layer) => opacityById.has(layer.id)
+                ? { ...layer, opacity: opacityById.get(layer.id) }
+                : layer);
+            renderStage();
+            renderLayerOutputs();
+        }
+
+        function easeFocusSequenceProgress(progress) {
+            const normalized = clamp(progress, 0, 1);
+            return normalized * normalized * (3 - 2 * normalized);
+        }
+
+        function getFocusSequenceSlotNumber(name) {
+            const match = String(name || "").match(/^p([1-7])(?:[_\s-]|$)/i);
+            return match ? Number(match[1]) : null;
+        }
+
+        function getFocusSequenceScore(name) {
+            const match = String(name || "").match(/[_\s-](\d+(?:\.\d+)?)(?:\.[^.]+)$/);
+            return match ? Number(match[1]) : -Infinity;
+        }
+
+        function createFocusSequenceSlots() {
+            const slots = Array(7).fill(null);
+            layers.forEach((layer, layerIndex) => {
+                const slotNumber = getFocusSequenceSlotNumber(layer.name);
+                if (!slotNumber) return;
+                const candidate = {
+                    id: layer.id,
+                    score: getFocusSequenceScore(layer.name),
+                    layerIndex
+                };
+                const current = slots[slotNumber - 1];
+                if (!current
+                    || candidate.score > current.score
+                    || (candidate.score === current.score && candidate.layerIndex < current.layerIndex)) {
+                    slots[slotNumber - 1] = candidate;
+                }
+            });
+            return slots.map((slot) => slot?.id || null);
+        }
+
+        function setFocusSequenceRestingFrame(state) {
+            applyFocusSequenceOpacities(new Map(state.displayOpacities));
+        }
+
+        function setFocusSequenceFocusedFrame(state, focusedId) {
+            if (!focusedId) {
+                setFocusSequenceRestingFrame(state);
+                return;
+            }
+            applyFocusSequenceOpacities(new Map(
+                state.layerIds.map((id) => [id, id === focusedId ? 1 : 0])
+            ));
+        }
+
+        function setFocusSequenceTransitionFrame(state, fromId, toId, progress) {
+            const easedProgress = easeFocusSequenceProgress(progress);
+            const opacityById = new Map(state.layerIds.map((id) => {
+                const restingOpacity = state.displayOpacities.get(id) ?? 0;
+                const fromOpacity = fromId ? (id === fromId ? 1 : 0) : restingOpacity;
+                const toOpacity = toId ? (id === toId ? 1 : 0) : restingOpacity;
+                return [id, fromOpacity + (toOpacity - fromOpacity) * easedProgress];
+            }));
+            applyFocusSequenceOpacities(opacityById);
+        }
+
+        function finishFocusSequence(state) {
+            if (focusSequenceState !== state) return;
+            restoreFocusSequenceSnapshot(state);
+            focusSequenceState = null;
+            render();
+            scheduleFocusSequence();
+        }
+
+        function tickFocusSequence(timestamp, state) {
+            if (focusSequenceState !== state || !runtimeActive) return;
+            let elapsed = Date.now() - state.startAt;
+            if (elapsed < 0) {
+                state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
+                return;
+            }
+
+            let currentId = null;
+            for (let index = 0; index < state.slots.length; index += 1) {
+                const targetId = state.slots[index];
+                if (elapsed < state.duration) {
+                    if (targetId) {
+                        setFocusSequenceTransitionFrame(state, currentId, targetId, elapsed / state.duration);
+                    } else if (currentId) {
+                        setFocusSequenceFocusedFrame(state, currentId);
+                    } else {
+                        setFocusSequenceRestingFrame(state);
+                    }
+                    state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
+                    return;
+                }
+                elapsed -= state.duration;
+                if (targetId) currentId = targetId;
+
+                if (elapsed < state.holdDuration) {
+                    if (currentId) setFocusSequenceFocusedFrame(state, currentId);
+                    else setFocusSequenceRestingFrame(state);
+                    state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
+                    return;
+                }
+                elapsed -= state.holdDuration;
+            }
+
+            if (elapsed < state.duration) {
+                setFocusSequenceTransitionFrame(state, currentId, null, elapsed / state.duration);
+                state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
+                return;
+            }
+
+            finishFocusSequence(state);
+        }
+
+        function startFocusSequence(options = {}) {
+            clearFocusSequenceTimer();
+            const slots = createFocusSequenceSlots();
+            if (!runtimeActive || !slots.some(Boolean)) {
+                scheduleFocusSequence();
+                return null;
+            }
+            cancelFocusSequence(true);
+            if (autoRandomFrameId) cancelAnimationFrame(autoRandomFrameId);
+            autoRandomFrameId = null;
+            lastAutoRandomTime = 0;
+            stage.querySelectorAll(".hierarchyTransitionLayer").forEach((layer) => layer.remove());
+            activeHierarchyTransition = null;
+
+            const displayOpacities = new Map(layers.map((layer, index) => [
+                layer.id,
+                getOverlayOpacity(layer, layers.length - 1 - index)
+            ]));
+            const requestedCrossfadeMs = Number(options.crossfadeMs);
+            const requestedHoldMs = Number(options.holdMs);
+            const state = {
+                layerIds: layers.map((layer) => layer.id),
+                slots,
+                displayOpacities,
+                duration: Number.isFinite(requestedCrossfadeMs)
+                    ? Math.max(100, requestedCrossfadeMs)
+                    : focusSequenceDuration,
+                holdDuration: Number.isFinite(requestedHoldMs)
+                    ? Math.max(0, requestedHoldMs)
+                    : FOCUS_SEQUENCE_HOLD_DURATION,
+                startAt: Number(options.startAt) || Date.now(),
+                snapshot: new Map(layers.map((layer) => [layer.id, {
+                    opacity: layer.opacity,
+                    randomTargets: { ...layer.randomTargets }
+                }])),
+                frameId: null
+            };
+            focusSequenceState = state;
+            renderControls();
+            state.frameId = requestAnimationFrame((timestamp) => tickFocusSequence(timestamp, state));
+            return {
+                startAt: state.startAt,
+                endAt: state.startAt + state.slots.length * (state.duration + state.holdDuration) + state.duration,
+                populatedSlots: state.slots.map((id, index) => id ? index + 1 : null).filter(Boolean)
+            };
+        }
+
+        function scheduleFocusSequence() {
+            if (
+                focusSequenceTimerId
+                || focusSequenceState
+                || !focusSequenceEnabled
+                || !runtimeActive
+                || !createFocusSequenceSlots().some(Boolean)
+            ) return;
+            focusSequenceTimerId = window.setTimeout(startFocusSequence, focusSequenceInterval);
+        }
+
         function hasActiveAutoRandomLayer() {
-            return runtimeActive && (
+            return runtimeActive && !focusSequenceState && (
                 layers.some((layer) => layer.autoRandom && getAutoRandomConfig(layer))
                 || (hierarchyShuffleEnabled && layers.length > 1)
             );
@@ -1206,11 +1432,14 @@
         function getSourceState() {
             return {
                 layerCount: layers.length,
-                hasMedia: layers.length > 0
+                hasMedia: layers.length > 0,
+                focusSequenceSlots: createFocusSequenceSlots().map((id, index) => id ? index + 1 : null).filter(Boolean)
             };
         }
 
         function clearLayers() {
+            clearFocusSequenceTimer();
+            cancelFocusSequence(false);
             layers.forEach(disposeLayer);
             layers = [];
             layerOpacitySettings = [];
@@ -1225,6 +1454,8 @@
             targetWindow.clearOverlapSource = clearLayers;
             targetWindow.addOverlapMediaUrls = addMediaUrls;
             targetWindow.setOverlapRuntimeActive = setRuntimeActive;
+            targetWindow.scheduleOverlapFocusSequence = startFocusSequence;
+            targetWindow.cancelOverlapFocusSequence = () => cancelFocusSequence(true);
         }
 
         function stopRuntimeLoops() {
@@ -1233,6 +1464,8 @@
             autoRandomFrameId = null;
             cropPopupFrameId = null;
             lastAutoRandomTime = 0;
+            clearFocusSequenceTimer();
+            cancelFocusSequence(true);
             resetOutputFpsStats();
         }
 
@@ -1249,6 +1482,7 @@
             resetOutputFpsStats();
             renderStage();
             ensureAutoRandomLoop();
+            scheduleFocusSequence();
             if (cropPopup && !cropPopup.closed && cropPopupCanvas && activeCropRect) {
                 ensureCropPopupLoop();
             }
@@ -1785,6 +2019,10 @@
             syncToggleButton(alignToggleButton, alignmentEnabled);
             syncToggleButton(hierarchyToggleButton, hierarchyShuffleEnabled);
             hierarchyIntervalControl.hidden = !hierarchyShuffleEnabled;
+            syncToggleButton(focusSequenceToggleButton, focusSequenceEnabled);
+            focusSequenceToggleButton.hidden = IS_EMBEDDED;
+            focusSequenceControls.hidden = IS_EMBEDDED || !focusSequenceEnabled;
+            focusSequenceRunButton.disabled = !createFocusSequenceSlots().some(Boolean) || Boolean(focusSequenceState);
             const hasRandomOpacityLayers = randomOpacityLayers.length > 0;
             randomOpacityTotalControl.hidden = !hasRandomOpacityLayers;
             randomOpacityTotalInput.min = String(Math.round(randomOpacityRange.min * 1000) / 10);
@@ -1799,6 +2037,7 @@
             renderLayerOutputs();
             renderControls();
             ensureAutoRandomLoop();
+            scheduleFocusSequence();
         }
 
         fileInput.addEventListener("change", async (event) => {
@@ -1841,6 +2080,40 @@
         hierarchyIntervalInput.addEventListener("change", () => {
             hierarchyIntervalInput.value = String(hierarchyShuffleInterval / 1000);
         });
+
+        focusSequenceToggleButton.addEventListener("click", () => {
+            focusSequenceEnabled = !focusSequenceEnabled;
+            clearFocusSequenceTimer();
+            if (!focusSequenceEnabled) cancelFocusSequence(true);
+            renderControls();
+            scheduleFocusSequence();
+        });
+
+        focusSequenceIntervalInput.addEventListener("input", () => {
+            const minutes = Number(focusSequenceIntervalInput.value);
+            if (Number.isFinite(minutes) && minutes > 0) {
+                focusSequenceInterval = Math.max(1000, minutes * 60 * 1000);
+                clearFocusSequenceTimer();
+                scheduleFocusSequence();
+            }
+        });
+
+        focusSequenceIntervalInput.addEventListener("change", () => {
+            focusSequenceIntervalInput.value = String(focusSequenceInterval / 60000);
+        });
+
+        focusSequenceDurationInput.addEventListener("input", () => {
+            const seconds = Number(focusSequenceDurationInput.value);
+            if (Number.isFinite(seconds) && seconds > 0) {
+                focusSequenceDuration = Math.max(100, seconds * 1000);
+            }
+        });
+
+        focusSequenceDurationInput.addEventListener("change", () => {
+            focusSequenceDurationInput.value = String(focusSequenceDuration / 1000);
+        });
+
+        focusSequenceRunButton.addEventListener("click", startFocusSequence);
 
         randomOpacityTotalInput.addEventListener("change", () => {
             setRandomOpacityTotal(randomOpacityTotalInput.value);

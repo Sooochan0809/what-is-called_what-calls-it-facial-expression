@@ -328,6 +328,29 @@
         </section>
 
         <section class="panel">
+            <h2>全画面・一枚演出</h2>
+            <div class="settings">
+                <label>
+                    実行周期（分）
+                    <input id="focusIntervalMinutes" type="number" min="0.1" step="0.1" value="3">
+                </label>
+                <label>
+                    画像保持（秒）
+                    <input id="focusHoldSeconds" type="number" min="0" step="0.1" value="1">
+                </label>
+                <label>
+                    一枚演出クロスフェード（秒）
+                    <input id="focusFadeSeconds" type="number" min="0.1" step="0.1" value="3">
+                </label>
+            </div>
+            <p class="status" id="focusStatus">停止中</p>
+            <div class="buttons">
+                <button id="focusAutomationToggle" class="primary">定期実行を開始</button>
+                <button id="focusRunNow">今すぐ実行</button>
+            </div>
+        </section>
+
+        <section class="panel">
             <h2>実測FPSモニター</h2>
             <div class="fps-monitor" id="fpsMonitor"></div>
             <pre id="fpsLog" aria-label="FPS履歴ログ"></pre>
@@ -347,7 +370,7 @@
             const VIEWER_COUNT = 3;
             const DEFAULT_CANVAS_ID = "canvas";
             const DEFAULT_SOURCE_FPS = 60;
-            const SOURCE_EDITOR_VERSION = "20260907-1";
+            const SOURCE_EDITOR_VERSION = "20260907-2";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
             const STANDBY_POLL_INTERVAL = 250;
@@ -355,6 +378,8 @@
             const AUTO_JOBS_URL = "/api/layering/uploads/jobs";
             const AUTO_COMPLETE_URL = "/api/layering/uploads/complete";
             const AUTO_UPLOAD_POLL_INTERVAL = 1000;
+            const FOCUS_SLOT_COUNT = 7;
+            const FOCUS_START_LEAD_TIME = 500;
 
             const sources = [
                 { id: "source-1", name: "source1", canvasId: DEFAULT_CANVAS_ID },
@@ -381,6 +406,10 @@
             const autoUploadQueue = [];
             const queuedAutoUploadIds = new Set();
             const reportedAutoUploadErrors = new Set();
+            let focusAutomationEnabled = false;
+            let focusAutomationTimer = null;
+            let focusCompletionTimer = null;
+            let focusRunActive = false;
 
             const elements = {
                 sourceList: document.querySelector("#sourceList"),
@@ -390,6 +419,12 @@
                 intervalSeconds: document.querySelector("#intervalSeconds"),
                 fadeSeconds: document.querySelector("#fadeSeconds"),
                 streamFps: document.querySelector("#streamFps"),
+                focusIntervalMinutes: document.querySelector("#focusIntervalMinutes"),
+                focusHoldSeconds: document.querySelector("#focusHoldSeconds"),
+                focusFadeSeconds: document.querySelector("#focusFadeSeconds"),
+                focusStatus: document.querySelector("#focusStatus"),
+                focusAutomationToggle: document.querySelector("#focusAutomationToggle"),
+                focusRunNow: document.querySelector("#focusRunNow"),
                 fpsMonitor: document.querySelector("#fpsMonitor"),
                 fpsLog: document.querySelector("#fpsLog")
             };
@@ -583,6 +618,119 @@
                     fadeMs: numberInRange(elements.fadeSeconds, 3, 0.1) * 1000,
                     fps: numberInRange(elements.streamFps, 60, 1, 60)
                 };
+            }
+
+            function getFocusSettings() {
+                return {
+                    intervalMs: numberInRange(elements.focusIntervalMinutes, 3, 0.1) * 60 * 1000,
+                    holdMs: numberInRange(elements.focusHoldSeconds, 1, 0) * 1000,
+                    crossfadeMs: numberInRange(elements.focusFadeSeconds, 3, 0.1) * 1000
+                };
+            }
+
+            function focusTargetSources() {
+                const assignedIds = [...new Set(assignments.filter(Boolean))];
+                const candidateIds = assignedIds.length ? assignedIds : sources.map((source) => source.id);
+                return candidateIds.map((sourceId) => ({
+                    sourceId,
+                    source: sourceById.get(sourceId),
+                    sourceWindow: getSourceWindow(sourceId),
+                    state: getSourceState(sourceId)
+                })).filter(({ sourceWindow, state }) => (
+                    typeof sourceWindow?.scheduleOverlapFocusSequence === "function"
+                    && state?.focusSequenceSlots?.length
+                ));
+            }
+
+            function renderFocusControls() {
+                elements.focusAutomationToggle.textContent = focusAutomationEnabled
+                    ? "定期実行を停止"
+                    : "定期実行を開始";
+                elements.focusAutomationToggle.classList.toggle("danger", focusAutomationEnabled);
+                elements.focusAutomationToggle.classList.toggle("primary", !focusAutomationEnabled);
+                elements.focusRunNow.disabled = focusRunActive;
+                elements.focusStatus.textContent = focusRunActive
+                    ? "全画面で演出中"
+                    : focusAutomationEnabled ? "定期実行待機中" : "停止中";
+                elements.focusStatus.classList.toggle("ready", focusRunActive || focusAutomationEnabled);
+            }
+
+            function clearFocusAutomationTimer() {
+                clearTimeout(focusAutomationTimer);
+                focusAutomationTimer = null;
+            }
+
+            function scheduleFocusAutomation() {
+                clearFocusAutomationTimer();
+                if (!focusAutomationEnabled || focusRunActive) return;
+                focusAutomationTimer = setTimeout(async () => {
+                    focusAutomationTimer = null;
+                    await runAction(runSynchronizedFocusSequence);
+                    if (!focusRunActive) scheduleFocusAutomation();
+                }, getFocusSettings().intervalMs);
+            }
+
+            function finishSynchronizedFocusSequence() {
+                clearTimeout(focusCompletionTimer);
+                focusCompletionTimer = null;
+                focusRunActive = false;
+                renderFocusControls();
+                updateSourceActivity();
+                if (running) scheduleNext();
+                scheduleFocusAutomation();
+                log("全画面の一枚演出が終了しました");
+            }
+
+            function cancelSynchronizedFocusSequence() {
+                clearTimeout(focusCompletionTimer);
+                focusCompletionTimer = null;
+                sources.forEach((source) => {
+                    try {
+                        getSourceWindow(source.id)?.cancelOverlapFocusSequence?.();
+                    } catch {
+                        // 閉じられたソースは無視する。
+                    }
+                });
+                focusRunActive = false;
+                renderFocusControls();
+                updateSourceActivity();
+            }
+
+            async function runSynchronizedFocusSequence() {
+                if (switching) throw new Error("画面切り替えの完了後に一枚演出を実行してください");
+                if (focusRunActive) cancelSynchronizedFocusSequence();
+                const targets = focusTargetSources();
+                if (!targets.length) throw new Error("p1〜p7画像を持つ表示中ソースがありません");
+
+                clearTimeout(timer);
+                timer = null;
+                clearFocusAutomationTimer();
+                const { holdMs, crossfadeMs } = getFocusSettings();
+                const startAt = Date.now() + FOCUS_START_LEAD_TIME;
+                const endAt = startAt + FOCUS_SLOT_COUNT * (crossfadeMs + holdMs) + crossfadeMs;
+                updateSourceActivity(targets.map(({ sourceId }) => sourceId));
+
+                targets.forEach(({ sourceWindow }) => {
+                    sourceWindow.scheduleOverlapFocusSequence({ startAt, holdMs, crossfadeMs });
+                });
+                focusRunActive = true;
+                renderFocusControls();
+                const slotSummary = targets.map(({ source, state }) => (
+                    `${source?.name || "source"}: p${state.focusSequenceSlots.join(",p")}`
+                )).join(" / ");
+                log(`全画面の一枚演出を予約しました · ${slotSummary}`);
+                focusCompletionTimer = setTimeout(
+                    finishSynchronizedFocusSequence,
+                    Math.max(0, endAt - Date.now()) + 100
+                );
+            }
+
+            function toggleFocusAutomation() {
+                focusAutomationEnabled = !focusAutomationEnabled;
+                clearFocusAutomationTimer();
+                if (!focusAutomationEnabled && focusRunActive) cancelSynchronizedFocusSequence();
+                renderFocusControls();
+                scheduleFocusAutomation();
             }
 
             function getSourceWindow(sourceId) {
@@ -1208,7 +1356,7 @@
             }
 
             async function advanceStandby() {
-                if (switching) return;
+                if (switching || focusRunActive) return;
                 assertReady();
 
                 if (assignments.some(sourceId => !sourceId)) {
@@ -1242,7 +1390,7 @@
 
             function scheduleNext() {
                 clearTimeout(timer);
-                if (!running) return;
+                if (!running || focusRunActive) return;
 
                 const detectedStandbySourceId = standbySourceId;
                 const hasMedia = sourceHasMedia(detectedStandbySourceId);
@@ -1317,6 +1465,9 @@
 
             function closeAllPopups() {
                 stopAutomation();
+                focusAutomationEnabled = false;
+                clearFocusAutomationTimer();
+                cancelSynchronizedFocusSequence();
                 switching = false;
 
                 viewers.forEach((viewerState, index) => {
@@ -1354,6 +1505,7 @@
             elements.sourceList.addEventListener("click", handleSourceClick);
             elements.displayList.addEventListener("change", handleDisplayChange);
             elements.displayList.addEventListener("click", handleDisplayClick);
+            elements.focusIntervalMinutes.addEventListener("change", scheduleFocusAutomation);
 
             const buttonActions = {
                 refreshSources,
@@ -1362,7 +1514,9 @@
                 start: () => runAction(start),
                 next: () => runAction(advanceStandby),
                 stop,
-                closeAllPopups
+                closeAllPopups,
+                focusAutomationToggle: toggleFocusAutomation,
+                focusRunNow: () => runAction(runSynchronizedFocusSequence)
             };
             Object.entries(buttonActions).forEach(([id, action]) => {
                 document.getElementById(id).addEventListener("click", action);
@@ -1376,6 +1530,7 @@
             renderSources();
             renderAssignments();
             renderFpsMonitor();
+            renderFocusControls();
             appendFpsLog();
             createSourceEditors();
             log("管理画面を起動しました");

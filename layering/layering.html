@@ -156,7 +156,8 @@
             display: none;
         }
 
-        .hierarchyIntervalControl {
+        .hierarchyIntervalControl,
+        .focusSequenceControls {
             display: grid;
             grid-template-columns: auto 48px auto;
             gap: 5px;
@@ -168,7 +169,8 @@
             font-size: 0.72rem;
         }
 
-        .hierarchyIntervalControl input {
+        .hierarchyIntervalControl input,
+        .focusSequenceControls input {
             min-width: 0;
             width: 48px;
             height: 26px;
@@ -179,8 +181,23 @@
             color: var(--ink);
         }
 
-        .hierarchyIntervalControl[hidden] {
+        .hierarchyIntervalControl[hidden],
+        .focusSequenceControls[hidden] {
             display: none;
+        }
+
+        .focusSequenceControls {
+            grid-template-columns: auto 48px auto;
+        }
+
+        .focusSequenceRunButton {
+            grid-column: 1 / -1;
+            height: 28px;
+            border: 0;
+            border-radius: 6px;
+            background: var(--ink);
+            color: #fff;
+            font-size: 0.72rem;
         }
 
         .stage.is-cropping {
@@ -550,6 +567,19 @@
                                 inputmode="decimal" aria-label="階層移動の間隔（秒）">
                             <span>秒</span>
                         </label>
+                        <button class="stageToggleButton is-off" id="focusSequenceToggleButton" type="button"
+                            aria-pressed="false">一枚演出</button>
+                        <div class="focusSequenceControls" id="focusSequenceControls" hidden>
+                            <span>周期</span>
+                            <input id="focusSequenceIntervalInput" type="number" min="0.1" step="0.1" value="3"
+                                inputmode="decimal" aria-label="一枚演出の実行周期（分）">
+                            <span>分</span>
+                            <span>切替</span>
+                            <input id="focusSequenceDurationInput" type="number" min="0.1" step="0.1" value="3"
+                                inputmode="decimal" aria-label="一枚演出の切替時間（秒）">
+                            <span>秒</span>
+                            <button class="focusSequenceRunButton" id="focusSequenceRunButton" type="button">今すぐ実行</button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -585,7 +615,7 @@
             </div>
         </aside>
     </div>
-    <script type="module" src="app.js?v=20260907-2"></script>
+    <script type="module" src="app.js?v=20260907-5"></script>
 </body>
 
 </html>
