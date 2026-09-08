@@ -293,11 +293,11 @@
         </section>
 
         <section class="panel">
-            <h2>Viewer2制御</h2>
+            <h2>Source2 ↔︎ Standby</h2>
 
             <div class="settings">
                 <label>
-                    待機時間（秒）
+                    表示時間（秒）
                     <input id="intervalSeconds" type="number" min="0" step="1" value="15">
                 </label>
 
@@ -315,7 +315,7 @@
             <div class="buttons">
                 <button id="initialize" class="primary">初期表示</button>
                 <button id="start" class="primary">開始</button>
-                <button id="next">次へ</button>
+                <button id="next">スタンバイを表示</button>
                 <button id="stop" class="danger">停止</button>
                 <button id="closeAllPopups" class="danger">全ポップアップを閉じる</button>
             </div>
@@ -382,6 +382,7 @@
             const VIEWER_MAX_HEIGHT = 1080;
             const STANDBY_POLL_INTERVAL = 250;
             const INITIAL_SOURCE_IDS = ["source-1", "source-2", "source-3"];
+            const STANDBY_SOURCE_ID = "source-4";
             const AUTO_JOBS_URL = "/api/layering/uploads/jobs";
             const AUTO_COMPLETE_URL = "/api/layering/uploads/complete";
             const AUTO_UPLOAD_POLL_INTERVAL = 1000;
@@ -407,8 +408,7 @@
             let timer = null;
             let detectedScreens = [];
             let selectedEditorSourceId = sources[0].id;
-            let standbySourceId = "source-4";
-            let pendingStandbySourceId = null;
+            let standbyCycleActive = false;
             let autoUploadBusy = false;
             const autoUploadQueue = [];
             const queuedAutoUploadIds = new Set();
@@ -568,7 +568,7 @@
 
             function updateStandbyPresentation() {
                 document.querySelectorAll("[data-editor-source-id]").forEach((button) => {
-                    button.classList.toggle("is-standby", button.dataset.editorSourceId === standbySourceId);
+                    button.classList.toggle("is-standby", button.dataset.editorSourceId === STANDBY_SOURCE_ID);
                 });
                 renderSources();
             }
@@ -580,7 +580,7 @@
                 sources.forEach((source, index) => {
                     const button = document.createElement("button");
                     button.type = "button";
-                    button.className = `source-editor-tab${source.id === standbySourceId ? " is-standby" : ""}`;
+                    button.className = `source-editor-tab${source.id === STANDBY_SOURCE_ID ? " is-standby" : ""}`;
                     button.dataset.editorSourceId = source.id;
                     button.textContent = source.name;
                     button.addEventListener("click", () => selectSourceEditor(source.id));
@@ -707,6 +707,7 @@
 
             async function runSynchronizedFocusSequence() {
                 if (switching) throw new Error("画面切り替えの完了後に一枚演出を実行してください");
+                if (standbyCycleActive) throw new Error("スタンバイ表示の完了後に一枚演出を実行してください");
                 if (focusRunActive) cancelSynchronizedFocusSequence();
                 const targets = focusTargetSources();
                 if (!targets.length) throw new Error("p1〜p7画像を持つ表示中ソースがありません");
@@ -764,14 +765,9 @@
             }
 
             function findEmptySource() {
-                const preferredOrder = [
-                    sourceById.get(standbySourceId),
-                    ...sources.filter((source) => source.id !== standbySourceId)
-                ].filter(Boolean);
-                return preferredOrder.find((source) => {
-                    const state = getSourceState(source.id);
-                    return state && !state.hasMedia;
-                }) || null;
+                const standbySource = sourceById.get(STANDBY_SOURCE_ID);
+                const state = standbySource && getSourceState(standbySource.id);
+                return state && !state.hasMedia ? standbySource : null;
             }
 
             async function acknowledgeAutomaticUpload(job) {
@@ -913,7 +909,7 @@
                     const status = document.createElement("span");
                     const openButton = document.createElement("button");
 
-                    const isStandby = source.id === standbySourceId;
+                    const isStandby = source.id === STANDBY_SOURCE_ID;
                     row.className = `source-row${isStandby ? " is-standby" : ""}`;
                     id.textContent = source.id;
                     status.dataset.sourceStatus = source.id;
@@ -975,7 +971,7 @@
 
                     const ready = Boolean(canvasOf(source.id));
                     element.textContent = ready
-                        ? source.id === standbySourceId ? "待機中" : "接続済み"
+                        ? source.id === STANDBY_SOURCE_ID ? "待機中" : "接続済み"
                         : "未登録";
                     element.classList.toggle("ready", ready);
                 }
@@ -1358,8 +1354,6 @@
 
             async function initialize() {
                 assertReady();
-                standbySourceId = "source-4";
-                pendingStandbySourceId = null;
 
                 await applyChanges(
                     initialAssignments().map((sourceId, viewerIndex) => ({ viewerIndex, sourceId }))
@@ -1368,7 +1362,7 @@
             }
 
             async function advanceStandby() {
-                if (switching || focusRunActive) return;
+                if (switching || focusRunActive || standbyCycleActive) return;
                 assertReady();
 
                 if (assignments.some(sourceId => !sourceId)) {
@@ -1376,61 +1370,41 @@
                     return;
                 }
 
-                const incomingSourceId = standbySourceId;
-                if (!sourceHasMedia(incomingSourceId)) {
+                if (!sourceHasMedia(STANDBY_SOURCE_ID)) {
                     throw new Error("standbyに画像がありません");
                 }
 
-                const previousAssignments = [...assignments];
-                const displacedSourceId = previousAssignments[VIEWER_COUNT - 1];
-                const nextAssignments = [
-                    incomingSourceId,
-                    ...previousAssignments.slice(0, VIEWER_COUNT - 1)
-                ];
-
-                await applyChanges(nextAssignments.map((sourceId, viewerIndex) => ({
-                    viewerIndex,
-                    sourceId
-                })));
-
-                clearSource(displacedSourceId);
-                standbySourceId = displacedSourceId;
-                pendingStandbySourceId = null;
-                updateStandbyPresentation();
-                log(`${displacedSourceId}をクリアして次のstandbyにしました`);
+                standbyCycleActive = true;
+                try {
+                    await applyChanges([{ viewerIndex: 1, sourceId: STANDBY_SOURCE_ID }]);
+                    const displayMs = getSettings().intervalMs;
+                    log(`Viewer 2で${STANDBY_SOURCE_ID}を${displayMs / 1000}秒間表示します`);
+                    await sleep(displayMs);
+                    await applyChanges([{ viewerIndex: 1, sourceId: "source-2" }]);
+                    clearSource(STANDBY_SOURCE_ID);
+                    updateStandbyPresentation();
+                    log(`Viewer 2をsource-2に戻し、${STANDBY_SOURCE_ID}をクリアしました`);
+                } finally {
+                    standbyCycleActive = false;
+                }
             }
 
             function scheduleNext() {
                 clearTimeout(timer);
                 if (!running || focusRunActive) return;
 
-                const detectedStandbySourceId = standbySourceId;
-                const hasMedia = sourceHasMedia(detectedStandbySourceId);
-                const delay = hasMedia ? getSettings().intervalMs : STANDBY_POLL_INTERVAL;
-
-                if (hasMedia && pendingStandbySourceId !== detectedStandbySourceId) {
-                    pendingStandbySourceId = detectedStandbySourceId;
-                    log(`${detectedStandbySourceId}への画像挿入を検知しました`);
-                }
-
                 timer = setTimeout(async () => {
                     try {
-                        if (
-                            !switching
-                            && pendingStandbySourceId === detectedStandbySourceId
-                            && standbySourceId === detectedStandbySourceId
-                            && sourceHasMedia(detectedStandbySourceId)
-                        ) {
+                        if (!switching && !standbyCycleActive && sourceHasMedia(STANDBY_SOURCE_ID)) {
+                            log(`${STANDBY_SOURCE_ID}への画像挿入を検知しました`);
                             await advanceStandby();
-                        } else {
-                            pendingStandbySourceId = null;
                         }
                     } catch (error) {
                         log(error.message);
                     } finally {
                         scheduleNext();
                     }
-                }, getSettings().intervalMs);
+                }, STANDBY_POLL_INTERVAL);
             }
 
             async function start() {
@@ -1460,7 +1434,6 @@
                 running = false;
                 clearTimeout(timer);
                 timer = null;
-                pendingStandbySourceId = null;
             }
 
             function stopViewer(viewerState) {
