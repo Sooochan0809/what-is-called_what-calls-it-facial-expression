@@ -167,7 +167,8 @@
 
         .hierarchyIntervalControl,
         .focusSequenceControls,
-        .blendModeControl {
+        .blendModeControl,
+        .averageBlendModeControl {
             display: grid;
             grid-template-columns: auto 48px auto;
             gap: 5px;
@@ -181,7 +182,8 @@
 
         .hierarchyIntervalControl input,
         .focusSequenceControls input,
-        .blendModeControl select {
+        .blendModeControl select,
+        .averageBlendModeControl select {
             min-width: 0;
             width: 48px;
             height: 26px;
@@ -192,17 +194,20 @@
             color: var(--ink);
         }
 
-        .blendModeControl {
+        .blendModeControl,
+        .averageBlendModeControl {
             grid-template-columns: auto minmax(100px, 1fr);
         }
 
-        .blendModeControl select {
+        .blendModeControl select,
+        .averageBlendModeControl select {
             width: 118px;
             padding: 0 4px;
         }
 
         .hierarchyIntervalControl[hidden],
-        .focusSequenceControls[hidden] {
+        .focusSequenceControls[hidden],
+        .averageBlendModeControl[hidden] {
             display: none;
         }
 
@@ -257,10 +262,6 @@
             inset: 0;
             pointer-events: none;
             z-index: 2;
-        }
-
-        .stageLayer.is-monochrome {
-            filter: grayscale(1);
         }
 
         .fileButton img {
@@ -465,9 +466,14 @@
 
         .opacityControl {
             display: grid;
-            grid-template-columns: 1fr 3.2em;
+            grid-template-columns: 4.8em minmax(0, 1fr) 3.2em;
             gap: 8px;
             align-items: center;
+        }
+
+        .rangeLabel {
+            color: var(--muted);
+            font-size: 0.72rem;
         }
 
         .autoControl {
@@ -598,6 +604,14 @@
                             aria-pressed="true">モノクロ</button>
                         <button class="stageToggleButton averageBlendToggleButton is-off" id="averageBlendToggleButton"
                             type="button" aria-pressed="false">平均合成</button>
+                        <label class="averageBlendModeControl" id="averageBlendModeControl" hidden>
+                            <span>平均対象</span>
+                            <select id="averageBlendModeSelect" aria-label="平均合成するパラメーター">
+                                <option value="opacity">不透明度のみ</option>
+                                <option value="contrast">コントラストのみ</option>
+                                <option value="both" selected>両方</option>
+                            </select>
+                        </label>
                         <button class="stageToggleButton alignToggleButton" id="alignToggleButton" type="button"
                             aria-pressed="true">顔位置</button>
                         <button class="stageToggleButton hierarchyToggleButton is-off" id="hierarchyToggleButton"
@@ -659,7 +673,7 @@
             </div>
         </aside>
     </div>
-    <script type="module" src="app.js?v=20260908-1"></script>
+    <script type="module" src="app.js?v=20260908-4"></script>
 </body>
 
 </html>

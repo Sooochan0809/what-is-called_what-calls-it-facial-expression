@@ -1,4 +1,5 @@
         const DEFAULT_OPACITY = 0.1;
+        const DEFAULT_CONTRAST = 1;
         const DEFAULT_RANDOM_OPACITY_MIN = 0.05;
         const DEFAULT_RANDOM_OPACITY_MAX = 0.3;
         const DEFAULT_HIERARCHY_SHUFFLE_INTERVAL = 5000;
@@ -45,6 +46,8 @@
         const cropShowButton = document.getElementById("cropShowButton");
         const monoToggleButton = document.getElementById("monoToggleButton");
         const averageBlendToggleButton = document.getElementById("averageBlendToggleButton");
+        const averageBlendModeControl = document.getElementById("averageBlendModeControl");
+        const averageBlendModeSelect = document.getElementById("averageBlendModeSelect");
         const blendModeSelect = document.getElementById("blendModeSelect");
         const alignToggleButton = document.getElementById("alignToggleButton");
         const hierarchyToggleButton = document.getElementById("hierarchyToggleButton");
@@ -68,6 +71,7 @@
         let alignmentReferenceId = null;
         let monochromeEnabled = true;
         let averageBlendEnabled = false;
+        let averageBlendMode = "both";
         let blendMode = "normal";
         let runtimeActive = true;
         let autoRandomFrameId = null;
@@ -249,6 +253,7 @@
                 height: size.height,
                 landmarks,
                 opacity: DEFAULT_OPACITY,
+                contrast: DEFAULT_CONTRAST,
                 autoRandom: false,
                 randomOpacityMin: DEFAULT_RANDOM_OPACITY_MIN,
                 randomOpacityMax: DEFAULT_RANDOM_OPACITY_MAX,
@@ -355,6 +360,15 @@
             });
             syncLayerOpacitySettings();
             applyRandomOpacityTotal();
+            renderStage();
+            renderLayerOutputs();
+        }
+
+        function setContrast(id, value) {
+            const contrast = clamp(Number(value) / 100, 0, 2);
+            layers = layers.map((layer) => layer.id === id
+                ? { ...layer, contrast }
+                : layer);
             renderStage();
             renderLayerOutputs();
         }
@@ -691,11 +705,33 @@
             stageImageArea.style.height = `${area.bottom - area.top}px`;
         }
 
-        function getOverlayOpacity(layer, drawIndex) {
-            return averageBlendEnabled && !focusSequenceState ? 1 / (drawIndex + 1) : layer.opacity;
+        function isAverageOpacityEnabled() {
+            return averageBlendEnabled && averageBlendMode !== "contrast";
         }
 
-        function createStageMedia(layer, transform, opacity) {
+        function isAverageContrastEnabled() {
+            return averageBlendEnabled && averageBlendMode !== "opacity";
+        }
+
+        function getOverlayOpacity(layer, drawIndex) {
+            return isAverageOpacityEnabled() && !focusSequenceState ? 1 / (drawIndex + 1) : layer.opacity;
+        }
+
+        function getOverlayContrast(layer, drawIndex) {
+            if (!isAverageContrastEnabled() || layers.length <= 1) {
+                return layer.contrast ?? DEFAULT_CONTRAST;
+            }
+            return 2 - drawIndex / (layers.length - 1);
+        }
+
+        function getLayerFilter(layer, contrast = layer.contrast ?? DEFAULT_CONTRAST) {
+            const filters = [];
+            if (monochromeEnabled) filters.push("grayscale(1)");
+            filters.push(`contrast(${contrast})`);
+            return filters.join(" ");
+        }
+
+        function createStageMedia(layer, transform, opacity, contrast) {
             let media = layer.stageElement;
             if (!media) {
                 media = layer.mediaType === "video" ? layer.image : document.createElement("img");
@@ -717,9 +753,9 @@
             media.style.height = `${layer.height}px`;
             media.style.opacity = opacity;
             media.style.mixBlendMode = blendMode;
+            media.style.filter = getLayerFilter(layer, contrast);
             media.style.transformOrigin = "0 0";
             media.style.transform = `matrix(${transform.a}, ${transform.b}, ${transform.c}, ${transform.d}, ${transform.e}, ${transform.f})`;
-            media.classList.toggle("is-monochrome", monochromeEnabled);
             if (layer.mediaType === "video") media.play().catch(() => {});
             return media;
         }
@@ -787,7 +823,7 @@
                 blendCtx.save();
                 blendCtx.globalAlpha = getOverlayOpacity(layer, drawIndex);
                 blendCtx.globalCompositeOperation = blendMode === "plus-lighter" ? "lighter" : blendMode === "normal" ? "source-over" : blendMode;
-                blendCtx.filter = monochromeEnabled ? "grayscale(1)" : "none";
+                blendCtx.filter = getLayerFilter(layer, getOverlayContrast(layer, drawIndex));
                 blendCtx.setTransform(
                     transform.a,
                     transform.b,
@@ -1840,7 +1876,8 @@
                 stageLayerGroup.appendChild(createStageMedia(
                     layer,
                     transforms.get(layer.id),
-                    getOverlayOpacity(layer, drawIndex)
+                    getOverlayOpacity(layer, drawIndex),
+                    getOverlayContrast(layer, drawIndex)
                 ));
             });
         }
@@ -1856,7 +1893,18 @@
                 const opacityInput = document.querySelector(`[data-opacity-input="${layer.id}"]`);
                 if (opacityInput) {
                     opacityInput.value = String(Math.round(displayOpacity * 100));
-                    opacityInput.disabled = averageBlendEnabled;
+                    opacityInput.disabled = isAverageOpacityEnabled();
+                }
+                const contrast = getOverlayContrast(layer, layers.length - 1 - layerIndex);
+                const contrastOutput = document.querySelector(`[data-contrast-output="${layer.id}"]`);
+                if (contrastOutput) {
+                    contrastOutput.value = `${Math.round(contrast * 100)}%`;
+                    contrastOutput.textContent = contrastOutput.value;
+                }
+                const contrastInput = document.querySelector(`[data-contrast-input="${layer.id}"]`);
+                if (contrastInput) {
+                    contrastInput.value = String(Math.round(contrast * 100));
+                    contrastInput.disabled = isAverageContrastEnabled();
                 }
             });
         }
@@ -1965,10 +2013,15 @@
             control.className = "opacityControl";
             bindControlDragPrevention(control, item);
 
+            const labelText = document.createElement("span");
+            labelText.className = "rangeLabel";
+            labelText.textContent = options.label;
+
             const slider = document.createElement("input");
             slider.type = "range";
-            slider.min = "0";
-            slider.max = "100";
+            slider.min = String(options.min ?? 0);
+            slider.max = String(options.max ?? 100);
+            slider.step = String(options.step ?? 1);
             slider.value = String(options.value);
             slider.draggable = false;
             slider.disabled = Boolean(options.disabled);
@@ -1982,7 +2035,7 @@
             output.value = options.outputValue;
             output.textContent = output.value;
 
-            control.append(slider, output);
+            control.append(labelText, slider, output);
             return control;
         }
 
@@ -1992,11 +2045,26 @@
             return createRangeControl(layer, item, {
                 label: "不透明度",
                 value: Math.round(displayOpacity * 100),
-                disabled: averageBlendEnabled,
+                disabled: isAverageOpacityEnabled(),
                 inputDatasetKey: "opacityInput",
                 outputDatasetKey: "opacityOutput",
                 outputValue: `${Math.round(displayOpacity * 100)}%`,
                 onInput: setOpacity
+            });
+        }
+
+        function createContrastControl(layer, item) {
+            const layerIndex = layers.indexOf(layer);
+            const contrast = getOverlayContrast(layer, layers.length - 1 - layerIndex);
+            return createRangeControl(layer, item, {
+                label: "コントラスト",
+                value: Math.round(contrast * 100),
+                max: 200,
+                disabled: isAverageContrastEnabled(),
+                inputDatasetKey: "contrastInput",
+                outputDatasetKey: "contrastOutput",
+                outputValue: `${Math.round(contrast * 100)}%`,
+                onInput: setContrast
             });
         }
 
@@ -2072,6 +2140,7 @@
 
             body.append(createLayerTitle(layer));
             body.append(createOpacityControl(layer, item));
+            body.append(createContrastControl(layer, item));
             body.append(createAutoRandomControl(layer, item));
             item.append(createRemoveButton(layer), createThumbnail(layer), body);
             return item;
@@ -2090,6 +2159,8 @@
             clearButton.disabled = layers.length === 0;
             syncToggleButton(monoToggleButton, monochromeEnabled);
             syncToggleButton(averageBlendToggleButton, averageBlendEnabled);
+            averageBlendModeControl.hidden = !averageBlendEnabled;
+            averageBlendModeSelect.value = averageBlendMode;
             blendModeSelect.value = blendMode;
             syncToggleButton(alignToggleButton, alignmentEnabled);
             syncToggleButton(hierarchyToggleButton, hierarchyShuffleEnabled);
@@ -2129,6 +2200,11 @@
 
         averageBlendToggleButton.addEventListener("click", () => {
             averageBlendEnabled = !averageBlendEnabled;
+            render();
+        });
+
+        averageBlendModeSelect.addEventListener("change", () => {
+            averageBlendMode = averageBlendModeSelect.value;
             render();
         });
 
