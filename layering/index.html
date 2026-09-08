@@ -297,8 +297,13 @@
 
             <div class="settings">
                 <label>
+                    待機時間（秒）
+                    <input id="intervalSeconds" type="number" min="0" step="1" value="30">
+                </label>
+
+                <label>
                     表示時間（秒）
-                    <input id="intervalSeconds" type="number" min="0" step="1" value="15">
+                    <input id="displaySeconds" type="number" min="0" step="1" value="300">
                 </label>
 
                 <label>
@@ -424,6 +429,7 @@
                 assignmentList: document.querySelector("#assignmentList"),
                 log: document.querySelector("#log"),
                 intervalSeconds: document.querySelector("#intervalSeconds"),
+                displaySeconds: document.querySelector("#displaySeconds"),
                 fadeSeconds: document.querySelector("#fadeSeconds"),
                 streamFps: document.querySelector("#streamFps"),
                 focusIntervalMinutes: document.querySelector("#focusIntervalMinutes"),
@@ -433,6 +439,8 @@
                 focusStatus: document.querySelector("#focusStatus"),
                 focusAutomationToggle: document.querySelector("#focusAutomationToggle"),
                 focusRunNow: document.querySelector("#focusRunNow"),
+                initializeButton: document.querySelector("#initialize"),
+                standbyRunNow: document.querySelector("#next"),
                 fpsMonitor: document.querySelector("#fpsMonitor"),
                 fpsLog: document.querySelector("#fpsLog")
             };
@@ -622,7 +630,8 @@
 
             function getSettings() {
                 return {
-                    intervalMs: numberInRange(elements.intervalSeconds, 5, 0) * 1000,
+                    delayMs: numberInRange(elements.intervalSeconds, 15, 0) * 1000,
+                    displayMs: numberInRange(elements.displaySeconds, 15, 0) * 1000,
                     fadeMs: numberInRange(elements.fadeSeconds, 3, 0.1) * 1000,
                     fps: numberInRange(elements.streamFps, 60, 1, 60)
                 };
@@ -652,12 +661,15 @@
             }
 
             function renderFocusControls() {
+                const displaySwitchBusy = focusRunActive || standbyCycleActive || switching;
                 elements.focusAutomationToggle.textContent = focusAutomationEnabled
                     ? "停止"
                     : "開始";
                 elements.focusAutomationToggle.classList.toggle("danger", focusAutomationEnabled);
                 elements.focusAutomationToggle.classList.toggle("primary", !focusAutomationEnabled);
-                elements.focusRunNow.disabled = focusRunActive;
+                elements.focusRunNow.disabled = displaySwitchBusy;
+                elements.initializeButton.disabled = displaySwitchBusy;
+                elements.standbyRunNow.disabled = displaySwitchBusy;
                 elements.focusStatus.textContent = focusRunActive
                     ? "全画面で演出中"
                     : focusAutomationEnabled ? "定期実行待機中" : "停止中";
@@ -682,6 +694,7 @@
             function finishSynchronizedFocusSequence() {
                 clearTimeout(focusCompletionTimer);
                 focusCompletionTimer = null;
+                cancelFocusSequencesAtSources();
                 focusRunActive = false;
                 renderFocusControls();
                 updateSourceActivity();
@@ -690,9 +703,7 @@
                 log("全画面の一枚演出が終了しました");
             }
 
-            function cancelSynchronizedFocusSequence() {
-                clearTimeout(focusCompletionTimer);
-                focusCompletionTimer = null;
+            function cancelFocusSequencesAtSources() {
                 sources.forEach((source) => {
                     try {
                         getSourceWindow(source.id)?.cancelOverlapFocusSequence?.();
@@ -700,6 +711,12 @@
                         // 閉じられたソースは無視する。
                     }
                 });
+            }
+
+            function cancelSynchronizedFocusSequence() {
+                clearTimeout(focusCompletionTimer);
+                focusCompletionTimer = null;
+                cancelFocusSequencesAtSources();
                 focusRunActive = false;
                 renderFocusControls();
                 updateSourceActivity();
@@ -1353,6 +1370,9 @@
             }
 
             async function initialize() {
+                if (switching || focusRunActive || standbyCycleActive) {
+                    throw new Error("実行中の画面演出が完了してから初期表示してください");
+                }
                 assertReady();
 
                 await applyChanges(
@@ -1362,7 +1382,8 @@
             }
 
             async function advanceStandby() {
-                if (switching || focusRunActive || standbyCycleActive) return;
+                if (switching || standbyCycleActive) return;
+                if (focusRunActive) throw new Error("一枚演出の完了後にスタンバイを表示してください");
                 assertReady();
 
                 if (assignments.some(sourceId => !sourceId)) {
@@ -1375,9 +1396,12 @@
                 }
 
                 standbyCycleActive = true;
+                renderFocusControls();
                 try {
+                    // バックグラウンドのrAF間引きで残った一枚演出も必ず復元してから切り替える。
+                    cancelFocusSequencesAtSources();
                     await applyChanges([{ viewerIndex: 1, sourceId: STANDBY_SOURCE_ID }]);
-                    const displayMs = getSettings().intervalMs;
+                    const displayMs = getSettings().displayMs;
                     log(`Viewer 2で${STANDBY_SOURCE_ID}を${displayMs / 1000}秒間表示します`);
                     await sleep(displayMs);
                     await applyChanges([{ viewerIndex: 1, sourceId: "source-2" }]);
@@ -1386,17 +1410,24 @@
                     log(`Viewer 2をsource-2に戻し、${STANDBY_SOURCE_ID}をクリアしました`);
                 } finally {
                     standbyCycleActive = false;
+                    renderFocusControls();
+                    if (running) scheduleNext();
                 }
             }
 
             function scheduleNext() {
                 clearTimeout(timer);
-                if (!running || focusRunActive) return;
+                if (!running || focusRunActive || standbyCycleActive) return;
+
+                const hasStandbyMedia = sourceHasMedia(STANDBY_SOURCE_ID);
+                const delay = hasStandbyMedia ? getSettings().delayMs : STANDBY_POLL_INTERVAL;
+                if (hasStandbyMedia) {
+                    log(`${STANDBY_SOURCE_ID}への画像挿入を検知しました。${delay / 1000}秒待機します`);
+                }
 
                 timer = setTimeout(async () => {
                     try {
                         if (!switching && !standbyCycleActive && sourceHasMedia(STANDBY_SOURCE_ID)) {
-                            log(`${STANDBY_SOURCE_ID}への画像挿入を検知しました`);
                             await advanceStandby();
                         }
                     } catch (error) {
@@ -1404,7 +1435,7 @@
                     } finally {
                         scheduleNext();
                     }
-                }, STANDBY_POLL_INTERVAL);
+                }, delay);
             }
 
             async function start() {
