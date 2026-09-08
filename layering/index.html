@@ -382,7 +382,7 @@
             const VIEWER_COUNT = 3;
             const DEFAULT_CANVAS_ID = "canvas";
             const DEFAULT_SOURCE_FPS = 60;
-            const SOURCE_EDITOR_VERSION = "20260907-4";
+            const SOURCE_EDITOR_VERSION = "20260908-5";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
             const STANDBY_POLL_INTERVAL = 250;
@@ -1016,13 +1016,19 @@
             function resizeViewerCanvas(viewerState, canvas) {
                 const cssWidth = Math.max(1, viewerState.window.innerWidth);
                 const cssHeight = Math.max(1, viewerState.window.innerHeight);
+                const pixelRatio = Math.max(1, viewerState.window.devicePixelRatio || 1);
+                const requestedWidth = cssWidth * pixelRatio;
+                const requestedHeight = cssHeight * pixelRatio;
+                const isPortrait = cssHeight > cssWidth;
+                const maxWidth = isPortrait ? VIEWER_MAX_HEIGHT : VIEWER_MAX_WIDTH;
+                const maxHeight = isPortrait ? VIEWER_MAX_WIDTH : VIEWER_MAX_HEIGHT;
                 const scale = Math.min(
                     1,
-                    VIEWER_MAX_WIDTH / cssWidth,
-                    VIEWER_MAX_HEIGHT / cssHeight
+                    maxWidth / requestedWidth,
+                    maxHeight / requestedHeight
                 );
-                const width = Math.max(1, Math.round(cssWidth * scale));
-                const height = Math.max(1, Math.round(cssHeight * scale));
+                const width = Math.max(1, Math.round(requestedWidth * scale));
+                const height = Math.max(1, Math.round(requestedHeight * scale));
 
                 if (canvas.width !== width || canvas.height !== height) {
                     canvas.width = width;
@@ -1071,6 +1077,8 @@
                     if (!sourceCanvas) return;
 
                     resizeViewerCanvas(viewerState, canvas);
+                    context.imageSmoothingEnabled = true;
+                    context.imageSmoothingQuality = "high";
 
                     const scale = Math.min(
                         canvas.width / sourceCanvas.width,

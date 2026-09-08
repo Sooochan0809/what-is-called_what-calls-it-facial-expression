@@ -15,6 +15,8 @@
         const MEDIAPIPE_WASM_URL = new URL("wasm", MEDIAPIPE_MODULE_URL).href.replace(/\/$/, "");
         const REMOVE_ICON_SRC = "./img/icon-clause.png";
         const OUTPUT_BACKGROUND_COLOR = "#000";
+        const OUTPUT_WIDTH = 1080;
+        const OUTPUT_HEIGHT = 1920;
         const DISPLAY_PARAMS = new URLSearchParams(window.location.search);
         const DISPLAY_SOURCE_ID = DISPLAY_PARAMS.get("sourceId");
         const DISPLAY_CANVAS_ID = DISPLAY_PARAMS.get("canvasId")?.trim() || null;
@@ -807,9 +809,16 @@
             return canvas;
         }
 
-        function drawOverlayLayers(ctx, transforms, offset = { x: 0, y: 0 }) {
+        function drawOverlayLayers(
+            ctx,
+            transforms,
+            offset = { x: 0, y: 0 },
+            outputScale = { x: 1, y: 1 }
+        ) {
             ensureCanvasSize(blendBufferCanvas, ctx.canvas.width, ctx.canvas.height);
             const blendCtx = blendBufferCanvas.getContext("2d");
+            blendCtx.imageSmoothingEnabled = true;
+            blendCtx.imageSmoothingQuality = "high";
             blendCtx.setTransform(1, 0, 0, 1, 0, 0);
             blendCtx.globalAlpha = 1;
             blendCtx.globalCompositeOperation = "source-over";
@@ -825,12 +834,12 @@
                 blendCtx.globalCompositeOperation = blendMode === "plus-lighter" ? "lighter" : blendMode === "normal" ? "source-over" : blendMode;
                 blendCtx.filter = getLayerFilter(layer, getOverlayContrast(layer, drawIndex));
                 blendCtx.setTransform(
-                    transform.a,
-                    transform.b,
-                    transform.c,
-                    transform.d,
-                    transform.e - offset.x,
-                    transform.f - offset.y
+                    transform.a * outputScale.x,
+                    transform.b * outputScale.y,
+                    transform.c * outputScale.x,
+                    transform.d * outputScale.y,
+                    (transform.e - offset.x) * outputScale.x,
+                    (transform.f - offset.y) * outputScale.y
                 );
                 blendCtx.drawImage(layer.image, 0, 0, layer.width, layer.height);
                 blendCtx.restore();
@@ -1464,13 +1473,13 @@
         }
 
         function drawStageCrop(targetCanvas, rect) {
-            const width = Math.max(1, Math.round(rect.width));
-            const height = Math.max(1, Math.round(rect.height));
+            const width = OUTPUT_WIDTH;
+            const height = OUTPUT_HEIGHT;
             ensureCanvasSize(targetCanvas, width, height);
 
             const ctx = targetCanvas.getContext("2d");
             ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "medium";
+            ctx.imageSmoothingQuality = "high";
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.globalAlpha = 1;
             ctx.filter = "none";
@@ -1479,7 +1488,12 @@
             ctx.fillRect(0, 0, width, height);
 
             const transforms = getAlignedTransforms();
-            drawOverlayLayers(ctx, transforms, { x: rect.left, y: rect.top });
+            drawOverlayLayers(
+                ctx,
+                transforms,
+                { x: rect.left, y: rect.top },
+                { x: width / rect.width, y: height / rect.height }
+            );
 
             const transitionOpacity = getHierarchyTransitionOpacity();
             const transitionSnapshot = activeHierarchyTransition?.snapshot;
@@ -1492,8 +1506,8 @@
                     transitionSnapshot,
                     Math.round(rect.left),
                     Math.round(rect.top),
-                    width,
-                    height,
+                    Math.round(rect.width),
+                    Math.round(rect.height),
                     0,
                     0,
                     width,
