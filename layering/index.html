@@ -214,7 +214,7 @@
 
         .settings {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 12px;
         }
 
@@ -333,21 +333,21 @@
                     <input id="focusHoldSeconds" type="number" min="0" step="0.1" value="1">
                 </label>
                 <label>
-                    一枚演出クロスフェード（秒）
+                    クロスフェード（秒）
                     <input id="focusFadeSeconds" type="number" min="0.1" step="0.1" value="3">
                 </label>
                 <label>
                     戻り方
                     <select id="focusReturnMode">
-                        <option value="direct">一括で戻す</option>
-                        <option value="layered">1枚ずつ重ねて戻す</option>
+                        <option value="direct">一括で</option>
+                        <option value="layered">1枚ずつ</option>
                     </select>
                 </label>
             </div>
             <p class="status" id="focusStatus">停止中</p>
             <div class="buttons">
-                <button id="focusAutomationToggle" class="primary">定期実行を開始</button>
-                <button id="focusRunNow">今すぐ実行</button>
+                <button id="focusRunNow">直ちに実行</button>
+                <button id="focusAutomationToggle" class="primary">開始</button>
             </div>
         </section>
 
@@ -653,8 +653,8 @@
 
             function renderFocusControls() {
                 elements.focusAutomationToggle.textContent = focusAutomationEnabled
-                    ? "定期実行を停止"
-                    : "定期実行を開始";
+                    ? "停止"
+                    : "開始";
                 elements.focusAutomationToggle.classList.toggle("danger", focusAutomationEnabled);
                 elements.focusAutomationToggle.classList.toggle("primary", !focusAutomationEnabled);
                 elements.focusRunNow.disabled = focusRunActive;
