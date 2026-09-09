@@ -386,7 +386,7 @@
             const VIEWER_COUNT = 3;
             const DEFAULT_CANVAS_ID = "canvas";
             const DEFAULT_SOURCE_FPS = 60;
-            const SOURCE_EDITOR_VERSION = "20260909-3";
+            const SOURCE_EDITOR_VERSION = "20260909-4";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
             const STANDBY_POLL_INTERVAL = 250;
@@ -749,22 +749,30 @@
                 timer = null;
                 clearFocusAutomationTimer();
                 const { holdMs, crossfadeMs, fps, returnMode } = getFocusSettings();
+                let startSlot = 1;
+                while (
+                    startSlot < FOCUS_SLOT_COUNT
+                    && targets.every(({ state }) => !state.focusSequenceSlots.includes(startSlot))
+                ) {
+                    startSlot += 1;
+                }
                 const startAt = Date.now() + FOCUS_START_LEAD_TIME;
+                const activeSlotCount = FOCUS_SLOT_COUNT - startSlot + 1;
                 const returnDuration = returnMode === "layered"
-                    ? (FOCUS_SLOT_COUNT - 1) * crossfadeMs
+                    ? Math.max(1, FOCUS_SLOT_COUNT - startSlot) * crossfadeMs
                     : crossfadeMs;
-                const endAt = startAt + FOCUS_SLOT_COUNT * (crossfadeMs + holdMs) + returnDuration;
+                const endAt = startAt + activeSlotCount * (crossfadeMs + holdMs) + returnDuration;
                 updateSourceActivity(targets.map(({ sourceId }) => sourceId));
 
                 targets.forEach(({ sourceWindow }) => {
-                    sourceWindow.scheduleOverlapFocusSequence({ startAt, holdMs, crossfadeMs, fps, returnMode });
+                    sourceWindow.scheduleOverlapFocusSequence({ startAt, holdMs, crossfadeMs, fps, returnMode, startSlot });
                 });
                 focusRunActive = true;
                 renderFocusControls();
                 const slotSummary = targets.map(({ source, state }) => (
                     `${source?.name || "source"}: p${state.focusSequenceSlots.join(",p")}`
                 )).join(" / ");
-                log(`全画面の一枚演出を予約しました · ${slotSummary}`);
+                log(`全画面の一枚演出をp${startSlot}から予約しました · ${slotSummary}`);
                 focusCompletionTimer = setTimeout(
                     finishSynchronizedFocusSequence,
                     Math.max(0, endAt - Date.now()) + 100

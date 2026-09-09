@@ -1059,7 +1059,7 @@
             if (lowerId) {
                 opacityById.set(lowerId, state.displayOpacities.get(lowerId) ?? 0);
             }
-            if (boundary === 1) {
+            if (boundary === state.startSlotIndex + 1) {
                 state.layerIds.forEach((id) => {
                     if (!opacityById.has(id) || opacityById.get(id) === 0) {
                         opacityById.set(id, state.displayOpacities.get(id) ?? 0);
@@ -1108,7 +1108,7 @@
             state.lastRenderAt = timestamp;
 
             let currentId = null;
-            for (let index = 0; index < state.slots.length; index += 1) {
+            for (let index = state.startSlotIndex; index < state.slots.length; index += 1) {
                 const targetId = state.slots[index];
                 if (elapsed < state.duration) {
                     if (targetId) {
@@ -1135,13 +1135,18 @@
 
             state.finalFocusedId = currentId;
             if (state.returnMode === "layered") {
-                for (let boundary = 6; boundary >= 1; boundary -= 1) {
+                for (let boundary = 6; boundary >= state.startSlotIndex + 1; boundary -= 1) {
                     if (elapsed < state.duration) {
                         setFocusSequenceLayeredReturnFrame(state, boundary, elapsed / state.duration);
                         state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
                         return;
                     }
                     elapsed -= state.duration;
+                }
+                if (state.startSlotIndex === state.slots.length - 1 && elapsed < state.duration) {
+                    setFocusSequenceTransitionFrame(state, currentId, null, elapsed / state.duration);
+                    state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
+                    return;
                 }
             } else if (elapsed < state.duration) {
                 setFocusSequenceTransitionFrame(state, currentId, null, elapsed / state.duration);
@@ -1173,12 +1178,17 @@
             const requestedCrossfadeMs = Number(options.crossfadeMs);
             const requestedHoldMs = Number(options.holdMs);
             const requestedFps = Number(options.fps);
+            const requestedStartSlot = Number(options.startSlot);
+            const startSlotIndex = Number.isFinite(requestedStartSlot)
+                ? clamp(Math.floor(requestedStartSlot), 1, slots.length) - 1
+                : 0;
             const focusFps = Number.isFinite(requestedFps)
                 ? clamp(requestedFps, 1, 60)
                 : DEFAULT_FOCUS_SEQUENCE_FPS;
             const state = {
                 layerIds: layers.map((layer) => layer.id),
                 slots,
+                startSlotIndex,
                 displayOpacities,
                 duration: Number.isFinite(requestedCrossfadeMs)
                     ? Math.max(100, requestedCrossfadeMs)
@@ -1204,8 +1214,10 @@
             return {
                 startAt: state.startAt,
                 endAt: state.startAt
-                    + state.slots.length * (state.duration + state.holdDuration)
-                    + (state.returnMode === "layered" ? state.slots.length - 1 : 1) * state.duration,
+                    + (state.slots.length - state.startSlotIndex) * (state.duration + state.holdDuration)
+                    + (state.returnMode === "layered"
+                        ? Math.max(1, state.slots.length - 1 - state.startSlotIndex)
+                        : 1) * state.duration,
                 populatedSlots: state.slots.map((id, index) => id ? index + 1 : null).filter(Boolean)
             };
         }
