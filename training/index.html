@@ -82,6 +82,7 @@
         }
 
         .startButton {
+            justify-self: end;
             min-height: 44px;
             border: 1px solid var(--line);
             border-radius: 6px;
@@ -99,9 +100,9 @@
         }
 
         .consentDialog {
-            width: min(560px, calc(100% - 40px));
-            border: 0;
-            border-radius: 12px;
+            width: min(640px, calc(100% - 40px));
+            border: 1px solid rgba(217, 222, 229, 0.9);
+            border-radius: 16px;
             background: var(--panel);
             padding: 0;
             color: var(--ink);
@@ -116,7 +117,7 @@
         .consentContent {
             display: grid;
             gap: 24px;
-            padding: 32px;
+            padding: 32px 36px;
             text-align: center;
         }
 
@@ -127,35 +128,93 @@
             line-height: 1.7;
         }
 
-        .consentNote {
+        .consentQuestion {
             display: block;
-            margin-top: 8px;
-            color: var(--muted);
-            font-size: 0.88em;
+            font-size: 1.4rem;
+            line-height: 1.5;
+            white-space: nowrap;
+        }
+
+        .consentNotes {
+            display: grid;
+            gap: 8px;
+            margin-top: 24px;
+            border: 1px solid #ead8bd;
+            border-radius: 10px;
+            background: #fffaf3;
+            padding: 14px 16px;
+            text-align: left;
+        }
+
+        .consentNote {
+            display: grid;
+            grid-template-columns: 1.2em minmax(0, 1fr);
+            column-gap: 8px;
+            align-items: start;
+            color: #3f4650;
+            font-size: 0.7em;
             font-weight: 400;
+            line-height: 1.6;
+        }
+
+        .consentNote::before {
+            content: "※";
+            color: #b85f16;
+            font-weight: 700;
+            text-align: center;
         }
 
         .consentActions {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
+            gap: 14px;
         }
 
         .consentButton {
-            min-height: 48px;
+            min-height: 54px;
             border: 1px solid var(--line);
-            border-radius: 6px;
+            border-radius: 8px;
             background: #fff;
             color: var(--ink);
             font: inherit;
             font-size: 1rem;
             cursor: pointer;
+            transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+        }
+
+        .consentButton:hover {
+            border-color: var(--ink);
+        }
+
+        .consentButton:active {
+            transform: translateY(1px);
+        }
+
+        .consentButton:focus-visible {
+            outline: 3px solid rgba(39, 194, 138, 0.28);
+            outline-offset: 2px;
         }
 
         .consentButton--accept {
             border-color: var(--ink);
             background: var(--ink);
             color: #fff;
+        }
+
+        @media (max-width: 600px) {
+            .consentQuestion {
+                font-size: clamp(0.7rem, 3.6vw, 1.4rem);
+            }
+        }
+
+        @media (max-width: 400px) {
+            .consentContent {
+                padding: 24px 12px;
+            }
+
+            .consentNotes {
+                padding-inline: 12px;
+            }
         }
 
         @media (min-width: 768px) and (min-height: 1200px) and (orientation: portrait) {
@@ -165,7 +224,6 @@
 
             .introContent {
                 width: min(820px, 100%);
-                gap: clamp(28px, 2.2dvh, 40px);
             }
 
             .introThumbnail {
@@ -192,12 +250,16 @@
             }
 
             .consentContent {
-                gap: 32px;
-                padding: 32px;
+                gap: 36px;
+                padding: 44px;
             }
 
             .consentText {
                 font-size: 1.5rem;
+            }
+
+            .consentQuestion {
+                font-size: 1.7rem;
             }
 
             .consentButton {
@@ -888,9 +950,12 @@
         <dialog id="consentDialog" class="consentDialog" aria-labelledby="consentText">
             <div class="consentContent">
                 <p id="consentText" class="consentText">
-                    表情の撮影、表情画像の使用について同意して始めますか？
-                    <span class="consentNote">※同意していただける場合は、同意書にサインし、<br>「はい」を押してください。</span>
-                    <span class="consentNote">※同意しなくても体験は可能です。</span>
+                    <span class="consentQuestion">表情の撮影・使用について同意して始めますか？</span>
+                    <span class="consentNotes">
+                        <span class="consentNote">同意していただける場合は、同意書に署名し、「はい」を押してください。</span>
+                        <span class="consentNote">同意していただける場合は、撮影結果が５分間、②《表情と呼ぶモノ》に反映されます。</span>
+                        <span class="consentNote">同意しなくても体験は可能です。</span>
+                    </span>
                 </p>
                 <div class="consentActions">
                     <button id="consentAcceptButton" class="consentButton consentButton--accept"
@@ -2156,7 +2221,6 @@
             const stopChallengeSession = () => {
                 stopChallengeRecording();
                 running = false;
-                participantMonitoring = false;
                 paused = false;
                 holdStartedAt = 0;
                 window.clearTimeout(challengeTimeoutTimer);
@@ -2563,6 +2627,8 @@
             };
 
             startButton.addEventListener("click", () => {
+                participantMonitoring = true;
+                markParticipantActivity();
                 consentDialog.showModal();
             });
             consentDialog.addEventListener("cancel", (event) => {
