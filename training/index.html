@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>表情フィットネス</title>
+    <title>表情と呼ばれるモノ</title>
     <script defer src="../module/faceAPI/face-api.min.js"></script>
     <style>
         :root {
@@ -29,7 +29,7 @@
             margin: 0;
             background: var(--bg);
             color: var(--ink);
-            font-family: "Yu Gothic Medium", "Yu Gothic", system-ui, sans-serif;
+            font-family: "ヒラギノ明朝 ProN W6", "HiraMinProN-W6", "HG明朝E", "ＭＳ Ｐ明朝", "MS PMincho", "MS 明朝", serif;
         }
 
         .app {
@@ -55,8 +55,8 @@
             width: min(480px, 100%);
             display: grid;
             gap: 20px;
-            justify-items: center;
-            text-align: center;
+            justify-items: start;
+            text-align: start;
         }
 
         .introThumbnail {
@@ -164,7 +164,7 @@
             }
 
             .introContent {
-                width: min(720px, 100%);
+                width: min(820px, 100%);
                 gap: clamp(28px, 2.2dvh, 40px);
             }
 
@@ -877,10 +877,11 @@
     <div class="app">
         <section id="introScene" class="scene introScene">
             <div class="introContent">
-                <img class="introThumbnail" src="thumbnail.png" alt="サムネイル画像">
                 <h1 class="introTitle">表情と呼ばれるモノ</h1>
-                <p class="introText"></p>
-                <button id="startButton" class="startButton" type="button">さあ始めましょう →</button>
+                <p class="introText">1971年、心理学者ポール・エクマンらは、基本情動理論を提唱しました。
+                    この理論においてエクマンは、「喜び」「怒り」「悲しみ」「恐れ」「驚き」「嫌悪」という基本感情が存在し、それぞれに対応する表情には、文化を越えた普遍性があると主張しました。
+                    この表情の捉え方は、直感的な分かりやすさと、顔の動きを分類・測定できる扱いやすさから、エンタメ、セキュリティ、感情認識技術などに応用され、現在も私たちの表情に対する理解の基盤となっています。</p>
+                <button id="startButton" class="startButton" type="button">はじめる →</button>
             </div>
         </section>
 

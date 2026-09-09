@@ -342,6 +342,10 @@
                     <input id="focusFadeSeconds" type="number" min="0.1" step="0.1" value="3">
                 </label>
                 <label>
+                    演出FPS
+                    <input id="focusFps" type="number" min="1" max="60" value="30">
+                </label>
+                <label>
                     戻り方
                     <select id="focusReturnMode">
                         <option value="layered">1枚ずつ</option>
@@ -382,7 +386,7 @@
             const VIEWER_COUNT = 3;
             const DEFAULT_CANVAS_ID = "canvas";
             const DEFAULT_SOURCE_FPS = 60;
-            const SOURCE_EDITOR_VERSION = "20260908-5";
+            const SOURCE_EDITOR_VERSION = "20260909-3";
             const VIEWER_MAX_WIDTH = 1920;
             const VIEWER_MAX_HEIGHT = 1080;
             const STANDBY_POLL_INTERVAL = 250;
@@ -435,6 +439,7 @@
                 focusIntervalMinutes: document.querySelector("#focusIntervalMinutes"),
                 focusHoldSeconds: document.querySelector("#focusHoldSeconds"),
                 focusFadeSeconds: document.querySelector("#focusFadeSeconds"),
+                focusFps: document.querySelector("#focusFps"),
                 focusReturnMode: document.querySelector("#focusReturnMode"),
                 focusStatus: document.querySelector("#focusStatus"),
                 focusAutomationToggle: document.querySelector("#focusAutomationToggle"),
@@ -500,7 +505,9 @@
                     const stats = getSourceOutputStats(source.id);
                     const detail = stats
                         ? stats.active
-                            ? `${stats.width}×${stats.height} / 目標 ${stats.targetFps} fps`
+                            ? stats.dynamic
+                                ? `${stats.width}×${stats.height} / 目標 ${stats.targetFps} fps`
+                                : `${stats.width}×${stats.height} / 静止画キャッシュ`
                             : "停止中"
                         : "未接続";
                     sourceGroup.appendChild(createFpsRow(source.name, stats?.fps || 0, detail));
@@ -514,8 +521,11 @@
 
                 viewers.forEach((viewerState, index) => {
                     const layerValues = getViewerLayerFps(viewerState);
+                    const assignedSourceStats = getSourceOutputStats(assignments[index]);
                     const detail = viewerState
-                        ? `layer0 ${formatFps(layerValues[0])} / layer1 ${formatFps(layerValues[1])}`
+                        ? assignedSourceStats && !assignedSourceStats.dynamic
+                            ? `静止画キャッシュ / layer0 ${formatFps(layerValues[0])} / layer1 ${formatFps(layerValues[1])}`
+                            : `layer0 ${formatFps(layerValues[0])} / layer1 ${formatFps(layerValues[1])}`
                         : "未起動";
                     viewerGroup.appendChild(createFpsRow(
                         `Viewer ${index + 1}`,
@@ -554,6 +564,11 @@
                 document.querySelectorAll("[data-editor-source-id]").forEach((button) => {
                     button.classList.toggle("is-active", button.dataset.editorSourceId === sourceId);
                 });
+                try {
+                    sourceEditorFrames.get(sourceId)?.contentWindow?.refreshOverlapEditorPreview?.();
+                } catch {
+                    // 読み込み途中のiframeは初回renderで表示される。
+                }
                 updateSourceActivity();
             }
 
@@ -642,6 +657,7 @@
                     intervalMs: numberInRange(elements.focusIntervalMinutes, 3, 0.1) * 60 * 1000,
                     holdMs: numberInRange(elements.focusHoldSeconds, 1, 0) * 1000,
                     crossfadeMs: numberInRange(elements.focusFadeSeconds, 3, 0.1) * 1000,
+                    fps: numberInRange(elements.focusFps, 30, 1, 60),
                     returnMode: elements.focusReturnMode.value === "layered" ? "layered" : "direct"
                 };
             }
@@ -732,7 +748,7 @@
                 clearTimeout(timer);
                 timer = null;
                 clearFocusAutomationTimer();
-                const { holdMs, crossfadeMs, returnMode } = getFocusSettings();
+                const { holdMs, crossfadeMs, fps, returnMode } = getFocusSettings();
                 const startAt = Date.now() + FOCUS_START_LEAD_TIME;
                 const returnDuration = returnMode === "layered"
                     ? (FOCUS_SLOT_COUNT - 1) * crossfadeMs
@@ -741,7 +757,7 @@
                 updateSourceActivity(targets.map(({ sourceId }) => sourceId));
 
                 targets.forEach(({ sourceWindow }) => {
-                    sourceWindow.scheduleOverlapFocusSequence({ startAt, holdMs, crossfadeMs, returnMode });
+                    sourceWindow.scheduleOverlapFocusSequence({ startAt, holdMs, crossfadeMs, fps, returnMode });
                 });
                 focusRunActive = true;
                 renderFocusControls();
@@ -1030,15 +1046,33 @@
                 const width = Math.max(1, Math.round(requestedWidth * scale));
                 const height = Math.max(1, Math.round(requestedHeight * scale));
 
-                if (canvas.width !== width || canvas.height !== height) {
+                const changed = canvas.width !== width || canvas.height !== height;
+                if (changed) {
                     canvas.width = width;
                     canvas.height = height;
                 }
+                return changed;
             }
 
             function stopMirror(viewerState, layerIndex) {
                 const stream = viewerState.streams[layerIndex];
-                if (stream) stream.stopped = true;
+                if (stream) {
+                    stream.stopped = true;
+                    try {
+                        stream.unsubscribe?.();
+                    } catch {
+                        // 既に閉じられたsourceは無視する。
+                    }
+                    if (stream.drawFrameId !== null) {
+                        viewerState.window.cancelAnimationFrame(stream.drawFrameId);
+                    }
+                    if (stream.delayTimerId !== null) {
+                        viewerState.window.clearTimeout(stream.delayTimerId);
+                    }
+                    if (stream.fallbackTimerId !== null) {
+                        viewerState.window.clearInterval(stream.fallbackTimerId);
+                    }
+                }
                 viewerState.streams[layerIndex] = null;
 
                 const canvas = viewerState.layers[layerIndex];
@@ -1058,7 +1092,15 @@
                     lastDrawAt: 0,
                     sampleStartedAt: performance.now(),
                     frameCount: 0,
-                    measuredFps: 0
+                    measuredFps: 0,
+                    lastSourceRevision: null,
+                    pendingSourceRevision: null,
+                    forceDraw: false,
+                    drawFrameId: null,
+                    delayTimerId: null,
+                    fallbackTimerId: null,
+                    unsubscribe: null,
+                    requestDraw: null
                 };
                 const canvas = viewerState.layers[layerIndex];
                 const context = viewerState.contexts[layerIndex];
@@ -1066,17 +1108,46 @@
 
                 viewerState.streams[layerIndex] = stream;
 
-                function draw(time) {
+                function scheduleDraw(sourceRevision = null, force = false) {
                     if (stream.stopped || viewerState.window.closed) return;
-                    viewerState.window.requestAnimationFrame(draw);
+                    if (Number.isFinite(sourceRevision)) {
+                        stream.pendingSourceRevision = sourceRevision;
+                    }
+                    if (force) stream.forceDraw = true;
+                    if (stream.drawFrameId !== null || stream.delayTimerId !== null) return;
+                    stream.drawFrameId = viewerState.window.requestAnimationFrame(draw);
+                }
 
-                    if (time - stream.lastFrameAt < frameInterval) return;
+                function draw(time) {
+                    stream.drawFrameId = null;
+                    if (stream.stopped || viewerState.window.closed) return;
+
+                    const remaining = frameInterval - (time - stream.lastFrameAt);
+                    if (remaining > 1) {
+                        stream.delayTimerId = viewerState.window.setTimeout(() => {
+                            stream.delayTimerId = null;
+                            scheduleDraw();
+                        }, remaining);
+                        return;
+                    }
                     stream.lastFrameAt = time;
 
                     const sourceCanvas = canvasOf(sourceId);
                     if (!sourceCanvas) return;
 
-                    resizeViewerCanvas(viewerState, canvas);
+                    const resized = resizeViewerCanvas(viewerState, canvas);
+                    const sourceStats = getSourceOutputStats(sourceId);
+                    const sourceRevision = Number.isFinite(stream.pendingSourceRevision)
+                        ? stream.pendingSourceRevision
+                        : Number.isFinite(sourceStats?.revision)
+                        ? sourceStats.revision
+                        : null;
+                    const forceDraw = stream.forceDraw;
+                    stream.pendingSourceRevision = null;
+                    stream.forceDraw = false;
+                    if (!forceDraw && !resized && sourceRevision !== null && sourceRevision === stream.lastSourceRevision) {
+                        return;
+                    }
                     context.imageSmoothingEnabled = true;
                     context.imageSmoothingQuality = "high";
 
@@ -1093,6 +1164,7 @@
                     context.fillStyle = "#000";
                     context.fillRect(0, 0, canvas.width, canvas.height);
                     context.drawImage(sourceCanvas, x, y, width, height);
+                    stream.lastSourceRevision = sourceRevision;
                     stream.frameCount += 1;
                     stream.lastDrawAt = performance.now();
                     const sampleDuration = stream.lastDrawAt - stream.sampleStartedAt;
@@ -1103,7 +1175,25 @@
                     }
                 }
 
-                viewerState.window.requestAnimationFrame(draw);
+                stream.requestDraw = scheduleDraw;
+                const sourceWindow = getSourceWindow(sourceId);
+                try {
+                    if (typeof sourceWindow?.subscribeOverlapOutput === "function") {
+                        stream.unsubscribe = sourceWindow.subscribeOverlapOutput((revision) => {
+                            scheduleDraw(revision);
+                        });
+                    }
+                } catch {
+                    stream.unsubscribe = null;
+                }
+
+                if (!stream.unsubscribe) {
+                    stream.fallbackTimerId = viewerState.window.setInterval(
+                        () => scheduleDraw(),
+                        frameInterval
+                    );
+                }
+                scheduleDraw(null, true);
             }
 
             function viewerGeometry(screen) {
@@ -1174,7 +1264,17 @@
                 };
 
                 viewerWindow.addEventListener("resize", () => {
-                    layers.forEach(canvas => resizeViewerCanvas(viewerState, canvas));
+                    layers.forEach((canvas, layerIndex) => {
+                        const stream = viewerState.streams[layerIndex];
+                        if (stream?.requestDraw) {
+                            stream.requestDraw(null, true);
+                            return;
+                        }
+                        resizeViewerCanvas(viewerState, canvas);
+                        const context = viewerState.contexts[layerIndex];
+                        context.fillStyle = "#000";
+                        context.fillRect(0, 0, canvas.width, canvas.height);
+                    });
                 });
 
                 layers.forEach(canvas => resizeViewerCanvas(viewerState, canvas));
@@ -1477,9 +1577,7 @@
 
             function stopViewer(viewerState) {
                 if (!viewerState) return;
-                viewerState.streams.forEach((stream) => {
-                    if (stream) stream.stopped = true;
-                });
+                viewerState.streams.forEach((_, layerIndex) => stopMirror(viewerState, layerIndex));
                 try {
                     if (!viewerState.window.closed) viewerState.window.close();
                 } catch {

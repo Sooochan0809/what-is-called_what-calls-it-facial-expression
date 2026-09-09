@@ -7,6 +7,7 @@
         const DEFAULT_FOCUS_SEQUENCE_INTERVAL = 3 * 60 * 1000;
         const DEFAULT_FOCUS_SEQUENCE_DURATION = 3000;
         const FOCUS_SEQUENCE_HOLD_DURATION = 1000;
+        const DEFAULT_FOCUS_SEQUENCE_FPS = 30;
         const AUTO_RANDOM_FPS = 60;
         const DEFAULT_OUTPUT_FPS = 60;
         const MEDIAPIPE_MODULE_URL = new URL("../module/mediapipe/", import.meta.url);
@@ -95,6 +96,7 @@
         let cropPopup = null;
         let cropPopupCanvas = null;
         let cropPopupFrameId = null;
+        let cropPopupDirty = true;
         const cropPopupCanvasId = DISPLAY_CANVAS_ID || "canvas";
         const outputFpsStats = {
             sampleStartedAt: performance.now(),
@@ -102,6 +104,8 @@
             measuredFps: 0,
             lastFrameAt: 0
         };
+        let outputRevision = 0;
+        const outputRevisionListeners = new Set();
         let devicePixelRatioQuery = null;
         let devicePixelRatioListener = null;
         const blendBufferCanvas = document.createElement("canvas");
@@ -119,6 +123,14 @@
         }
 
         function recordOutputFrame(timestamp) {
+            outputRevision += 1;
+            outputRevisionListeners.forEach((listener) => {
+                try {
+                    listener(outputRevision);
+                } catch {
+                    outputRevisionListeners.delete(listener);
+                }
+            });
             outputFpsStats.frameCount += 1;
             outputFpsStats.lastFrameAt = timestamp;
             const sampleDuration = timestamp - outputFpsStats.sampleStartedAt;
@@ -815,6 +827,34 @@
             offset = { x: 0, y: 0 },
             outputScale = { x: 1, y: 1 }
         ) {
+            const drawLayers = (targetCtx) => layers.slice().reverse().forEach((layer, drawIndex) => {
+                const transform = transforms.get(layer.id);
+                if (!transform || !layer.image) return;
+                const opacity = getOverlayOpacity(layer, drawIndex);
+                if (opacity <= 0.0001) return;
+
+                const contrast = getOverlayContrast(layer, drawIndex);
+                targetCtx.save();
+                targetCtx.globalAlpha = opacity;
+                targetCtx.globalCompositeOperation = blendMode === "plus-lighter" ? "lighter" : blendMode === "normal" ? "source-over" : blendMode;
+                targetCtx.filter = getLayerFilter(layer, contrast);
+                targetCtx.setTransform(
+                    transform.a * outputScale.x,
+                    transform.b * outputScale.y,
+                    transform.c * outputScale.x,
+                    transform.d * outputScale.y,
+                    (transform.e - offset.x) * outputScale.x,
+                    (transform.f - offset.y) * outputScale.y
+                );
+                targetCtx.drawImage(layer.image, 0, 0, layer.width, layer.height);
+                targetCtx.restore();
+            });
+
+            if (blendMode === "normal") {
+                drawLayers(ctx);
+                return;
+            }
+
             ensureCanvasSize(blendBufferCanvas, ctx.canvas.width, ctx.canvas.height);
             const blendCtx = blendBufferCanvas.getContext("2d");
             blendCtx.imageSmoothingEnabled = true;
@@ -824,26 +864,7 @@
             blendCtx.globalCompositeOperation = "source-over";
             blendCtx.filter = "none";
             blendCtx.clearRect(0, 0, blendBufferCanvas.width, blendBufferCanvas.height);
-
-            layers.slice().reverse().forEach((layer, drawIndex) => {
-                const transform = transforms.get(layer.id);
-                if (!transform || !layer.image) return;
-
-                blendCtx.save();
-                blendCtx.globalAlpha = getOverlayOpacity(layer, drawIndex);
-                blendCtx.globalCompositeOperation = blendMode === "plus-lighter" ? "lighter" : blendMode === "normal" ? "source-over" : blendMode;
-                blendCtx.filter = getLayerFilter(layer, getOverlayContrast(layer, drawIndex));
-                blendCtx.setTransform(
-                    transform.a * outputScale.x,
-                    transform.b * outputScale.y,
-                    transform.c * outputScale.x,
-                    transform.d * outputScale.y,
-                    (transform.e - offset.x) * outputScale.x,
-                    (transform.f - offset.y) * outputScale.y
-                );
-                blendCtx.drawImage(layer.image, 0, 0, layer.width, layer.height);
-                blendCtx.restore();
-            });
+            drawLayers(blendCtx);
 
             ctx.save();
             ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -955,11 +976,18 @@
         }
 
         function applyFocusSequenceOpacities(opacityById) {
-            layers = layers.map((layer) => opacityById.has(layer.id)
-                ? { ...layer, opacity: opacityById.get(layer.id) }
-                : layer);
+            let changed = false;
+            layers = layers.map((layer) => {
+                if (!opacityById.has(layer.id)) return layer;
+                const opacity = opacityById.get(layer.id);
+                if (Math.abs(layer.opacity - opacity) < 0.0001) return layer;
+                changed = true;
+                return { ...layer, opacity };
+            });
+            if (!changed) return false;
             renderStage();
             renderLayerOutputs();
+            return true;
         }
 
         function easeFocusSequenceProgress(progress) {
@@ -1073,6 +1101,11 @@
                 state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
                 return;
             }
+            if (state.lastRenderAt && timestamp - state.lastRenderAt < state.frameInterval) {
+                state.frameId = requestAnimationFrame((nextTimestamp) => tickFocusSequence(nextTimestamp, state));
+                return;
+            }
+            state.lastRenderAt = timestamp;
 
             let currentId = null;
             for (let index = 0; index < state.slots.length; index += 1) {
@@ -1139,6 +1172,10 @@
             ]));
             const requestedCrossfadeMs = Number(options.crossfadeMs);
             const requestedHoldMs = Number(options.holdMs);
+            const requestedFps = Number(options.fps);
+            const focusFps = Number.isFinite(requestedFps)
+                ? clamp(requestedFps, 1, 60)
+                : DEFAULT_FOCUS_SEQUENCE_FPS;
             const state = {
                 layerIds: layers.map((layer) => layer.id),
                 slots,
@@ -1155,7 +1192,9 @@
                     opacity: layer.opacity,
                     randomTargets: { ...layer.randomTargets }
                 }])),
-                frameId: null
+                frameId: null,
+                frameInterval: 1000 / focusFps,
+                lastRenderAt: 0
             };
             focusSequenceState = state;
             // 平均合成時の実効不透明度を開始待機中も維持し、暗転を防ぐ。
@@ -1392,7 +1431,7 @@
                 updateCropSelection(activeCropRect);
             }
             if (cropPopup && !cropPopup.closed) {
-                ensureCropPopupLoop();
+                requestCropPopupRender();
             }
         }
 
@@ -1442,7 +1481,7 @@
                 updateCropSelection(activeCropRect);
             }
             if (cropPopup && !cropPopup.closed) {
-                ensureCropPopupLoop();
+                requestCropPopupRender();
             }
         }
 
@@ -1521,22 +1560,32 @@
 
         function drawCropPopupFrame() {
             const frameStartTime = performance.now();
+            cropPopupFrameId = null;
             if (!runtimeActive || !cropPopup || cropPopup.closed || !cropPopupCanvas || !activeCropRect) {
-                cropPopupFrameId = null;
                 return;
             }
 
-            const { width, height } = drawStageCrop(cropPopupCanvas, activeCropRect);
-            const frameCompletedAt = performance.now();
-            recordOutputFrame(frameCompletedAt);
-            if (cropPopup !== window) {
-                cropPopup.document.title = `トリミング範囲 ${width}x${height}`;
+            if (cropPopupDirty || outputNeedsContinuousFrames()) {
+                cropPopupDirty = false;
+                const { width, height } = drawStageCrop(cropPopupCanvas, activeCropRect);
+                const frameCompletedAt = performance.now();
+                recordOutputFrame(frameCompletedAt);
+                if (cropPopup !== window) {
+                    cropPopup.document.title = `トリミング範囲 ${width}x${height}`;
+                }
             }
-            const elapsed = frameCompletedAt - frameStartTime;
-            cropPopupFrameId = window.setTimeout(
-                drawCropPopupFrame,
-                Math.max(0, OUTPUT_FRAME_INTERVAL - elapsed)
-            );
+
+            if (outputNeedsContinuousFrames()) {
+                const elapsed = performance.now() - frameStartTime;
+                cropPopupFrameId = window.setTimeout(
+                    drawCropPopupFrame,
+                    Math.max(0, OUTPUT_FRAME_INTERVAL - elapsed)
+                );
+            }
+        }
+
+        function outputNeedsContinuousFrames() {
+            return layers.some((layer) => layer.mediaType === "video") || Boolean(activeHierarchyTransition);
         }
 
         function getOutputStats() {
@@ -1545,10 +1594,16 @@
                 fps: outputFpsStats.lastFrameAt && now - outputFpsStats.lastFrameAt < 2000
                     ? outputFpsStats.measuredFps
                     : 0,
-                targetFps: OUTPUT_FPS,
+                targetFps: focusSequenceState
+                    ? Math.round(1000 / focusSequenceState.frameInterval)
+                    : OUTPUT_FPS,
                 width: cropPopupCanvas?.width || 0,
                 height: cropPopupCanvas?.height || 0,
-                active: runtimeActive
+                active: runtimeActive,
+                revision: outputRevision,
+                dynamic: Boolean(focusSequenceState)
+                    || hasActiveAutoRandomLayer()
+                    || outputNeedsContinuousFrames()
             };
         }
 
@@ -1559,6 +1614,12 @@
                 blendMode,
                 focusSequenceSlots: createFocusSequenceSlots().map((id, index) => id ? index + 1 : null).filter(Boolean)
             };
+        }
+
+        function subscribeOutputRevision(listener) {
+            if (typeof listener !== "function") return () => {};
+            outputRevisionListeners.add(listener);
+            return () => outputRevisionListeners.delete(listener);
         }
 
         function clearLayers() {
@@ -1574,6 +1635,8 @@
 
         function exposeOutputApi(targetWindow) {
             targetWindow.getOverlapOutputStats = getOutputStats;
+            targetWindow.subscribeOverlapOutput = subscribeOutputRevision;
+            targetWindow.refreshOverlapEditorPreview = refreshEditorPreview;
             targetWindow.getOverlapSourceState = getSourceState;
             targetWindow.clearOverlapSource = clearLayers;
             targetWindow.addOverlapMediaUrls = addMediaUrls;
@@ -1587,6 +1650,7 @@
             if (cropPopupFrameId) clearTimeout(cropPopupFrameId);
             autoRandomFrameId = null;
             cropPopupFrameId = null;
+            cropPopupDirty = true;
             lastAutoRandomTime = 0;
             clearFocusSequenceTimer();
             cancelFocusSequence(true);
@@ -1617,6 +1681,11 @@
         function ensureCropPopupLoop() {
             if (cropPopupFrameId) return;
             cropPopupFrameId = window.setTimeout(drawCropPopupFrame, 0);
+        }
+
+        function requestCropPopupRender() {
+            cropPopupDirty = true;
+            ensureCropPopupLoop();
         }
 
         function getCropPopupHtml(width, height) {
@@ -1660,7 +1729,7 @@
                 cropPopupCanvas = embeddedOutputCanvas;
                 cropPopupCanvas.id = identifiers.canvasId;
                 registerCropPopupWithManager(window, identifiers);
-                ensureCropPopupLoop();
+                requestCropPopupRender();
                 return;
             }
 
@@ -1697,7 +1766,7 @@
                     cropPopupCanvas = null;
                 }
             });
-            ensureCropPopupLoop();
+            requestCropPopupRender();
             popup.focus();
         }
 
@@ -1879,7 +1948,17 @@
             hideCropSelection();
         }
 
-        function renderStage() {
+        function isEditorPreviewVisible() {
+            if (focusSequenceState) return false;
+            if (!IS_EMBEDDED) return true;
+            try {
+                return Boolean(window.frameElement?.classList.contains("is-active"));
+            } catch {
+                return true;
+            }
+        }
+
+        function renderStagePreview() {
             const transforms = getAlignedTransforms();
             updateStageImageArea(transforms);
             const activeLayerIds = new Set(layers.map((layer) => layer.id));
@@ -1896,7 +1975,13 @@
             });
         }
 
+        function renderStage() {
+            if (isEditorPreviewVisible()) renderStagePreview();
+            requestCropPopupRender();
+        }
+
         function renderLayerOutputs() {
+            if (!isEditorPreviewVisible()) return;
             layers.forEach((layer, layerIndex) => {
                 const displayOpacity = getOverlayOpacity(layer, layers.length - 1 - layerIndex);
                 const output = document.querySelector(`[data-opacity-output="${layer.id}"]`);
@@ -1921,6 +2006,11 @@
                     contrastInput.disabled = isAverageContrastEnabled();
                 }
             });
+        }
+
+        function refreshEditorPreview() {
+            renderStagePreview();
+            renderLayerOutputs();
         }
 
         function isControlTarget(target) {
