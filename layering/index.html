@@ -298,7 +298,7 @@
             <div class="settings">
                 <label>
                     待機時間（秒）
-                    <input id="intervalSeconds" type="number" min="0" step="1" value="30">
+                    <input id="intervalSeconds" type="number" min="0" step="1" value="10">
                 </label>
 
                 <label>
@@ -331,7 +331,7 @@
             <div class="settings">
                 <label>
                     実行周期（分）
-                    <input id="focusIntervalMinutes" type="number" min="0.1" step="0.1" value="3">
+                    <input id="focusIntervalMinutes" type="number" min="0.1" step="0.1" value="1.5">
                 </label>
                 <label>
                     画像保持（秒）
@@ -678,12 +678,13 @@
 
             function renderFocusControls() {
                 const displaySwitchBusy = focusRunActive || standbyCycleActive || switching;
+                const focusSwitchBusy = focusRunActive || switching;
                 elements.focusAutomationToggle.textContent = focusAutomationEnabled
                     ? "停止"
                     : "開始";
                 elements.focusAutomationToggle.classList.toggle("danger", focusAutomationEnabled);
                 elements.focusAutomationToggle.classList.toggle("primary", !focusAutomationEnabled);
-                elements.focusRunNow.disabled = displaySwitchBusy;
+                elements.focusRunNow.disabled = focusSwitchBusy;
                 elements.initializeButton.disabled = displaySwitchBusy;
                 elements.standbyRunNow.disabled = displaySwitchBusy;
                 elements.focusStatus.textContent = focusRunActive
@@ -740,7 +741,6 @@
 
             async function runSynchronizedFocusSequence() {
                 if (switching) throw new Error("画面切り替えの完了後に一枚演出を実行してください");
-                if (standbyCycleActive) throw new Error("スタンバイ表示の完了後に一枚演出を実行してください");
                 if (focusRunActive) cancelSynchronizedFocusSequence();
                 const targets = focusTargetSources();
                 if (!targets.length) throw new Error("p1〜p7画像を持つ表示中ソースがありません");
@@ -831,8 +831,11 @@
                             if (!target) break;
                             const targetWindow = getSourceWindow(target.id);
                             if (typeof targetWindow?.addOverlapMediaUrls !== "function") break;
-                            const count = await targetWindow.addOverlapMediaUrls(job.files || []);
-                            if (!count) throw new Error(`${job.zipName}に画像がありません`);
+                            const layerFiles = (job.files || []).filter((file) => (
+                                /^p[2-7](?:[_\s.-]|$)/i.test(String(file?.name || ""))
+                            ));
+                            const count = await targetWindow.addOverlapMediaUrls(layerFiles);
+                            if (!count) throw new Error(`${job.zipName}にp2〜p7の画像がありません`);
                             job.assignment = { sourceId: target.id, sourceName: target.name, count };
                             updateSourceActivity([target.id]);
                         }
@@ -1520,6 +1523,7 @@
                     const displayMs = getSettings().displayMs;
                     log(`Viewer 2で${STANDBY_SOURCE_ID}を${displayMs / 1000}秒間表示します`);
                     await sleep(displayMs);
+                    while (focusRunActive) await sleep(100);
                     await applyChanges([{ viewerIndex: 1, sourceId: "source-2" }]);
                     clearSource(STANDBY_SOURCE_ID);
                     updateStandbyPresentation();
@@ -1543,7 +1547,12 @@
 
                 timer = setTimeout(async () => {
                     try {
-                        if (!switching && !standbyCycleActive && sourceHasMedia(STANDBY_SOURCE_ID)) {
+                        if (
+                            hasStandbyMedia
+                            && !switching
+                            && !standbyCycleActive
+                            && sourceHasMedia(STANDBY_SOURCE_ID)
+                        ) {
                             await advanceStandby();
                         }
                     } catch (error) {
