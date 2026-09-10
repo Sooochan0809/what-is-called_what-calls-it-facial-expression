@@ -1086,7 +1086,7 @@
                                 上の表示は判定コメントです。達成率バーが塗られるほど、お手本の表情に近づいています。「かなり好ましい表情です！」と表示される状態を3秒間キープしましょう。
                             </div>
                             <div class="coachTip coachTip--timer">
-                                1回の挑戦時間は30秒です。最大3回まで再挑戦できます。</div>
+                                1回の挑戦時間は30秒です。最大3回まで挑戦できます。</div>
                             <div class="coachTip coachTip--face">
                                 顔の位置を枠に収まるように調整してください。
                                 <span id="coachFaceCountdown" class="coachFaceCountdown">残り10秒</span>
@@ -2070,7 +2070,7 @@
                 paused = false;
                 challengeTimerRemainingMs = CHALLENGE_ATTEMPT_MS;
                 challengeTimerStartedAt = 0;
-                challengeTimerValue.textContent = "1:00";
+                challengeTimerValue.textContent = "0:30";
                 updateChallengeChances();
                 challengeTimer.classList.remove("is-ending");
                 challengeTimer.hidden = true;
