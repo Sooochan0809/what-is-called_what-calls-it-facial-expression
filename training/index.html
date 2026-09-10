@@ -748,7 +748,7 @@
 
         .coachTip--face {
             left: 50%;
-            top: 34%;
+            top: 30%;
             transform: translate(-50%, -50%);
         }
 
@@ -827,7 +827,7 @@
             }
 
             .coachTip--face {
-                top: 48%;
+                top: 44%;
                 transform: translate(-50%, -50%);
             }
         }
@@ -929,7 +929,7 @@
             }
 
             .coachTip--face {
-                top: 30%;
+                top: 26%;
             }
         }
     </style>
@@ -1045,8 +1045,7 @@
 
         <section id="finalScene" class="scene introScene" hidden>
             <div class="introContent">
-                <img class="introThumbnail" src="thumbnail.png" alt="サムネイル画像">
-                <h1 class="introTitle">おめでとうございます🎉</h1>
+                <h1 class="introTitle">おめでとうございます。</h1>
                 <p class="introText">
                     すべてのトレーニングが完了しました。<br>このトレーニングで、あなたの表情は、他者にとって理解しやすい形へと調整されました。これからも、周囲に誤解を与えない模範的な表情を継続してください。
                     <span id="finalWarning" hidden></span>
@@ -2317,7 +2316,7 @@
                 const clearedKey = currentLevel().key;
                 const hasNextLevel = advanceLevel();
                 startResultTransition({
-                    title: hasNextLevel ? "レベルアップ！" : "全レベルクリア！",
+                    title: hasNextLevel ? "クリア！" : "全レベルクリア！",
                     text: hasNextLevel
                         ? LEVEL_CLEAR_MESSAGES[clearedKey]
                         : `${LEVEL_CLEAR_MESSAGES[clearedKey]} すべての表情トレーニングをクリアしました。`,
