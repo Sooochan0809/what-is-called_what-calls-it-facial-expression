@@ -669,56 +669,6 @@
             color: #c93647;
         }
 
-        .cameraAssist {
-            position: absolute;
-            top: 10px;
-            left: 50%;
-            z-index: 10;
-            width: min(360px, calc(100% - 32px));
-            border-radius: 999px;
-            background: rgba(23, 32, 42, 0.88);
-            padding: 8px 16px 10px;
-            color: #fff;
-            font-size: 0.95rem;
-            font-weight: 600;
-            line-height: 1.4;
-            text-align: center;
-            transform: translate(-50%, -8px);
-            pointer-events: none;
-        }
-
-        .cameraAssist.is-active {
-            transform: translate(-50%, 0);
-        }
-
-        .cameraAssistArrow {
-            display: block;
-            color: var(--accent);
-            font-size: 1.8em;
-            line-height: 0.8;
-            animation: cameraArrowBounce 700ms ease-in-out infinite alternate;
-        }
-
-        .cameraAssistCountdown {
-            display: block;
-            min-height: 1.4em;
-            margin-top: 8px;
-            color: var(--accent);
-            font-size: 1.2em;
-            font-variant-numeric: tabular-nums;
-            font-weight: 700;
-        }
-
-        @keyframes cameraArrowBounce {
-            from {
-                transform: translateY(5px) scale(1);
-            }
-
-            to {
-                transform: translateY(-5px) scale(1.12);
-            }
-        }
-
         .scoreBar {
             grid-column: 1 / -1;
             width: 100%;
@@ -788,14 +738,6 @@
         .coachTip.is-active {
             opacity: 1;
             transform: translateY(0);
-        }
-
-        .coachTip.cameraAssist {
-            transform: translate(-50%, -8px);
-        }
-
-        .coachTip.cameraAssist.is-active {
-            transform: translate(-50%, 0);
         }
 
         .coachFaceCountdown {
@@ -974,13 +916,6 @@
                 width: 14px;
             }
 
-            .cameraAssist {
-                top: 14px;
-                width: min(560px, calc(100% - 48px));
-                padding: 12px 24px 14px;
-                font-size: 1.45rem;
-            }
-
             .coachTip {
                 max-width: min(640px, calc(100% - 48px));
                 border-left-width: 6px;
@@ -1090,11 +1025,6 @@
                             <div class="coachTip coachTip--face">
                                 顔の位置を枠に収まるように調整してください。
                                 <span id="coachFaceCountdown" class="coachFaceCountdown">残り10秒</span>
-                            </div>
-                            <div id="cameraAssist" class="coachTip coachTip--camera cameraAssist">
-                                <span class="cameraAssistArrow" aria-hidden="true">⇧</span>
-                                ここにカメラがあります。カメラ目線を意識しましょう。
-                                <span class="cameraAssistCountdown">そのままキープ</span>
                             </div>
                         </div>
                         <div id="cameraPlaceholder" class="placeholder">Webcamを起動中...</div>
