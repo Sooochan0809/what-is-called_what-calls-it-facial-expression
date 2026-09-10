@@ -81,6 +81,42 @@
             text-align: left;
         }
 
+        .finalContent {
+            width: min(600px, 100%);
+            gap: 28px;
+        }
+
+        .finalScores {
+            width: 100%;
+            display: grid;
+            gap: 14px;
+        }
+
+        .finalScoreRow {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 24px;
+            align-items: center;
+            border-bottom: 1px solid var(--line);
+            padding: 4px 0 14px;
+        }
+
+        .finalScoreRow:last-child {
+            border-bottom: 0;
+        }
+
+        .finalScoreLabel,
+        .finalScoreValue {
+            font-size: 1rem;
+            font-weight: 600;
+            line-height: 1;
+        }
+
+        .finalScoreValue {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
         .startButton {
             justify-self: end;
             min-height: 44px;
@@ -237,6 +273,24 @@
             .introText {
                 font-size: clamp(1.25rem, 2.25vw, 1.5rem);
                 line-height: 1.85;
+            }
+
+            .finalContent {
+                width: min(720px, 100%);
+                gap: 40px;
+            }
+
+            .finalScores {
+                gap: 20px;
+            }
+
+            .finalScoreRow {
+                gap: 20px;
+            }
+
+            .finalScoreLabel,
+            .finalScoreValue {
+                font-size: 1.4rem;
             }
 
             .startButton {
@@ -1044,12 +1098,9 @@
         </main>
 
         <section id="finalScene" class="scene introScene" hidden>
-            <div class="introContent">
-                <h1 class="introTitle">おめでとうございます。</h1>
-                <p class="introText">
-                    すべてのトレーニングが完了しました。<br>このトレーニングで、あなたの表情は、他者にとって理解しやすい形へと調整されました。これからも、周囲に誤解を与えない模範的な表情を継続してください。
-                    <span id="finalWarning" hidden></span>
-                </p>
+            <div class="introContent finalContent">
+                <h1 class="introTitle">あなたの表情</h1>
+                <div id="finalScores" class="finalScores" aria-label="表情ごとの最大スコア"></div>
             </div>
         </section>
     </div>
@@ -1107,6 +1158,7 @@
                 return;
             }
 
+            const resultsPreview = new URLSearchParams(window.location.search).get("preview") === "results";
             const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, Number(value || 0)));
             const MODEL_URL = config.paths.modelUrl;
             const MEDIAPIPE_WASM_URL = new URL("../module/mediapipe/wasm", window.location.href).href.replace(/\/$/, "");
@@ -1177,7 +1229,7 @@
             const demoScene = $("demoScene");
             const trainingScene = $("trainingScene");
             const finalScene = $("finalScene");
-            const finalWarning = $("finalWarning");
+            const finalScores = $("finalScores");
             const startButton = $("startButton");
             const consentDialog = $("consentDialog");
             const consentAcceptButton = $("consentAcceptButton");
@@ -1232,7 +1284,7 @@
             let holdStartedAt = 0;
             let challengeCleared = false;
             let challengeAttemptCount = 0;
-            const unclearedExpressions = new Set();
+            const maximumScores = new Map(LEVELS.map(({ key }) => [key, 0]));
             let coachTipsShown = false;
             let coaching = false;
             let coachFaceCountdownTimer = 0;
@@ -1312,8 +1364,23 @@
             };
 
             const applyScore = (score, expressions = null) => {
+                const normalized = clamp(score);
+                maximumScores.set(activeTarget, Math.max(maximumScores.get(activeTarget) || 0, normalized));
                 setScore(score, expressions);
                 updateClearProgress(score, expressions);
+            };
+
+            const renderFinalScores = () => {
+                finalScores.innerHTML = LEVELS.map(({ key }) => {
+                    const score = Math.round((maximumScores.get(key) || 0) * 100);
+                    const label = TARGETS[key]?.label || key;
+                    return `
+                        <div class="finalScoreRow">
+                            <span class="finalScoreLabel">${label}</span>
+                            <span class="finalScoreValue">${score}%</span>
+                        </div>
+                    `;
+                }).join("");
             };
 
             const setScore = (score, expressions = null) => {
@@ -2296,7 +2363,6 @@
                     return;
                 }
 
-                unclearedExpressions.add(currentLevel().key);
                 const hasNextLevel = advanceLevel();
                 startResultTransition({
                     title: hasNextLevel ? "ナイスファイト！" : "全レベル終了",
@@ -2485,16 +2551,8 @@
                 window.clearTimeout(finalReloadTimer);
                 finalReloadTimer = 0;
                 if (scene === finalScene) {
-                    const unclearedLabels = [...unclearedExpressions]
-                        .map((key) => TARGETS[key]?.label)
-                        .filter(Boolean);
-                    finalWarning.hidden = unclearedLabels.length === 0;
-                    finalWarning.textContent = unclearedLabels.length > 0
-                        ? `ただし、${unclearedLabels.join("・")}には誤解の恐れが残ります。普段からわかりやすい表現を心がけましょう。`
-                        : "";
-                    if (unclearedLabels.length > 0) {
-                        finalWarning.prepend(document.createElement("br"));
-                    }
+                    renderFinalScores();
+                    if (resultsPreview) return;
                     downloadFinalArchives().finally(() => {
                         if (finalScene.hidden) return;
                         finalReloadTimer = window.setTimeout(() => {
@@ -2677,6 +2735,11 @@
 
             syncLevelCopy();
             setScore(0);
+            if (resultsPreview) {
+                const previewScores = [0.82, 0.91, 0.76, 0.68, 0.84, 0.72, 0.79];
+                LEVELS.forEach(({ key }, index) => maximumScores.set(key, previewScores[index] || 0));
+                showScene(finalScene);
+            }
         });
     </script>
 </body>
