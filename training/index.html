@@ -99,6 +99,10 @@
             align-items: center;
             border-bottom: 1px solid var(--line);
             padding: 4px 0 14px;
+            opacity: 0;
+            transform: translateY(8px);
+            animation: revealFinalScore 620ms ease forwards;
+            animation-delay: calc(600ms + var(--score-index) * 1200ms);
         }
 
         .finalScoreRow:last-child {
@@ -115,6 +119,21 @@
         .finalScoreValue {
             text-align: right;
             font-variant-numeric: tabular-nums;
+        }
+
+        @keyframes revealFinalScore {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .finalScoreRow {
+                opacity: 1;
+                transform: none;
+                animation: none;
+            }
         }
 
         .startButton {
@@ -1371,11 +1390,11 @@
             };
 
             const renderFinalScores = () => {
-                finalScores.innerHTML = LEVELS.map(({ key }) => {
+                finalScores.innerHTML = LEVELS.map(({ key }, index) => {
                     const score = Math.round((maximumScores.get(key) || 0) * 100);
                     const label = TARGETS[key]?.label || key;
                     return `
-                        <div class="finalScoreRow">
+                        <div class="finalScoreRow" style="--score-index: ${index}">
                             <span class="finalScoreLabel">${label}</span>
                             <span class="finalScoreValue">${score}%</span>
                         </div>
