@@ -1023,7 +1023,7 @@
                         <div id="countdownOverlay" class="countdownOverlay" hidden>3</div>
                         <div id="coachTips" class="coachTips" hidden aria-hidden="true">
                             <div class="coachTip coachTip--status">
-                                上の表示は判定コメントです。バーが塗られるほど、お手本の表情に近づいています。「かなり好ましい表情です！」と表示される状態を3秒間キープを目指しましょう。
+                                上の表示は判定コメントです。バーが塗られるほど、お手本の表情に近づいています。「判定基準を満たしています」と表示される状態を3秒間維持してください。
                             </div>
                             <div class="coachTip coachTip--timer">
                                 1回の挑戦時間は30秒です。最大3回まで挑戦できます。</div>
@@ -1135,7 +1135,6 @@
             const SCORE_SEGMENT_COUNT = config.training.scoreSegmentCount;
             const SAMPLE_VIDEO_DIR = config.sampleVideos.directory;
             const SCORE_MESSAGES = config.scoreMessages;
-            const LEVEL_CLEAR_MESSAGES = config.levelClearMessages;
             const EXPRESSION_KEYS = config.expressionKeys;
             const CONFUSION_CREDIT = config.confusionCredit;
             const REALTIME_CAPTURE = config.realtimeCapture || {};
@@ -2308,8 +2307,8 @@
 
                 if (challengeAttemptCount < MAX_CHALLENGE_ATTEMPTS) {
                     startResultTransition({
-                        title: "ナイストライ！",
-                        text: "もう一度、お手本を観察してみましょう。",
+                        title: "判定：不良",
+                        text: "再判定を行います。",
                         hasNextLevel: true,
                         audio: restartAudio
                     });
@@ -2318,12 +2317,12 @@
 
                 const hasNextLevel = advanceLevel();
                 startResultTransition({
-                    title: hasNextLevel ? "ナイスファイト！" : "全レベル終了",
+                    title: "判定：不良",
                     text: hasNextLevel
-                        ? "ここまでよく取り組みました。次の表情にも挑戦してみましょう。"
-                        : "すべての表情トレーニングが終了しました。",
+                        ? "次の表情へ進みます。"
+                        : "すべての判定が完了しました。",
                     hasNextLevel,
-                    audio: clearAudio
+                    audio: hasNextLevel ? restartAudio : null
                 });
             };
 
@@ -2332,13 +2331,12 @@
                 challengeCleared = true;
                 stopChallengeSession();
 
-                const clearedKey = currentLevel().key;
                 const hasNextLevel = advanceLevel();
                 startResultTransition({
-                    title: hasNextLevel ? "クリア！" : "全レベルクリア！",
+                    title: "判定：良好",
                     text: hasNextLevel
-                        ? LEVEL_CLEAR_MESSAGES[clearedKey]
-                        : `${LEVEL_CLEAR_MESSAGES[clearedKey]} すべての表情トレーニングをクリアしました。`,
+                        ? "次の表情へ進みます。"
+                        : "すべての判定が完了しました。",
                     hasNextLevel,
                     audio: clearAudio
                 });
