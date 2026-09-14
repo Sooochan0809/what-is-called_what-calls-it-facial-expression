@@ -224,6 +224,15 @@
             text-align: center;
         }
 
+        .giveUpDescription {
+            display: block;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 0.78em;
+            font-weight: 400;
+            text-align: center;
+        }
+
         .consentActions {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -457,6 +466,15 @@
             font: inherit;
             font-size: 0.9rem;
             cursor: pointer;
+        }
+
+        .giveUpButton {
+            position: fixed;
+            z-index: 20;
+        }
+
+        body.is-give-up-confirming .finalScoreRow {
+            animation-play-state: paused;
         }
 
         .demoProgress {
@@ -978,6 +996,20 @@
             </div>
         </dialog>
 
+        <dialog id="giveUpDialog" class="consentDialog" aria-labelledby="giveUpText">
+            <div class="consentContent">
+                <p id="giveUpText" class="consentText">
+                    <span class="consentQuestion">本当におわりますか？</span>
+                    <span class="giveUpDescription">おわる場合、初めの画面に戻り、体験の記録は消去されます。</span>
+                </p>
+                <div class="consentActions">
+                    <button id="giveUpAcceptButton" class="consentButton consentButton--accept"
+                        type="button">はい</button>
+                    <button id="giveUpDeclineButton" class="consentButton" type="button">いいえ</button>
+                </div>
+            </div>
+        </dialog>
+
         <section id="demoScene" class="scene demoScene" hidden>
             <article id="demoPanel" class="demoPanel">
                 <div class="demoVideoWrap">
@@ -1056,6 +1088,8 @@
                 <div id="finalScores" class="finalScores" aria-label="表情ごとの最大スコア"></div>
             </div>
         </section>
+
+        <button id="giveUpButton" class="skipButton giveUpButton" type="button" hidden>おわる</button>
     </div>
 
     <script type="module">
@@ -1186,7 +1220,11 @@
             const consentDialog = $("consentDialog");
             const consentAcceptButton = $("consentAcceptButton");
             const consentDeclineButton = $("consentDeclineButton");
+            const giveUpDialog = $("giveUpDialog");
+            const giveUpAcceptButton = $("giveUpAcceptButton");
+            const giveUpDeclineButton = $("giveUpDeclineButton");
             const skipDemoButton = $("skipDemoButton");
+            const giveUpButton = $("giveUpButton");
             const demoProgressFill = $("demoProgressFill");
             const levelUpProgress = $("levelUpProgress");
             const levelUpProgressFill = $("levelUpProgressFill");
@@ -1225,6 +1263,7 @@
             let challengeTimerRemainingMs = CHALLENGE_ATTEMPT_MS;
             let levelUpProgressTimer = 0;
             let finalReloadTimer = 0;
+            let finalArchivesReady = false;
             let demoPlayCount = 0;
             let running = false;
             let participantMonitoring = false;
@@ -1241,6 +1280,8 @@
             let coaching = false;
             let coachFaceCountdownTimer = 0;
             let levelUpTimer = 0;
+            let pendingTransitionHasNextLevel = false;
+            let giveUpPauseState = null;
             let recordingEnabled = false;
             let archiveSessionName = "";
             let recordingAttemptCounts = new Map();
@@ -1291,7 +1332,7 @@
             };
 
             const checkParticipantPresence = () => {
-                if (!participantMonitoring || finalScene.hidden === false) return;
+                if (!participantMonitoring || finalScene.hidden === false || giveUpDialog.open) return;
                 if (performance.now() - lastParticipantActivityAt >= PARTICIPANT_ABSENCE_MS) {
                     window.location.reload();
                 }
@@ -2110,6 +2151,8 @@
 
             const pauseChallengeTimer = () => {
                 window.clearTimeout(challengeTimeoutTimer);
+                window.clearInterval(challengeClockTimer);
+                challengeClockTimer = 0;
                 if (challengeTimerStartedAt) {
                     challengeTimerRemainingMs = Math.max(0, challengeTimerRemainingMs - (performance.now() - challengeTimerStartedAt));
                     challengeTimerStartedAt = 0;
@@ -2287,6 +2330,7 @@
 
             const startResultTransition = ({ title, text, hasNextLevel, audio = null }) => {
                 if (audio) playAudio(audio);
+                pendingTransitionHasNextLevel = hasNextLevel;
                 setChallengeOverlay(title, text);
                 clearChallengeTimers();
                 startLevelUpProgress();
@@ -2440,6 +2484,7 @@
                         .detectSingleFace(webcamVideo, detectOptions)
                         .withFaceExpressions();
 
+                    if (paused || giveUpDialog.open) return;
                     if (result?.detection) markParticipantActivity();
 
                     if (result?.expressions) {
@@ -2484,7 +2529,12 @@
                     running = true;
                     participantMonitoring = true;
                     markParticipantActivity();
-                    startChallengeRecording();
+                    if (giveUpDialog.open) {
+                        paused = true;
+                        webcamVideo.pause();
+                    } else {
+                        startChallengeRecording();
+                    }
                     detectLoop();
                 } catch {
                     scoreTitle.textContent = "Webcamを開始できません";
@@ -2498,14 +2548,17 @@
                 demoScene.hidden = scene !== demoScene;
                 trainingScene.hidden = scene !== trainingScene;
                 finalScene.hidden = scene !== finalScene;
+                giveUpButton.hidden = scene === introScene || scene === demoScene;
 
                 window.clearTimeout(finalReloadTimer);
                 finalReloadTimer = 0;
                 if (scene === finalScene) {
+                    finalArchivesReady = false;
                     renderFinalScores();
                     if (resultsPreview) return;
                     downloadFinalArchives().finally(() => {
-                        if (finalScene.hidden) return;
+                        finalArchivesReady = true;
+                        if (finalScene.hidden || giveUpDialog.open) return;
                         finalReloadTimer = window.setTimeout(() => {
                             window.location.reload();
                         }, FINAL_RELOAD_MS);
@@ -2634,6 +2687,94 @@
                 startDemoIntroTimer();
             };
 
+            const openGiveUpDialog = () => {
+                if (giveUpDialog.open) return;
+
+                const coachTipIndex = coachTipItems.findIndex((tip) => tip.classList.contains("is-active"));
+                giveUpPauseState = {
+                    wasPaused: paused,
+                    wasWebcamPlaying: !webcamVideo.paused,
+                    wasAssistPlaying: !assistVideo.paused,
+                    playingAudios: [guideAudio, clearAudio, restartAudio].filter((audio) => !audio.paused),
+                    pausedRecording: mediaRecorder?.state === "recording",
+                    challengeIntro: !trainingScene.hidden && !challengeCleared && !challengeIntroOverlay.hidden,
+                    coaching: !trainingScene.hidden && coaching,
+                    coachTipIndex,
+                    activeChallenge: !trainingScene.hidden && running && !challengeCleared && !coaching && challengeIntroOverlay.hidden,
+                    transition: !trainingScene.hidden && challengeCleared && !levelUpProgress.hidden,
+                    final: !finalScene.hidden
+                };
+
+                paused = true;
+                holdStartedAt = 0;
+                webcamVideo.pause();
+                assistVideo.pause();
+                [guideAudio, clearAudio, restartAudio].forEach((audio) => audio.pause());
+                if (giveUpPauseState.pausedRecording) mediaRecorder.pause();
+
+                if (giveUpPauseState.challengeIntro) window.clearTimeout(challengeIntroTimer);
+                if (giveUpPauseState.coaching) {
+                    window.clearTimeout(coachTipsTimer);
+                    window.clearInterval(coachFaceCountdownTimer);
+                    coachFaceCountdownTimer = 0;
+                }
+                if (giveUpPauseState.activeChallenge && !giveUpPauseState.wasPaused) pauseChallengeTimer();
+                if (giveUpPauseState.transition) {
+                    window.clearTimeout(levelUpTimer);
+                    window.cancelAnimationFrame(levelUpProgressTimer);
+                }
+                if (giveUpPauseState.final) {
+                    window.clearTimeout(finalReloadTimer);
+                    finalReloadTimer = 0;
+                }
+
+                document.body.classList.add("is-give-up-confirming");
+                giveUpDialog.showModal();
+            };
+
+            const closeGiveUpDialog = () => {
+                const state = giveUpPauseState;
+                giveUpDialog.close();
+                document.body.classList.remove("is-give-up-confirming");
+                giveUpPauseState = null;
+                if (!state) return;
+
+                paused = state.wasPaused;
+                if (state.wasWebcamPlaying || (!trainingScene.hidden && running)) {
+                    webcamVideo.play().catch(() => { });
+                }
+                if (state.wasAssistPlaying) assistVideo.play().catch(() => { });
+                state.playingAudios.forEach((audio) => audio.play().catch(() => { }));
+                if (state.pausedRecording && mediaRecorder?.state === "paused") {
+                    mediaRecorder.resume();
+                    drawRecordingFrame();
+                }
+                if (!state.wasPaused && !trainingScene.hidden && running && mediaRecorder?.state !== "recording") {
+                    startChallengeRecording();
+                }
+                markParticipantActivity();
+
+                if (state.wasPaused) return;
+                if (state.challengeIntro) {
+                    challengeIntroTimer = window.setTimeout(() => {
+                        challengeIntroOverlay.hidden = true;
+                        if (!showCoachTips()) startChallengeTimer();
+                    }, DEMO_INTRO_MS);
+                } else if (state.coaching) {
+                    showCoachTipStep(Math.max(0, state.coachTipIndex));
+                } else if (state.activeChallenge) {
+                    startChallengeTimer();
+                } else if (state.transition) {
+                    startLevelUpProgress();
+                    levelUpTimer = window.setTimeout(
+                        () => proceedAfterTransition(pendingTransitionHasNextLevel),
+                        LEVEL_UP_MS
+                    );
+                } else if (state.final && finalArchivesReady && !resultsPreview) {
+                    finalReloadTimer = window.setTimeout(() => window.location.reload(), FINAL_RELOAD_MS);
+                }
+            };
+
             startButton.addEventListener("click", () => {
                 participantMonitoring = true;
                 markParticipantActivity();
@@ -2653,12 +2794,19 @@
                 startDemo();
             });
             skipDemoButton.addEventListener("click", startChallenge);
+            giveUpButton.addEventListener("click", openGiveUpDialog);
+            giveUpAcceptButton.addEventListener("click", () => window.location.reload());
+            giveUpDeclineButton.addEventListener("click", closeGiveUpDialog);
+            giveUpDialog.addEventListener("cancel", (event) => {
+                event.preventDefault();
+                closeGiveUpDialog();
+            });
             window.addEventListener("pointerdown", markParticipantActivity, { passive: true });
             window.addEventListener("keydown", (event) => {
                 markParticipantActivity();
                 const tagName = event.target?.tagName;
                 if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") return;
-                if (consentDialog.open) return;
+                if (consentDialog.open || giveUpDialog.open) return;
                 if (event.code === "Space" && !introScene.hidden) {
                     event.preventDefault();
                     toggleRecordingEnabled();
