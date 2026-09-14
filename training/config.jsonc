@@ -24,7 +24,7 @@
     // ZIPダウンロード後に再読み込みするまでの時間
     "finalReload": 30000,
     // 無操作状態を不在と判定するまでの時間
-    "participantAbsence": 60000,
+    "participantAbsence": 3000,
     // 1回の挑戦の制限時間
     "challengeAttempt": 30000
   },
