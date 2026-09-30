@@ -35,7 +35,7 @@
             display: block;
         }
 
-        .ellipseGuide,
+        .frameGuide,
         .countdown {
             position: absolute;
             left: 50%;
@@ -44,11 +44,22 @@
             pointer-events: none;
         }
 
-        .ellipseGuide {
-            width: min(72%, 720px);
-            height: min(76%, 1032px);
-            border: 2px solid rgba(39, 194, 138, 0.88);
-            border-radius: 50%;
+        .frameGuide {
+            --color: rgba(39, 194, 138, 0.88);
+            --length: 12%;
+            --thickness: 8px;
+            width: min(80%, 800px);
+            height: min(84%, 1140px);
+            border-radius: 12px;
+            background:
+                linear-gradient(var(--color) 0 0) top left / var(--length) var(--thickness) no-repeat,
+                linear-gradient(var(--color) 0 0) top left / var(--thickness) var(--length) no-repeat,
+                linear-gradient(var(--color) 0 0) top right / var(--length) var(--thickness) no-repeat,
+                linear-gradient(var(--color) 0 0) top right / var(--thickness) var(--length) no-repeat,
+                linear-gradient(var(--color) 0 0) bottom left / var(--length) var(--thickness) no-repeat,
+                linear-gradient(var(--color) 0 0) bottom left / var(--thickness) var(--length) no-repeat,
+                linear-gradient(var(--color) 0 0) bottom right / var(--length) var(--thickness) no-repeat,
+                linear-gradient(var(--color) 0 0) bottom right / var(--thickness) var(--length) no-repeat;
         }
 
         .blink {
@@ -182,7 +193,7 @@
 <body>
     <main>
         <video id="video" autoplay muted playsinline></video>
-        <div class="ellipseGuide" aria-hidden="true"></div>
+        <div class="frameGuide" aria-hidden="true"></div>
         <div id="countdown" class="countdown" aria-live="assertive" hidden></div>
         <div id="blink" class="blink" aria-hidden="true" hidden></div>
         <section class="emotionPanel" aria-label="感情推定">
