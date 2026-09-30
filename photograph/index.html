@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photograph</title>
+    <script defer src="../modules/faceAPI/face-api.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            background: #f0f0f0;
+            font-family: "Yu Gothic Medium", "Yu Gothic", sans-serif;
+        }
+
+        main {
+            position: relative;
+            width: min(100vw, 75vh);
+            min-height: 100dvh;
+            aspect-ratio: 3 / 4;
+            overflow: hidden;
+        }
+
+        #video {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 100dvh;
+            height: min(100vw, 75vh);
+            object-fit: cover;
+            transform: translate(-50%, -50%) scaleX(-1) rotate(90deg);
+            display: block;
+        }
+
+        .sampleVideo {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+        }
+
+        .ellipseGuide,
+        .countdown {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        .ellipseGuide {
+            width: min(72%, 720px);
+            height: min(76%, 1032px);
+            border: 2px solid rgba(39, 194, 138, 0.88);
+            border-radius: 50%;
+        }
+
+        .blink {
+            position: absolute;
+            inset: 0;
+            z-index: 4;
+            background:
+                linear-gradient(#000 0 0) top / 100% 0 no-repeat,
+                linear-gradient(#000 0 0) bottom / 100% 0 no-repeat;
+            animation: blink 600ms ease-in-out both;
+            pointer-events: none;
+        }
+
+        @keyframes blink {
+
+            45%,
+            55% {
+                background-size: 100% 50%;
+            }
+        }
+
+        #cameraButton,
+        .sampleControls button,
+        output {
+            padding: 16px 20px;
+            border: 0;
+            border-radius: 12px;
+            background: #1b2026e0;
+            color: #f4f7fb;
+            font: inherit;
+            font-size: 20px;
+        }
+
+        #cameraButton,
+        output {
+            position: absolute;
+            left: 32px;
+        }
+
+        #cameraButton {
+            top: 32px;
+            cursor: pointer;
+        }
+
+        #cameraMode {
+            padding: 8px 10px;
+            border: 0;
+            border-radius: 8px;
+            background: #343a40;
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .sampleControls {
+            position: absolute;
+            top: 32px;
+            right: 32px;
+            z-index: 2;
+            display: grid;
+            gap: 12px;
+        }
+
+        .sampleControls button {
+            cursor: pointer;
+        }
+
+        .emotionPanel {
+            position: absolute;
+            left: 50%;
+            bottom: 75%;
+            transform: translateX(-50%);
+            z-index: 2;
+            box-sizing: border-box;
+            width: min(50%, 640px);
+            display: grid;
+            grid-template-columns: minmax(0, 0.3fr) minmax(0, 1.2fr);
+            gap: 12px;
+            padding: 16px;
+            border-radius: 12px;
+            background: #ffffff70;
+        }
+
+        .emotionPanel select {
+            min-width: 0;
+            padding: 12px;
+            border: 0;
+            border-radius: 8px;
+            font: inherit;
+            font-size: 20px;
+        }
+
+        .emotionResult {
+            min-width: 0;
+            display: grid;
+            grid-template-columns: 1fr 32px;
+            align-items: center;
+            gap: 12px;
+            color: #000000;
+            font-size: 16px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .emotionResult meter {
+            width: 90%;
+            height: 28px;
+            justify-self: center;
+        }
+
+        #emotionValue {
+            justify-self: end;
+        }
+
+        .recordButton {
+            position: absolute;
+            left: 50%;
+            bottom: 32px;
+            z-index: 2;
+            width: 112px;
+            aspect-ratio: 1;
+            border: 0;
+            border-radius: 999px;
+            transform: translateX(-50%);
+            background: rgba(255, 0, 0, 0.9);
+            color: #fff;
+            font: inherit;
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        .recordButton:disabled {
+            opacity: 0.55;
+            cursor: wait;
+        }
+
+        .countdown {
+            z-index: 3;
+            color: #fff;
+            font-size: clamp(72px, 10vw, 112px);
+            font-weight: 700;
+            text-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+        }
+
+        output {
+            bottom: 32px;
+            display: grid;
+            gap: 8px;
+        }
+
+        output label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <video id="video" autoplay muted playsinline></video>
+        <video id="sampleVideo" class="sampleVideo" muted playsinline loop hidden></video>
+        <div class="ellipseGuide" aria-hidden="true"></div>
+        <div id="countdown" class="countdown" aria-live="assertive" hidden></div>
+        <div id="blink" class="blink" aria-hidden="true" hidden></div>
+        <button id="cameraButton" type="button">WebCam</button>
+        <nav id="sampleControls" class="sampleControls" aria-label="お手本映像">
+            <button type="button" data-src="../training/samplevideo/01_喜び_100.mov">喜び</button>
+            <button type="button" data-src="../training/samplevideo/02_悲しみ_100.mov">悲しみ</button>
+            <button type="button" data-src="../training/samplevideo/03_怒り_99.mov">怒り</button>
+            <button type="button" data-src="../training/samplevideo/04_恐れ_85.mov">恐れ</button>
+            <button type="button" data-src="../training/samplevideo/05_驚き_100.mov">驚き</button>
+            <button type="button" data-src="../training/samplevideo/06_嫌悪_99.mov">嫌悪</button>
+        </nav>
+        <section class="emotionPanel" aria-label="感情推定">
+            <select id="emotionSelect" aria-label="測定する感情">
+                <option value="happy">喜び</option>
+                <option value="sad">悲しみ</option>
+                <option value="angry">怒り</option>
+                <option value="fearful">恐れ</option>
+                <option value="surprised">驚き</option>
+                <option value="disgusted">嫌悪</option>
+            </select>
+            <div class="emotionResult">
+                <meter id="emotionMeter" min="0" max="1" value="0"></meter>
+                <span id="emotionValue">読込中</span>
+            </div>
+        </section>
+        <button id="recordButton" class="recordButton" type="button">録画</button>
+        <output id="status" aria-live="polite">
+            <label>設定:
+                <select id="cameraMode" aria-label="Webcam画質" disabled>
+                    <option>画質検出中...</option>
+                </select>
+            </label>
+            <span id="statusText">カメラ起動中...</span>
+        </output>
+    </main>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const video = $("video");
+        const sampleVideo = $("sampleVideo");
+        const statusText = $("statusText");
+        const cameraMode = $("cameraMode");
+        const emotionSelect = $("emotionSelect");
+        const emotionMeter = $("emotionMeter");
+        const emotionValue = $("emotionValue");
+        const recordButton = $("recordButton");
+        const countdown = $("countdown");
+        const blink = $("blink");
+        const shutterAudio = new Audio("shutter.mp3");
+        const piAudio = new Audio("pi.mp3");
+        piAudio.loop = true;
+        const emotionCanvas = document.createElement("canvas");
+        const emotionContext = emotionCanvas.getContext("2d");
+        const MODEL_URL = "../modules/faceAPI/models";
+        const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+        const stopStream = (stream) => stream?.getTracks().forEach((track) => track.stop());
+        const cameraModes = [
+            [3840, 2160, 60], [3840, 2160, 30],
+            [2560, 1440, 60], [2560, 1440, 30],
+            [1920, 1080, 60], [1920, 1080, 30],
+            [1280, 720, 90], [1280, 720, 60], [1280, 720, 30]
+        ];
+        let statusFrameCallback = 0;
+
+        function downloadRecording(blob) {
+            const extension = blob.type.includes("mp4") ? "mp4" : "webm";
+            const now = new Date();
+            const pad = (number) => String(number).padStart(2, "0");
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${emotionSelect.value}_${pad(now.getMonth() + 1)}${pad(now.getDate())}.${extension}`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function getRecordingSize() {
+            return {
+                width: Math.round(video.videoHeight / 2) * 2,
+                height: Math.round(video.videoWidth / 2) * 2
+            };
+        }
+
+        function measureStatus() {
+            const size = getRecordingSize();
+            statusText.textContent = `実測: ${size.width}x${size.height} / 計測中`;
+            let startedAt;
+            let frames = 0;
+
+            const measure = (now) => {
+                if (!statusText.textContent.startsWith("実測:")) return;
+                if (startedAt !== undefined) frames += 1;
+                else startedAt = now;
+
+                const elapsed = now - startedAt;
+                if (elapsed >= 1000) {
+                    const current = getRecordingSize();
+                    statusText.textContent = `実測: ${current.width}x${current.height} / ${Math.round(frames * 1000 / elapsed)}fps`;
+                    startedAt = now;
+                    frames = 0;
+                }
+                statusFrameCallback = video.requestVideoFrameCallback(measure);
+            };
+
+            statusFrameCallback = video.requestVideoFrameCallback(measure);
+        }
+
+        function updateEmotionCanvas() {
+            const scale = 224 / video.videoHeight;
+            emotionCanvas.width = 224;
+            emotionCanvas.height = Math.round(video.videoWidth * scale);
+            emotionContext.setTransform(0, scale, scale, 0, 0, 0);
+        }
+
+        function updatePiAudio(active) {
+            if (active && piAudio.paused) piAudio.play().catch(() => { });
+            else if (!active) {
+                piAudio.pause();
+                piAudio.currentTime = 0;
+            }
+        }
+
+        function modeConstraints(mode, nativeOnly) {
+            const [width, height, frameRate] = mode;
+            return {
+                width: { exact: width },
+                height: { exact: height },
+                frameRate: { exact: frameRate },
+                ...(nativeOnly && { resizeMode: { exact: "none" } })
+            };
+        }
+
+        function currentMode(track) {
+            const { width, height, frameRate } = track.getSettings();
+            return [width, height, Math.round(frameRate)];
+        }
+
+        function createRecordingCanvas() {
+            const canvas = document.createElement("canvas");
+            Object.assign(canvas, getRecordingSize());
+            const context = canvas.getContext("2d", { alpha: false });
+            context.setTransform(0, 1, 1, 0, 0, 0);
+            return { canvas, context };
+        }
+
+        async function detectCameraModes(track) {
+            const capabilities = track.getCapabilities?.() || {};
+            const nativeOnly = capabilities.resizeMode?.includes("none");
+            const initialMode = currentMode(track);
+            const supported = new Map();
+            cameraMode.disabled = true;
+            cameraMode.innerHTML = "<option>画質検出中...</option>";
+
+            for (const mode of cameraModes) {
+                const [width, height, frameRate] = mode;
+                if (capabilities.width && (width < capabilities.width.min || width > capabilities.width.max)) continue;
+                if (capabilities.height && (height < capabilities.height.min || height > capabilities.height.max)) continue;
+                if (capabilities.frameRate && (frameRate < capabilities.frameRate.min || frameRate > capabilities.frameRate.max)) continue;
+                try {
+                    await track.applyConstraints(modeConstraints(mode, nativeOnly));
+                    const actual = track.getSettings();
+                    if (actual.width === width && actual.height === height && Math.abs(actual.frameRate - frameRate) < 1) {
+                        supported.set(mode.join(), mode);
+                    }
+                } catch { }
+            }
+
+            try {
+                await track.applyConstraints(modeConstraints(initialMode, nativeOnly));
+            } catch { }
+
+            const selectedMode = currentMode(track);
+            supported.set(selectedMode.join(), selectedMode);
+            const modes = [...supported.values()].sort((a, b) => b[0] * b[1] - a[0] * a[1] || b[2] - a[2]);
+            cameraMode.replaceChildren(...modes.map((mode) => new Option(`${mode[0]}x${mode[1]} / ${mode[2]}fps`, mode.join())));
+            cameraMode.value = selectedMode.join();
+            cameraMode.disabled = false;
+        }
+
+        function createRecordingStream() {
+            const { canvas, context } = createRecordingCanvas();
+            if (typeof MediaStreamTrackProcessor === "function" && typeof MediaStreamTrackGenerator === "function") {
+                const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
+                const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
+                const generator = new MediaStreamTrackGenerator({ kind: "video" });
+
+                processor.readable.pipeThrough(new TransformStream({
+                    transform(frame, controller) {
+                        try {
+                            context.drawImage(frame, 0, 0);
+                            const options = { timestamp: frame.timestamp };
+                            if (frame.duration !== null) options.duration = frame.duration;
+                            controller.enqueue(new VideoFrame(canvas, options));
+                        } finally {
+                            frame.close();
+                        }
+                    }
+                })).pipeTo(generator.writable).catch(() => { });
+
+                return {
+                    stream: new MediaStream([generator]),
+                    stop: () => {
+                        sourceTrack.stop();
+                        generator.stop();
+                    }
+                };
+            }
+
+            if (typeof video.requestVideoFrameCallback !== "function") {
+                throw new Error("このブラウザは実フレーム同期録画に対応していません");
+            }
+            const stream = canvas.captureStream();
+            let frameCallback;
+
+            const drawFrame = () => {
+                context.drawImage(video, 0, 0);
+                frameCallback = video.requestVideoFrameCallback(drawFrame);
+            };
+
+            frameCallback = video.requestVideoFrameCallback(drawFrame);
+            return {
+                stream,
+                stop: () => {
+                    video.cancelVideoFrameCallback(frameCallback);
+                    stopStream(stream);
+                }
+            };
+        }
+
+        async function startCamera() {
+            if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
+            stopStream(video.srcObject);
+            try {
+                video.srcObject = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 3840 },
+                        height: { ideal: 2160 },
+                        frameRate: { ideal: 60 }
+                    },
+                    audio: false
+                });
+                await video.play();
+                updateEmotionCanvas();
+                const track = video.srcObject.getVideoTracks()[0];
+                await detectCameraModes(track);
+                updateEmotionCanvas();
+                measureStatus();
+            } catch (error) {
+                cameraMode.innerHTML = "<option>画質を検出できません</option>";
+                cameraMode.disabled = true;
+                statusText.textContent = `カメラを開始できません: ${error.message}`;
+            }
+        }
+
+        async function detectEmotion(detectOptions) {
+            try {
+                emotionContext.drawImage(video, 0, 0);
+                const result = await faceapi.detectSingleFace(emotionCanvas, detectOptions).withFaceExpressions();
+                const value = result?.expressions[emotionSelect.value] || 0;
+                emotionMeter.value = value;
+                emotionValue.textContent = result ? value.toFixed(3) : "--";
+                updatePiAudio(value >= 0.8);
+            } catch {
+                emotionValue.textContent = "エラー";
+                updatePiAudio(false);
+            }
+            setTimeout(() => detectEmotion(detectOptions), 200);
+        }
+
+        async function startEmotionDetection() {
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+                ]);
+                detectEmotion(new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }));
+            } catch {
+                emotionValue.textContent = "読込失敗";
+            }
+        }
+
+        async function recordVideo() {
+            if (!(video.srcObject instanceof MediaStream)) {
+                statusText.textContent = "先にWebcamを起動してください";
+                return;
+            }
+
+            recordButton.disabled = cameraMode.disabled = true;
+            try {
+                const chunks = [];
+                const recording = createRecordingStream();
+                const recorder = new MediaRecorder(recording.stream, {
+                    videoBitsPerSecond: 60_000_000
+                });
+                recorder.addEventListener("dataavailable", (event) => {
+                    if (event.data.size) chunks.push(event.data);
+                });
+                const stopped = new Promise((resolve) => recorder.addEventListener("stop", resolve, { once: true }));
+                recorder.start();
+                recordButton.textContent = "録画中";
+
+                countdown.hidden = false;
+                for (let count = 3; count >= 1; count -= 1) {
+                    countdown.textContent = count;
+                    await wait(1000);
+                }
+                countdown.hidden = true;
+                await wait(2000);
+                blink.hidden = false;
+                shutterAudio.play().catch(() => { });
+                await wait(3000);
+                if (recorder.state === "recording") recorder.stop();
+                await stopped;
+                recording.stop();
+                downloadRecording(new Blob(chunks, { type: recorder.mimeType }));
+                recordButton.textContent = "録画";
+            } catch (error) {
+                statusText.textContent = `録画を開始できません: ${error.message}`;
+            } finally {
+                countdown.hidden = true;
+                blink.hidden = true;
+                recordButton.disabled = false;
+                cameraMode.disabled = !cameraMode.value.includes(",");
+            }
+        }
+
+        $("cameraButton").addEventListener("click", startCamera);
+        cameraMode.addEventListener("change", async () => {
+            const track = video.srcObject?.getVideoTracks()[0];
+            if (!track) return;
+            cameraMode.disabled = true;
+            try {
+                const nativeOnly = track.getCapabilities?.().resizeMode?.includes("none");
+                await track.applyConstraints(modeConstraints(cameraMode.value.split(",").map(Number), nativeOnly));
+                updateEmotionCanvas();
+                if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
+                measureStatus();
+            } catch (error) {
+                cameraMode.value = currentMode(track).join();
+                statusText.textContent = `画質を変更できません: ${error.message}`;
+            } finally {
+                cameraMode.disabled = false;
+            }
+        });
+        recordButton.addEventListener("click", recordVideo);
+        $("sampleControls").addEventListener("click", (event) => {
+            const source = event.target.closest("button")?.dataset.src;
+            if (!source) return;
+            if (!sampleVideo.hidden && sampleVideo.getAttribute("src") === source) {
+                sampleVideo.pause();
+                sampleVideo.hidden = true;
+                return;
+            }
+            sampleVideo.src = source;
+            sampleVideo.hidden = false;
+            sampleVideo.play();
+        });
+        window.addEventListener("pagehide", () => {
+            if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
+            stopStream(video.srcObject);
+        });
+        window.addEventListener("load", startEmotionDetection);
+        startCamera();
+    </script>
+</body>
+
+</html>
