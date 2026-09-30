@@ -14,11 +14,12 @@
     "secondsAfter": 3
   },
   "situations": [
-    { "text": "喜びの状況文", "emotions": ["happy","sad"]},
-    { "text": "悲しみの状況文", "emotions": ["sad"] },
-    { "text": "怒りの状況文", "emotions": ["angry"] },
-    { "text": "恐れの状況文", "emotions": ["fearful"] },
-    { "text": "驚きの状況文", "emotions": ["surprised"] },
-    { "text": "嫌悪の状況文", "emotions": ["disgusted"] }
+    { "text": "宝くじで大当たり！", "emotions": ["happy","surprised"]},
+    { "text": "ずっと欲しかったプレゼントをもらった！", "emotions": ["happy","surprised"] },
+    { "text": "楽しみだった旅行が中止に...", "emotions": ["sad","angry","disgusted"] },
+    { "text": "列に横入りされてしまった！", "emotions": ["angry","fearful",""] },
+    { "text": "出張先で友人にばったり遭遇！", "emotions": ["surprised","happy"] },
+    { "text": "暗闇から足音が近づいてくる...", "emotions": ["fearful","disgusted"] },
+    { "text": "犬のフンを踏んでしまった...", "emotions": ["disgusted","fearful","surprised"] }
   ]
 }
