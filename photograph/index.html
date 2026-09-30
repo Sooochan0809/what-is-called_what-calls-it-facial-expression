@@ -15,6 +15,7 @@
             --color-status-text: #f4f7fb;
             --color-control: #343a40;
             --color-panel: #ffffff66;
+            --color-timer: #ffffffe6;
             --color-panel-text: #17202a;
             --color-score-track: #e7ecf1;
             --color-positive: #27c28a;
@@ -164,6 +165,30 @@
             transition: none;
         }
 
+        .situationTimer {
+            position: absolute;
+            top: 104px;
+            right: 12px;
+            z-index: 4;
+            min-width: 2.8em;
+            padding: 8px 14px;
+            border: 1px solid var(--color-score-track);
+            border-radius: 999px;
+            background: var(--color-timer);
+            color: var(--color-panel-text);
+            font-size: 1.1rem;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            line-height: 1;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .situationTimer.is-ending {
+            border-color: var(--color-negative);
+            color: var(--color-negative);
+        }
+
         .controlsFooter {
             position: absolute;
             inset: auto 16px 16px;
@@ -193,6 +218,13 @@
             .scoreSegment {
                 height: 14px;
             }
+
+            .situationTimer {
+                top: 152px;
+                right: 24px;
+                padding: 12px 20px;
+                font-size: 1.75rem;
+            }
         }
     </style>
 </head>
@@ -208,6 +240,7 @@
             <div id="scoreBar" class="scoreBar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
                 aria-valuenow="0"></div>
         </header>
+        <div id="situationTimer" class="situationTimer" aria-label="残り時間">0:30</div>
         <footer class="controlsFooter">
             <output id="status" aria-live="polite">
                 <label for="cameraMode">設定:</label>
@@ -229,6 +262,7 @@
         const cameraMode = $("cameraMode");
         const scoreText = $("scoreText");
         const scoreBar = $("scoreBar");
+        const situationTimer = $("situationTimer");
         const blink = $("blink");
         const shutterAudio = new Audio("shutter.mp3");
         const emotionCanvas = document.createElement("canvas");
@@ -246,6 +280,8 @@
         let situationIndex = 0;
         let rotationIntervalMs = 30000;
         let rotationTimer = 0;
+        let rotationClockTimer = 0;
+        let rotationStartedAt = 0;
         let latestExpressions = {};
         let scoreSegments = [];
         let displayedSegmentCount = 0;
@@ -297,9 +333,22 @@
             renderScore();
         }
 
+        function updateSituationTimer() {
+            const remainingSeconds = Math.ceil(Math.max(0, rotationIntervalMs - (performance.now() - rotationStartedAt)) / 1000);
+            situationTimer.textContent = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`;
+            situationTimer.classList.toggle("is-ending", remainingSeconds <= 10);
+        }
+
         function startSituationRotation() {
-            clearInterval(rotationTimer);
-            rotationTimer = setInterval(() => showSituation(situationIndex + 1), rotationIntervalMs);
+            clearTimeout(rotationTimer);
+            clearInterval(rotationClockTimer);
+            rotationStartedAt = performance.now();
+            updateSituationTimer();
+            rotationClockTimer = setInterval(updateSituationTimer, 250);
+            rotationTimer = setTimeout(() => {
+                showSituation(situationIndex + 1);
+                startSituationRotation();
+            }, rotationIntervalMs);
         }
 
         function advanceAfterShutter() {
@@ -763,7 +812,9 @@
         function playShutter() {
             if (!blink.hidden || captureInProgress) return;
             captureInProgress = true;
-            clearInterval(rotationTimer);
+            updateSituationTimer();
+            clearTimeout(rotationTimer);
+            clearInterval(rotationClockTimer);
             clearTimeout(scoreStepTimer);
             scoreStepTimer = 0;
             scoreBar.classList.add("is-frozen");
@@ -841,7 +892,8 @@
             startSituationRotation();
         });
         window.addEventListener("pagehide", () => {
-            clearInterval(rotationTimer);
+            clearTimeout(rotationTimer);
+            clearInterval(rotationClockTimer);
             stopRecordingBuffer();
             clearTimeout(scoreStepTimer);
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
