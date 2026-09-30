@@ -6,6 +6,7 @@
     "scoreThreshold": 80,
     "transitionDurationMs": 100,
     "holdDurationMs": 1500,
+    "previewDurationMs": 1500,
     "easing": "ease-in-out"
   },
   "recording": {

@@ -39,7 +39,8 @@
             overflow: hidden;
         }
 
-        #video {
+        #video,
+        #capturePreview {
             position: absolute;
             left: 50%;
             top: 50%;
@@ -47,6 +48,11 @@
             height: min(100vw, 75vh);
             object-fit: cover;
             transform: translate(-50%, -50%) scaleX(-1) rotate(90deg);
+        }
+
+        #capturePreview {
+            z-index: 3;
+            pointer-events: none;
         }
 
         .frameGuide {
@@ -154,6 +160,10 @@
             background: var(--accent);
         }
 
+        .scoreBar.is-frozen .scoreSegment {
+            transition: none;
+        }
+
         .controlsFooter {
             position: absolute;
             inset: auto 16px 16px;
@@ -190,6 +200,7 @@
 <body>
     <main>
         <video id="video" autoplay muted playsinline></video>
+        <img id="capturePreview" alt="撮影画像" hidden>
         <div class="frameGuide" aria-hidden="true"></div>
         <div id="blink" class="blink" aria-hidden="true" hidden></div>
         <header class="emotionPanel" aria-label="感情推定">
@@ -212,6 +223,7 @@
     <script>
         const $ = (id) => document.getElementById(id);
         const video = $("video");
+        const capturePreview = $("capturePreview");
         const statusLabel = $("statusLabel");
         const statusText = $("statusText");
         const cameraMode = $("cameraMode");
@@ -243,6 +255,7 @@
         let shutterScoreThreshold = 80;
         let shutterTransitionDurationMs = 270;
         let shutterHoldDurationMs = 60;
+        let shutterPreviewDurationMs = 2000;
         let shutterEasing = "ease-in-out";
         let shutterWasAboveThreshold = false;
         let recordingBeforeMs = 2000;
@@ -262,11 +275,12 @@
             const shutterIsAboveThreshold = displayedScore >= shutterScoreThreshold;
             if (shutterIsAboveThreshold && !shutterWasAboveThreshold) playShutter();
             shutterWasAboveThreshold = shutterIsAboveThreshold;
-            if (displayedSegmentCount !== targetSegmentCount)
+            if (!captureInProgress && displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
         }
 
         function renderScore() {
+            if (captureInProgress) return;
             const emotions = situations[situationIndex]?.emotions || [];
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
@@ -295,6 +309,7 @@
             shutterWasAboveThreshold = false;
             latestExpressions = {};
             scoreSegments.forEach((segment) => segment.classList.remove("is-filled"));
+            scoreBar.classList.remove("is-frozen");
             scoreBar.setAttribute("aria-valuenow", 0);
             showSituation(situationIndex + 1);
             startSituationRotation();
@@ -315,6 +330,7 @@
             shutterScoreThreshold = Math.min(100, Math.max(0, Number(shutter.scoreThreshold ?? 80)));
             shutterTransitionDurationMs = Math.max(1, Number(shutter.transitionDurationMs ?? 270));
             shutterHoldDurationMs = Math.max(0, Number(shutter.holdDurationMs ?? 60));
+            shutterPreviewDurationMs = Math.max(0, Number(shutter.previewDurationMs ?? 2000) || 0);
             shutterEasing = shutter.easing || "ease-in-out";
             const recording = config.recording || {};
             recordingBeforeMs = Math.max(0, Number(recording.secondsBefore ?? 2) || 0) * 1000;
@@ -748,29 +764,53 @@
             if (!blink.hidden || captureInProgress) return;
             captureInProgress = true;
             clearInterval(rotationTimer);
+            clearTimeout(scoreStepTimer);
+            scoreStepTimer = 0;
+            scoreBar.classList.add("is-frozen");
             const triggerAt = performance.now();
             const createdAt = new Date();
             const names = captureNames(createdAt);
             const imagePromise = captureImage();
-            void saveCapture(triggerAt, createdAt, names, imagePromise).catch((error) => {
+            const savePromise = saveCapture(triggerAt, createdAt, names, imagePromise).catch((error) => {
                 console.error("画像と映像を保存できませんでした。", error);
-            }).finally(() => {
-                captureInProgress = false;
             });
             blink.hidden = false;
             shutterAudio.currentTime = 0;
             shutterAudio.play().catch(() => { });
-            const totalDuration = shutterTransitionDurationMs * 2 + shutterHoldDurationMs;
-            const animation = blink.animate([
+            const closeAnimation = blink.animate([
                 { backgroundSize: "100% 0, 100% 0" },
-                { backgroundSize: "100% 50%, 100% 50%", offset: shutterTransitionDurationMs / totalDuration },
-                { backgroundSize: "100% 50%, 100% 50%", offset: (shutterTransitionDurationMs + shutterHoldDurationMs) / totalDuration },
-                { backgroundSize: "100% 0, 100% 0" }
-            ], { duration: totalDuration, easing: shutterEasing });
-            animation.addEventListener("finish", () => {
-                blink.hidden = true;
-                advanceAfterShutter();
-            }, { once: true });
+                { backgroundSize: "100% 50%, 100% 50%" }
+            ], { duration: shutterTransitionDurationMs, easing: shutterEasing, fill: "forwards" });
+            void (async () => {
+                let previewUrl;
+                try {
+                    const [, image] = await Promise.all([closeAnimation.finished, imagePromise]);
+                    previewUrl = URL.createObjectURL(image);
+                    capturePreview.src = previewUrl;
+                    capturePreview.hidden = false;
+                    await capturePreview.decode();
+                    blink.style.backgroundSize = "100% 50%, 100% 50%";
+                    closeAnimation.cancel();
+                    await new Promise((resolve) => setTimeout(resolve, shutterHoldDurationMs));
+                    await blink.animate([
+                        { backgroundSize: "100% 50%, 100% 50%" },
+                        { backgroundSize: "100% 0, 100% 0" }
+                    ], { duration: shutterTransitionDurationMs, easing: shutterEasing }).finished;
+                    blink.hidden = true;
+                    await new Promise((resolve) => setTimeout(resolve, shutterPreviewDurationMs));
+                } catch (error) {
+                    console.error("撮影画像を表示できませんでした。", error);
+                } finally {
+                    blink.hidden = true;
+                    blink.style.removeProperty("background-size");
+                    capturePreview.hidden = true;
+                    capturePreview.removeAttribute("src");
+                    if (previewUrl) URL.revokeObjectURL(previewUrl);
+                    advanceAfterShutter();
+                    await savePromise;
+                    captureInProgress = false;
+                }
+            })();
         }
 
         cameraMode.addEventListener("change", async () => {
@@ -793,7 +833,7 @@
             }
         });
         document.addEventListener("keydown", (event) => {
-            if (!situations.length || event.target.matches("input, select, textarea, button")) return;
+            if (!situations.length || captureInProgress || event.target.matches("input, select, textarea, button")) return;
             const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
             if (!step) return;
             event.preventDefault();
