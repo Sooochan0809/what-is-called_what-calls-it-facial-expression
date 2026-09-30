@@ -8,7 +8,7 @@
     <script defer src="../modules/faceAPI/face-api.min.js"></script>
     <style>
         :root {
-            --font-sans: "Yu Gothic Medium", "Yu Gothic", sans-serif;
+            --font-sans: "ヒラギノ明朝 ProN W6", "HiraMinProN-W6", "HG明朝E", "ＭＳ Ｐ明朝", "MS PMincho", "MS 明朝", serif;
             --color-page: #f0f0f0;
             --color-shutter: #000;
             --color-status: #1b2026e0;
@@ -47,7 +47,6 @@
             height: min(100vw, 75vh);
             object-fit: cover;
             transform: translate(-50%, -50%) scaleX(-1) rotate(90deg);
-            display: block;
         }
 
         .frameGuide {
@@ -89,11 +88,9 @@
             min-width: 0;
             max-width: 100%;
             padding: 16px 20px;
-            border: 0;
             border-radius: 12px;
             background: var(--color-status);
             color: var(--color-status-text);
-            font: inherit;
             font-size: clamp(14px, 2vw, 20px);
             white-space: nowrap;
             display: grid;
@@ -120,7 +117,6 @@
             right: 8px;
             display: grid;
             gap: 8px;
-            align-items: center;
             padding: 8px;
             border-radius: 6px;
             background: var(--color-panel);
@@ -129,12 +125,9 @@
             pointer-events: none;
         }
 
-        .scoreText {
-            min-width: 0;
-        }
-
-        .scoreText strong {
+        #scoreText {
             display: block;
+            min-width: 0;
             overflow: hidden;
             font-size: 1.6rem;
             font-weight: 400;
@@ -170,7 +163,7 @@
 
         #statusText {
             overflow: hidden;
-            padding-left: 10px;
+            padding-left: 15px;
             text-overflow: ellipsis;
         }
 
@@ -183,7 +176,7 @@
                 padding: 14px 16px;
             }
 
-            .scoreText strong {
+            #scoreText {
                 font-size: 2.25rem;
             }
 
@@ -200,9 +193,7 @@
         <div class="frameGuide" aria-hidden="true"></div>
         <div id="blink" class="blink" aria-hidden="true" hidden></div>
         <header class="emotionPanel" aria-label="感情推定">
-            <div class="scoreText">
-                <strong id="scoreText">読込中</strong>
-            </div>
+            <strong id="scoreText">読込中</strong>
             <div id="scoreBar" class="scoreBar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
                 aria-valuenow="0"></div>
         </header>
@@ -318,7 +309,7 @@
             startSituationRotation();
         }
 
-        async function loadSituations() {
+        async function loadConfig() {
             const response = await fetch("config.json", { cache: "no-store" });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const config = await response.json();
@@ -330,10 +321,11 @@
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
             scoreTextIntervalMs = Math.max(1, Number(config.scoreTextIntervalMs) || 150);
-            shutterScoreThreshold = Math.min(100, Math.max(0, Number(config.shutter?.scoreThreshold ?? 80)));
-            shutterTransitionDurationMs = Math.max(1, Number(config.shutter?.transitionDurationMs ?? 270));
-            shutterHoldDurationMs = Math.max(0, Number(config.shutter?.holdDurationMs ?? 60));
-            shutterEasing = config.shutter?.easing || "ease-in-out";
+            const shutter = config.shutter || {};
+            shutterScoreThreshold = Math.min(100, Math.max(0, Number(shutter.scoreThreshold ?? 80)));
+            shutterTransitionDurationMs = Math.max(1, Number(shutter.transitionDurationMs ?? 270));
+            shutterHoldDurationMs = Math.max(0, Number(shutter.holdDurationMs ?? 60));
+            shutterEasing = shutter.easing || "ease-in-out";
             const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
@@ -435,8 +427,7 @@
                         width: { ideal: 3840 },
                         height: { ideal: 2160 },
                         frameRate: { ideal: 60 }
-                    },
-                    audio: false
+                    }
                 });
                 await video.play();
                 updateEmotionCanvas();
@@ -455,8 +446,7 @@
         async function detectEmotion(detectOptions) {
             try {
                 emotionContext.drawImage(video, 0, 0);
-                const result = await faceapi.detectSingleFace(emotionCanvas, detectOptions).withFaceExpressions();
-                latestExpressions = result?.expressions || {};
+                latestExpressions = (await faceapi.detectSingleFace(emotionCanvas, detectOptions).withFaceExpressions())?.expressions || {};
             } catch {
                 latestExpressions = {};
             }
@@ -466,7 +456,7 @@
 
         async function startEmotionDetection() {
             try {
-                await loadSituations();
+                await loadConfig();
             } catch (error) {
                 typeScoreText("設定を読み込めません");
                 console.error("photograph/config.json を読み込めませんでした。", error);
