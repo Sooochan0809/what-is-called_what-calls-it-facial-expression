@@ -1,0 +1,13 @@
+{
+  "rotationIntervalMs": 30000,
+  "scoreSegmentCount": 10,
+  "scoreStepIntervalMs": 80,
+  "situations": [
+    { "text": "喜びの状況文", "emotions": ["happy","sad"]},
+    { "text": "悲しみの状況文", "emotions": ["sad"] },
+    { "text": "怒りの状況文", "emotions": ["angry"] },
+    { "text": "恐れの状況文", "emotions": ["fearful"] },
+    { "text": "驚きの状況文", "emotions": ["surprised"] },
+    { "text": "嫌悪の状況文", "emotions": ["disgusted"] }
+  ]
+}
