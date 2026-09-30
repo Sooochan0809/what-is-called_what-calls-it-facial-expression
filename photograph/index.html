@@ -78,6 +78,9 @@
         }
 
         output {
+            box-sizing: border-box;
+            min-width: 0;
+            max-width: 100%;
             padding: 16px 20px;
             border: 0;
             border-radius: 12px;
@@ -85,7 +88,10 @@
             color: #f4f7fb;
             font: inherit;
             font-size: clamp(14px, 2vw, 20px);
+            white-space: nowrap;
             display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            align-items: baseline;
             gap: 8px;
         }
 
@@ -148,37 +154,17 @@
             background: var(--accent);
         }
 
-        .shutterButton {
-            width: 112px;
-            aspect-ratio: 1;
-            border: 0;
-            border-radius: 999px;
-            background: rgba(255, 0, 0, 0.9);
-            color: #fff;
-            font: inherit;
-            font-size: 18px;
-            cursor: pointer;
-        }
-
         .controlsFooter {
             position: absolute;
             inset: auto 16px 16px;
             z-index: 2;
             display: flex;
-            justify-content: space-between;
-            align-items: end;
-            gap: 16px;
         }
 
-        .shutterButton:disabled {
-            opacity: 0.55;
-            cursor: wait;
-        }
-
-        output label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        #statusText {
+            overflow: hidden;
+            padding-left: 10px;
+            text-overflow: ellipsis;
         }
 
         @media (max-width: 1120px) {
@@ -215,25 +201,24 @@
         </header>
         <footer class="controlsFooter">
             <output id="status" aria-live="polite">
-                <label>設定:
-                    <select id="cameraMode" aria-label="Webcam画質" disabled>
-                        <option>画質検出中...</option>
-                    </select>
-                </label>
+                <label for="cameraMode">設定:</label>
+                <select id="cameraMode" aria-label="Webcam画質" disabled>
+                    <option>画質検出中...</option>
+                </select>
+                <span id="statusLabel">状態:</span>
                 <span id="statusText">カメラ起動中...</span>
             </output>
-            <button id="shutterButton" class="shutterButton" type="button">シャッター</button>
         </footer>
     </main>
 
     <script>
         const $ = (id) => document.getElementById(id);
         const video = $("video");
+        const statusLabel = $("statusLabel");
         const statusText = $("statusText");
         const cameraMode = $("cameraMode");
         const scoreText = $("scoreText");
         const scoreBar = $("scoreBar");
-        const shutterButton = $("shutterButton");
         const blink = $("blink");
         const shutterAudio = new Audio("shutter.mp3");
         const emotionCanvas = document.createElement("canvas");
@@ -319,19 +304,20 @@
 
         function measureStatus() {
             const size = videoFrameSize();
-            statusText.textContent = `実測: ${size.width}x${size.height} / 計測中`;
+            statusLabel.textContent = "実測:";
+            statusText.textContent = `${size.width}x${size.height} / 計測中`;
             let startedAt;
             let frames = 0;
 
             const measure = (now) => {
-                if (!statusText.textContent.startsWith("実測:")) return;
+                if (statusLabel.textContent !== "実測:") return;
                 if (startedAt !== undefined) frames += 1;
                 else startedAt = now;
 
                 const elapsed = now - startedAt;
                 if (elapsed >= 1000) {
                     const current = videoFrameSize();
-                    statusText.textContent = `実測: ${current.width}x${current.height} / ${Math.round(frames * 1000 / elapsed)}fps`;
+                    statusText.textContent = `${current.width}x${current.height} / ${Math.round(frames * 1000 / elapsed)}fps`;
                     startedAt = now;
                     frames = 0;
                 }
@@ -414,6 +400,7 @@
             } catch (error) {
                 cameraMode.innerHTML = "<option>画質を検出できません</option>";
                 cameraMode.disabled = true;
+                statusLabel.textContent = "エラー:";
                 statusText.textContent = `カメラを開始できません: ${error.message}`;
             }
         }
@@ -451,14 +438,10 @@
         }
 
         function playShutter() {
-            shutterButton.disabled = true;
             blink.hidden = false;
             shutterAudio.currentTime = 0;
             shutterAudio.play().catch(() => { });
-            blink.onanimationend = () => {
-                blink.hidden = true;
-                shutterButton.disabled = false;
-            };
+            blink.onanimationend = () => blink.hidden = true;
         }
 
         cameraMode.addEventListener("change", async () => {
@@ -473,12 +456,12 @@
                 measureStatus();
             } catch (error) {
                 cameraMode.value = currentMode(track).join();
+                statusLabel.textContent = "エラー:";
                 statusText.textContent = `画質を変更できません: ${error.message}`;
             } finally {
                 cameraMode.disabled = false;
             }
         });
-        shutterButton.addEventListener("click", playShutter);
         document.addEventListener("keydown", (event) => {
             if (!situations.length || event.target.matches("input, select, textarea, button")) return;
             const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
