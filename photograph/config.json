@@ -2,7 +2,6 @@
   "rotationIntervalMs": 30000,
   "scoreSegmentCount": 10,
   "scoreStepIntervalMs": 80,
-  "scoreTextIntervalMs": 150,
   "shutter": {
     "scoreThreshold": 80,
     "transitionDurationMs": 100,

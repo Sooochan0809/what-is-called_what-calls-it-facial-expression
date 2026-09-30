@@ -240,8 +240,6 @@
         let targetSegmentCount = 0;
         let scoreStepIntervalMs = 80;
         let scoreStepTimer = 0;
-        let scoreTextIntervalMs = 150;
-        let scoreTextTimer = 0;
         let shutterScoreThreshold = 80;
         let shutterTransitionDurationMs = 270;
         let shutterHoldDurationMs = 60;
@@ -286,21 +284,9 @@
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
         }
 
-        function typeScoreText(text) {
-            clearTimeout(scoreTextTimer);
-            scoreText.textContent = "";
-            const characters = [...text];
-            let index = 0;
-            const typeNext = () => {
-                scoreText.textContent += characters[index++];
-                scoreTextTimer = index < characters.length ? setTimeout(typeNext, scoreTextIntervalMs) : 0;
-            };
-            if (characters.length) scoreTextTimer = setTimeout(typeNext, scoreTextIntervalMs);
-        }
-
         function showSituation(index) {
             situationIndex = (index + situations.length) % situations.length;
-            typeScoreText(situations[situationIndex].text);
+            scoreText.textContent = situations[situationIndex].text;
             renderScore();
         }
 
@@ -332,7 +318,6 @@
             situations = config.situations;
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
-            scoreTextIntervalMs = Math.max(1, Number(config.scoreTextIntervalMs) || 150);
             const shutter = config.shutter || {};
             shutterScoreThreshold = Math.min(100, Math.max(0, Number(shutter.scoreThreshold ?? 80)));
             shutterTransitionDurationMs = Math.max(1, Number(shutter.transitionDurationMs ?? 270));
@@ -754,7 +739,7 @@
             try {
                 await loadConfig();
             } catch (error) {
-                typeScoreText("設定を読み込めません");
+                scoreText.textContent = "設定を読み込めません";
                 console.error("photograph/config.json を読み込めませんでした。", error);
                 return;
             }
@@ -766,7 +751,7 @@
                 ]);
                 detectEmotion(new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }));
             } catch {
-                typeScoreText("モデルを読み込めません");
+                scoreText.textContent = "モデルを読み込めません";
             }
         }
 
@@ -830,7 +815,6 @@
             clearInterval(rotationTimer);
             stopRecordingBuffer();
             clearTimeout(scoreStepTimer);
-            clearTimeout(scoreTextTimer);
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
             video.srcObject?.getTracks().forEach((track) => track.stop());
         });
