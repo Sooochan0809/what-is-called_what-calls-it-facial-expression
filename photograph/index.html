@@ -35,15 +35,6 @@
             display: block;
         }
 
-        .sampleVideo {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            pointer-events: none;
-        }
-
         .ellipseGuide,
         .countdown {
             position: absolute;
@@ -79,8 +70,6 @@
             }
         }
 
-        #cameraButton,
-        .sampleControls button,
         output {
             padding: 16px 20px;
             border: 0;
@@ -91,15 +80,9 @@
             font-size: 20px;
         }
 
-        #cameraButton,
         output {
             position: absolute;
             left: 32px;
-        }
-
-        #cameraButton {
-            top: 32px;
-            cursor: pointer;
         }
 
         #cameraMode {
@@ -109,19 +92,6 @@
             background: #343a40;
             color: inherit;
             font: inherit;
-            cursor: pointer;
-        }
-
-        .sampleControls {
-            position: absolute;
-            top: 32px;
-            right: 32px;
-            z-index: 2;
-            display: grid;
-            gap: 12px;
-        }
-
-        .sampleControls button {
             cursor: pointer;
         }
 
@@ -218,19 +188,9 @@
 <body>
     <main>
         <video id="video" autoplay muted playsinline></video>
-        <video id="sampleVideo" class="sampleVideo" muted playsinline loop hidden></video>
         <div class="ellipseGuide" aria-hidden="true"></div>
         <div id="countdown" class="countdown" aria-live="assertive" hidden></div>
         <div id="blink" class="blink" aria-hidden="true" hidden></div>
-        <button id="cameraButton" type="button">WebCam</button>
-        <nav id="sampleControls" class="sampleControls" aria-label="お手本映像">
-            <button type="button" data-src="../training/samplevideo/01_喜び_100.mov">喜び</button>
-            <button type="button" data-src="../training/samplevideo/02_悲しみ_100.mov">悲しみ</button>
-            <button type="button" data-src="../training/samplevideo/03_怒り_99.mov">怒り</button>
-            <button type="button" data-src="../training/samplevideo/04_恐れ_85.mov">恐れ</button>
-            <button type="button" data-src="../training/samplevideo/05_驚き_100.mov">驚き</button>
-            <button type="button" data-src="../training/samplevideo/06_嫌悪_99.mov">嫌悪</button>
-        </nav>
         <section class="emotionPanel" aria-label="感情推定">
             <select id="emotionSelect" aria-label="測定する感情">
                 <option value="happy">喜び</option>
@@ -259,7 +219,6 @@
     <script>
         const $ = (id) => document.getElementById(id);
         const video = $("video");
-        const sampleVideo = $("sampleVideo");
         const statusText = $("statusText");
         const cameraMode = $("cameraMode");
         const emotionSelect = $("emotionSelect");
@@ -269,8 +228,6 @@
         const countdown = $("countdown");
         const blink = $("blink");
         const shutterAudio = new Audio("shutter.mp3");
-        const piAudio = new Audio("pi.mp3");
-        piAudio.loop = true;
         const emotionCanvas = document.createElement("canvas");
         const emotionContext = emotionCanvas.getContext("2d");
         const MODEL_URL = "../modules/faceAPI/models";
@@ -334,14 +291,6 @@
             emotionCanvas.width = 224;
             emotionCanvas.height = Math.round(video.videoWidth * scale);
             emotionContext.setTransform(0, scale, scale, 0, 0, 0);
-        }
-
-        function updatePiAudio(active) {
-            if (active && piAudio.paused) piAudio.play().catch(() => { });
-            else if (!active) {
-                piAudio.pause();
-                piAudio.currentTime = 0;
-            }
         }
 
         function modeConstraints(mode, nativeOnly) {
@@ -483,10 +432,8 @@
                 const value = result?.expressions[emotionSelect.value] || 0;
                 emotionMeter.value = value;
                 emotionValue.textContent = result ? value.toFixed(3) : "--";
-                updatePiAudio(value >= 0.8);
             } catch {
                 emotionValue.textContent = "エラー";
-                updatePiAudio(false);
             }
             setTimeout(() => detectEmotion(detectOptions), 200);
         }
@@ -548,7 +495,6 @@
             }
         }
 
-        $("cameraButton").addEventListener("click", startCamera);
         cameraMode.addEventListener("change", async () => {
             const track = video.srcObject?.getVideoTracks()[0];
             if (!track) return;
@@ -567,18 +513,6 @@
             }
         });
         recordButton.addEventListener("click", recordVideo);
-        $("sampleControls").addEventListener("click", (event) => {
-            const source = event.target.closest("button")?.dataset.src;
-            if (!source) return;
-            if (!sampleVideo.hidden && sampleVideo.getAttribute("src") === source) {
-                sampleVideo.pause();
-                sampleVideo.hidden = true;
-                return;
-            }
-            sampleVideo.src = source;
-            sampleVideo.hidden = false;
-            sampleVideo.play();
-        });
         window.addEventListener("pagehide", () => {
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
             stopStream(video.srcObject);
