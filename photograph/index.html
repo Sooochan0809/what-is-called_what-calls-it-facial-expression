@@ -35,8 +35,7 @@
             display: block;
         }
 
-        .frameGuide,
-        .countdown {
+        .frameGuide {
             position: absolute;
             left: 50%;
             top: 50%;
@@ -157,7 +156,7 @@
             background: var(--accent);
         }
 
-        .recordButton {
+        .shutterButton {
             width: 112px;
             aspect-ratio: 1;
             border: 0;
@@ -179,17 +178,9 @@
             gap: 16px;
         }
 
-        .recordButton:disabled {
+        .shutterButton:disabled {
             opacity: 0.55;
             cursor: wait;
-        }
-
-        .countdown {
-            z-index: 3;
-            color: #fff;
-            font-size: clamp(72px, 10vw, 112px);
-            font-weight: 700;
-            text-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
         }
 
         output label {
@@ -222,7 +213,6 @@
     <main>
         <video id="video" autoplay muted playsinline></video>
         <div class="frameGuide" aria-hidden="true"></div>
-        <div id="countdown" class="countdown" aria-live="assertive" hidden></div>
         <div id="blink" class="blink" aria-hidden="true" hidden></div>
         <header class="emotionPanel" aria-label="感情推定">
             <div class="scoreText">
@@ -240,7 +230,7 @@
                 </label>
                 <span id="statusText">カメラ起動中...</span>
             </output>
-            <button id="recordButton" class="recordButton" type="button">録画</button>
+            <button id="shutterButton" class="shutterButton" type="button">シャッター</button>
         </footer>
     </main>
 
@@ -251,15 +241,12 @@
         const cameraMode = $("cameraMode");
         const scoreText = $("scoreText");
         const scoreBar = $("scoreBar");
-        const recordButton = $("recordButton");
-        const countdown = $("countdown");
+        const shutterButton = $("shutterButton");
         const blink = $("blink");
         const shutterAudio = new Audio("shutter.mp3");
         const emotionCanvas = document.createElement("canvas");
         const emotionContext = emotionCanvas.getContext("2d");
         const MODEL_URL = "../modules/faceAPI/models";
-        const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-        const stopStream = (stream) => stream?.getTracks().forEach((track) => track.stop());
         const cameraModes = [
             [3840, 2160, 60], [3840, 2160, 30],
             [2560, 1440, 60], [2560, 1440, 30],
@@ -331,21 +318,6 @@
             scoreSegments = [...scoreBar.children];
             showSituation(0);
             startSituationRotation();
-        }
-
-        function downloadRecording(blob) {
-            const extension = blob.type.includes("mp4") ? "mp4" : "webm";
-            const now = new Date();
-            const pad = (number) => String(number).padStart(2, "0");
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            const emotionNames = situations[situationIndex]?.emotions.join("-") || "recording";
-            link.download = `${emotionNames}_${pad(now.getMonth() + 1)}${pad(now.getDate())}.${extension}`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
 
         function getRecordingSize() {
@@ -433,60 +405,6 @@
             cameraMode.disabled = false;
         }
 
-        function createRecordingStream() {
-            const canvas = document.createElement("canvas");
-            Object.assign(canvas, getRecordingSize());
-            const context = canvas.getContext("2d", { alpha: false });
-            context.setTransform(0, 1, 1, 0, 0, 0);
-
-            if (typeof MediaStreamTrackProcessor === "function" && typeof MediaStreamTrackGenerator === "function") {
-                const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
-                const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
-                const generator = new MediaStreamTrackGenerator({ kind: "video" });
-
-                processor.readable.pipeThrough(new TransformStream({
-                    transform(frame, controller) {
-                        try {
-                            context.drawImage(frame, 0, 0);
-                            const options = { timestamp: frame.timestamp };
-                            if (frame.duration !== null) options.duration = frame.duration;
-                            controller.enqueue(new VideoFrame(canvas, options));
-                        } finally {
-                            frame.close();
-                        }
-                    }
-                })).pipeTo(generator.writable).catch(() => { });
-
-                return {
-                    stream: new MediaStream([generator]),
-                    stop: () => {
-                        sourceTrack.stop();
-                        generator.stop();
-                    }
-                };
-            }
-
-            if (typeof video.requestVideoFrameCallback !== "function") {
-                throw new Error("このブラウザは実フレーム同期録画に対応していません");
-            }
-            const stream = canvas.captureStream();
-            let frameCallback;
-
-            const drawFrame = () => {
-                context.drawImage(video, 0, 0);
-                frameCallback = video.requestVideoFrameCallback(drawFrame);
-            };
-
-            frameCallback = video.requestVideoFrameCallback(drawFrame);
-            return {
-                stream,
-                stop: () => {
-                    video.cancelVideoFrameCallback(frameCallback);
-                    stopStream(stream);
-                }
-            };
-        }
-
         async function startCamera() {
             try {
                 video.srcObject = await navigator.mediaDevices.getUserMedia({
@@ -542,49 +460,15 @@
             }
         }
 
-        async function recordVideo() {
-            if (!(video.srcObject instanceof MediaStream)) {
-                statusText.textContent = "先にWebcamを起動してください";
-                return;
-            }
-
-            recordButton.disabled = cameraMode.disabled = true;
-            try {
-                const chunks = [];
-                const recording = createRecordingStream();
-                const recorder = new MediaRecorder(recording.stream, {
-                    videoBitsPerSecond: 60_000_000
-                });
-                recorder.addEventListener("dataavailable", (event) => {
-                    if (event.data.size) chunks.push(event.data);
-                });
-                const stopped = new Promise((resolve) => recorder.addEventListener("stop", resolve, { once: true }));
-                recorder.start();
-                recordButton.textContent = "録画中";
-
-                countdown.hidden = false;
-                for (let count = 3; count >= 1; count -= 1) {
-                    countdown.textContent = count;
-                    await wait(1000);
-                }
-                countdown.hidden = true;
-                await wait(2000);
-                blink.hidden = false;
-                shutterAudio.play().catch(() => { });
-                await wait(3000);
-                if (recorder.state === "recording") recorder.stop();
-                await stopped;
-                recording.stop();
-                downloadRecording(new Blob(chunks, { type: recorder.mimeType }));
-                recordButton.textContent = "録画";
-            } catch (error) {
-                statusText.textContent = `録画を開始できません: ${error.message}`;
-            } finally {
-                countdown.hidden = true;
+        function playShutter() {
+            shutterButton.disabled = true;
+            blink.hidden = false;
+            shutterAudio.currentTime = 0;
+            shutterAudio.play().catch(() => { });
+            blink.addEventListener("animationend", () => {
                 blink.hidden = true;
-                recordButton.disabled = false;
-                cameraMode.disabled = !cameraMode.value.includes(",");
-            }
+                shutterButton.disabled = false;
+            }, { once: true });
         }
 
         cameraMode.addEventListener("change", async () => {
@@ -604,7 +488,7 @@
                 cameraMode.disabled = false;
             }
         });
-        recordButton.addEventListener("click", recordVideo);
+        shutterButton.addEventListener("click", playShutter);
         document.addEventListener("keydown", (event) => {
             if (!situations.length || event.target.matches("input, select, textarea, button")) return;
             const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -617,7 +501,7 @@
             clearInterval(rotationTimer);
             clearTimeout(scoreStepTimer);
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
-            stopStream(video.srcObject);
+            video.srcObject?.getTracks().forEach((track) => track.stop());
         });
         window.addEventListener("load", startEmotionDetection);
         startCamera();
