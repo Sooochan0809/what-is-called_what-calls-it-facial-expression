@@ -65,16 +65,7 @@
             background:
                 linear-gradient(#000 0 0) top / 100% 0 no-repeat,
                 linear-gradient(#000 0 0) bottom / 100% 0 no-repeat;
-            animation: blink 600ms ease-in-out both;
             pointer-events: none;
-        }
-
-        @keyframes blink {
-
-            45%,
-            55% {
-                background-size: 100% 50%;
-            }
         }
 
         output {
@@ -116,7 +107,7 @@
             align-items: center;
             padding: 8px;
             border-radius: 6px;
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0.4);
             color: #17202a;
             opacity: 0.88;
             pointer-events: none;
@@ -241,6 +232,11 @@
         let targetSegmentCount = 0;
         let scoreStepIntervalMs = 80;
         let scoreStepTimer = 0;
+        let shutterScoreThreshold = 80;
+        let shutterTransitionDurationMs = 270;
+        let shutterHoldDurationMs = 60;
+        let shutterEasing = "ease-in-out";
+        let shutterWasAboveThreshold = false;
 
         function stepScore() {
             scoreStepTimer = 0;
@@ -249,6 +245,11 @@
             displayedSegmentCount += direction;
             const segmentIndex = direction > 0 ? displayedSegmentCount - 1 : displayedSegmentCount;
             scoreSegments[segmentIndex].classList.toggle("is-filled", direction > 0);
+            const displayedScore = Math.round(displayedSegmentCount / scoreSegments.length * 100);
+            scoreBar.setAttribute("aria-valuenow", displayedScore);
+            const shutterIsAboveThreshold = displayedScore >= shutterScoreThreshold;
+            if (shutterIsAboveThreshold && !shutterWasAboveThreshold) playShutter();
+            shutterWasAboveThreshold = shutterIsAboveThreshold;
             if (displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
         }
@@ -260,7 +261,6 @@
             targetSegmentCount = Math.ceil(score * scoreSegments.length);
             const accent = rounded >= 72 ? "#27c28a" : rounded >= 44 ? "#ef8b39" : "#dd4d5d";
             scoreBar.style.setProperty("--accent", accent);
-            scoreBar.setAttribute("aria-valuenow", rounded);
             if (!scoreStepTimer && displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
         }
@@ -287,6 +287,10 @@
             situations = config.situations;
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
+            shutterScoreThreshold = Math.min(100, Math.max(0, Number(config.shutter?.scoreThreshold ?? 80)));
+            shutterTransitionDurationMs = Math.max(1, Number(config.shutter?.transitionDurationMs ?? 270));
+            shutterHoldDurationMs = Math.max(0, Number(config.shutter?.holdDurationMs ?? 60));
+            shutterEasing = config.shutter?.easing || "ease-in-out";
             const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
@@ -438,10 +442,18 @@
         }
 
         function playShutter() {
+            if (!blink.hidden) return;
             blink.hidden = false;
             shutterAudio.currentTime = 0;
             shutterAudio.play().catch(() => { });
-            blink.onanimationend = () => blink.hidden = true;
+            const totalDuration = shutterTransitionDurationMs * 2 + shutterHoldDurationMs;
+            const animation = blink.animate([
+                { backgroundSize: "100% 0, 100% 0" },
+                { backgroundSize: "100% 50%, 100% 50%", offset: shutterTransitionDurationMs / totalDuration },
+                { backgroundSize: "100% 50%, 100% 50%", offset: (shutterTransitionDurationMs + shutterHoldDurationMs) / totalDuration },
+                { backgroundSize: "100% 0, 100% 0" }
+            ], { duration: totalDuration, easing: shutterEasing });
+            animation.addEventListener("finish", () => blink.hidden = true, { once: true });
         }
 
         cameraMode.addEventListener("change", async () => {
