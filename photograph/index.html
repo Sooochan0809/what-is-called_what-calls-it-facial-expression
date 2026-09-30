@@ -78,11 +78,11 @@
             color: #f4f7fb;
             font: inherit;
             font-size: 20px;
-        }
-
-        output {
             position: absolute;
             left: 32px;
+            bottom: 32px;
+            display: grid;
+            gap: 8px;
         }
 
         #cameraMode {
@@ -169,12 +169,6 @@
             font-size: clamp(72px, 10vw, 112px);
             font-weight: 700;
             text-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
-        }
-
-        output {
-            bottom: 32px;
-            display: grid;
-            gap: 8px;
         }
 
         output label {
@@ -308,21 +302,11 @@
             return [width, height, Math.round(frameRate)];
         }
 
-        function createRecordingCanvas() {
-            const canvas = document.createElement("canvas");
-            Object.assign(canvas, getRecordingSize());
-            const context = canvas.getContext("2d", { alpha: false });
-            context.setTransform(0, 1, 1, 0, 0, 0);
-            return { canvas, context };
-        }
-
         async function detectCameraModes(track) {
             const capabilities = track.getCapabilities?.() || {};
             const nativeOnly = capabilities.resizeMode?.includes("none");
             const initialMode = currentMode(track);
             const supported = new Map();
-            cameraMode.disabled = true;
-            cameraMode.innerHTML = "<option>画質検出中...</option>";
 
             for (const mode of cameraModes) {
                 const [width, height, frameRate] = mode;
@@ -351,7 +335,11 @@
         }
 
         function createRecordingStream() {
-            const { canvas, context } = createRecordingCanvas();
+            const canvas = document.createElement("canvas");
+            Object.assign(canvas, getRecordingSize());
+            const context = canvas.getContext("2d", { alpha: false });
+            context.setTransform(0, 1, 1, 0, 0, 0);
+
             if (typeof MediaStreamTrackProcessor === "function" && typeof MediaStreamTrackGenerator === "function") {
                 const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
                 const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
@@ -401,8 +389,6 @@
         }
 
         async function startCamera() {
-            if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
-            stopStream(video.srcObject);
             try {
                 video.srcObject = await navigator.mediaDevices.getUserMedia({
                     video: {
