@@ -7,13 +7,28 @@
     <title>Photograph</title>
     <script defer src="../modules/faceAPI/face-api.min.js"></script>
     <style>
+        :root {
+            --font-sans: "Yu Gothic Medium", "Yu Gothic", sans-serif;
+            --color-page: #f0f0f0;
+            --color-shutter: #000;
+            --color-status: #1b2026e0;
+            --color-status-text: #f4f7fb;
+            --color-control: #343a40;
+            --color-panel: #ffffff66;
+            --color-panel-text: #17202a;
+            --color-score-track: #e7ecf1;
+            --color-positive: #27c28a;
+            --color-warning: #ef8b39;
+            --color-negative: #dd4d5d;
+        }
+
         body {
             margin: 0;
             min-height: 100dvh;
             display: grid;
             place-items: center;
-            background: #f0f0f0;
-            font-family: "Yu Gothic Medium", "Yu Gothic", sans-serif;
+            background: var(--color-page);
+            font-family: var(--font-sans);
         }
 
         main {
@@ -41,21 +56,22 @@
             top: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
-            --color: rgba(39, 194, 138, 0.88);
             --length: 12%;
             --thickness: 8px;
+            color: var(--color-positive);
+            opacity: 0.88;
             width: min(80%, 800px);
             height: min(84%, 1140px);
             border-radius: 12px;
             background:
-                linear-gradient(var(--color) 0 0) top left / var(--length) var(--thickness) no-repeat,
-                linear-gradient(var(--color) 0 0) top left / var(--thickness) var(--length) no-repeat,
-                linear-gradient(var(--color) 0 0) top right / var(--length) var(--thickness) no-repeat,
-                linear-gradient(var(--color) 0 0) top right / var(--thickness) var(--length) no-repeat,
-                linear-gradient(var(--color) 0 0) bottom left / var(--length) var(--thickness) no-repeat,
-                linear-gradient(var(--color) 0 0) bottom left / var(--thickness) var(--length) no-repeat,
-                linear-gradient(var(--color) 0 0) bottom right / var(--length) var(--thickness) no-repeat,
-                linear-gradient(var(--color) 0 0) bottom right / var(--thickness) var(--length) no-repeat;
+                linear-gradient(currentColor 0 0) top left / var(--length) var(--thickness) no-repeat,
+                linear-gradient(currentColor 0 0) top left / var(--thickness) var(--length) no-repeat,
+                linear-gradient(currentColor 0 0) top right / var(--length) var(--thickness) no-repeat,
+                linear-gradient(currentColor 0 0) top right / var(--thickness) var(--length) no-repeat,
+                linear-gradient(currentColor 0 0) bottom left / var(--length) var(--thickness) no-repeat,
+                linear-gradient(currentColor 0 0) bottom left / var(--thickness) var(--length) no-repeat,
+                linear-gradient(currentColor 0 0) bottom right / var(--length) var(--thickness) no-repeat,
+                linear-gradient(currentColor 0 0) bottom right / var(--thickness) var(--length) no-repeat;
         }
 
         .blink {
@@ -63,8 +79,8 @@
             inset: 0;
             z-index: 4;
             background:
-                linear-gradient(#000 0 0) top / 100% 0 no-repeat,
-                linear-gradient(#000 0 0) bottom / 100% 0 no-repeat;
+                linear-gradient(var(--color-shutter) 0 0) top / 100% 0 no-repeat,
+                linear-gradient(var(--color-shutter) 0 0) bottom / 100% 0 no-repeat;
             pointer-events: none;
         }
 
@@ -75,8 +91,8 @@
             padding: 16px 20px;
             border: 0;
             border-radius: 12px;
-            background: #1b2026e0;
-            color: #f4f7fb;
+            background: var(--color-status);
+            color: var(--color-status-text);
             font: inherit;
             font-size: clamp(14px, 2vw, 20px);
             white-space: nowrap;
@@ -90,7 +106,7 @@
             padding: 8px 10px;
             border: 0;
             border-radius: 8px;
-            background: #343a40;
+            background: var(--color-control);
             color: inherit;
             font: inherit;
             cursor: pointer;
@@ -107,8 +123,8 @@
             align-items: center;
             padding: 8px;
             border-radius: 6px;
-            background: rgba(255, 255, 255, 0.4);
-            color: #17202a;
+            background: var(--color-panel);
+            color: var(--color-panel-text);
             opacity: 0.88;
             pointer-events: none;
         }
@@ -137,7 +153,7 @@
         .scoreSegment {
             height: 9px;
             border-radius: 999px;
-            background: #e7ecf1;
+            background: var(--color-score-track);
             transition: background-color 120ms linear;
         }
 
@@ -259,7 +275,7 @@
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
             targetSegmentCount = Math.ceil(score * scoreSegments.length);
-            const accent = rounded >= 72 ? "#27c28a" : rounded >= 44 ? "#ef8b39" : "#dd4d5d";
+            const accent = rounded >= 72 ? "var(--color-positive)" : rounded >= 44 ? "var(--color-warning)" : "var(--color-negative)";
             scoreBar.style.setProperty("--accent", accent);
             if (!scoreStepTimer && displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
