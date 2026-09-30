@@ -276,6 +276,18 @@
             rotationTimer = setInterval(() => showSituation(situationIndex + 1), rotationIntervalMs);
         }
 
+        function advanceAfterShutter() {
+            clearTimeout(scoreStepTimer);
+            scoreStepTimer = 0;
+            displayedSegmentCount = 0;
+            shutterWasAboveThreshold = false;
+            latestExpressions = {};
+            scoreSegments.forEach((segment) => segment.classList.remove("is-filled"));
+            scoreBar.setAttribute("aria-valuenow", 0);
+            showSituation(situationIndex + 1);
+            startSituationRotation();
+        }
+
         async function loadSituations() {
             const response = await fetch("config.json", { cache: "no-store" });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -443,6 +455,7 @@
 
         function playShutter() {
             if (!blink.hidden) return;
+            clearInterval(rotationTimer);
             blink.hidden = false;
             shutterAudio.currentTime = 0;
             shutterAudio.play().catch(() => { });
@@ -453,7 +466,10 @@
                 { backgroundSize: "100% 50%, 100% 50%", offset: (shutterTransitionDurationMs + shutterHoldDurationMs) / totalDuration },
                 { backgroundSize: "100% 0, 100% 0" }
             ], { duration: totalDuration, easing: shutterEasing });
-            animation.addEventListener("finish", () => blink.hidden = true, { once: true });
+            animation.addEventListener("finish", () => {
+                blink.hidden = true;
+                advanceAfterShutter();
+            }, { once: true });
         }
 
         cameraMode.addEventListener("change", async () => {
