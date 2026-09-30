@@ -41,9 +41,6 @@
             top: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
-        }
-
-        .frameGuide {
             --color: rgba(39, 194, 138, 0.88);
             --length: 12%;
             --thickness: 8px;
@@ -109,7 +106,6 @@
             left: 8px;
             right: 8px;
             display: grid;
-            grid-template-columns: minmax(0, 1fr);
             gap: 8px;
             align-items: center;
             padding: 8px;
@@ -121,7 +117,6 @@
         }
 
         .scoreText {
-            grid-column: 1 / -1;
             min-width: 0;
         }
 
@@ -137,15 +132,12 @@
         }
 
         .scoreBar {
-            grid-column: 1 / -1;
-            width: 100%;
             display: grid;
             grid-template-columns: repeat(var(--segment-count, 10), minmax(0, 1fr));
             gap: 3px;
         }
 
         .scoreSegment {
-            display: block;
             height: 9px;
             border-radius: 999px;
             background: #e7ecf1;
@@ -272,9 +264,8 @@
             displayedSegmentCount += direction;
             const segmentIndex = direction > 0 ? displayedSegmentCount - 1 : displayedSegmentCount;
             scoreSegments[segmentIndex].classList.toggle("is-filled", direction > 0);
-            if (displayedSegmentCount !== targetSegmentCount) {
+            if (displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
-            }
         }
 
         function renderScore() {
@@ -285,9 +276,8 @@
             const accent = rounded >= 72 ? "#27c28a" : rounded >= 44 ? "#ef8b39" : "#dd4d5d";
             scoreBar.style.setProperty("--accent", accent);
             scoreBar.setAttribute("aria-valuenow", rounded);
-            if (!scoreStepTimer && displayedSegmentCount !== targetSegmentCount) {
+            if (!scoreStepTimer && displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
-            }
         }
 
         function showSituation(index) {
@@ -314,13 +304,13 @@
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
             const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
             scoreBar.style.setProperty("--segment-count", segmentCount);
-            scoreBar.innerHTML = Array.from({ length: segmentCount }, () => '<span class="scoreSegment"></span>').join("");
+            scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
             scoreSegments = [...scoreBar.children];
             showSituation(0);
             startSituationRotation();
         }
 
-        function getRecordingSize() {
+        function videoFrameSize() {
             return {
                 width: Math.round(video.videoHeight / 2) * 2,
                 height: Math.round(video.videoWidth / 2) * 2
@@ -328,7 +318,7 @@
         }
 
         function measureStatus() {
-            const size = getRecordingSize();
+            const size = videoFrameSize();
             statusText.textContent = `実測: ${size.width}x${size.height} / 計測中`;
             let startedAt;
             let frames = 0;
@@ -340,7 +330,7 @@
 
                 const elapsed = now - startedAt;
                 if (elapsed >= 1000) {
-                    const current = getRecordingSize();
+                    const current = videoFrameSize();
                     statusText.textContent = `実測: ${current.width}x${current.height} / ${Math.round(frames * 1000 / elapsed)}fps`;
                     startedAt = now;
                     frames = 0;
@@ -465,10 +455,10 @@
             blink.hidden = false;
             shutterAudio.currentTime = 0;
             shutterAudio.play().catch(() => { });
-            blink.addEventListener("animationend", () => {
+            blink.onanimationend = () => {
                 blink.hidden = true;
                 shutterButton.disabled = false;
-            }, { once: true });
+            };
         }
 
         cameraMode.addEventListener("change", async () => {
@@ -491,7 +481,7 @@
         shutterButton.addEventListener("click", playShutter);
         document.addEventListener("keydown", (event) => {
             if (!situations.length || event.target.matches("input, select, textarea, button")) return;
-            const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+            const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
             if (!step) return;
             event.preventDefault();
             showSituation(situationIndex + step);
