@@ -10,7 +10,7 @@
         const DEFAULT_FOCUS_SEQUENCE_FPS = 30;
         const AUTO_RANDOM_FPS = 60;
         const DEFAULT_OUTPUT_FPS = 60;
-        const MEDIAPIPE_MODULE_URL = new URL("../module/mediapipe/", import.meta.url);
+        const MEDIAPIPE_MODULE_URL = new URL("../modules/mediapipe/", import.meta.url);
         const MEDIAPIPE_TASKS_URL = new URL("vision_bundle.mjs", MEDIAPIPE_MODULE_URL).href;
         const FACE_MODEL_URL = new URL("models/face_landmarker.task", MEDIAPIPE_MODULE_URL).href;
         const MEDIAPIPE_WASM_URL = new URL("wasm", MEDIAPIPE_MODULE_URL).href.replace(/\/$/, "");

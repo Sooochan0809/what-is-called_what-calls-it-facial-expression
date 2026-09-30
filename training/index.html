@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>表情と呼ばれるモノ</title>
-    <script defer src="../module/faceAPI/face-api.min.js"></script>
+    <script defer src="../modules/faceAPI/face-api.min.js"></script>
     <style>
         :root {
             --bg: #f7f8fa;
@@ -1093,7 +1093,7 @@
     </div>
 
     <script type="module">
-        import { FaceLandmarker, FilesetResolver } from "../module/mediapipe/vision_bundle.mjs";
+        import { FaceLandmarker, FilesetResolver } from "../modules/mediapipe/vision_bundle.mjs";
 
         window.addEventListener("load", async () => {
             const stripJsonComments = (source) => {
@@ -1148,8 +1148,8 @@
             const resultsPreview = new URLSearchParams(window.location.search).get("preview") === "results";
             const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, Number(value || 0)));
             const MODEL_URL = config.paths.modelUrl;
-            const MEDIAPIPE_WASM_URL = new URL("../module/mediapipe/wasm", window.location.href).href.replace(/\/$/, "");
-            const FACE_LANDMARKER_URL = new URL("../module/mediapipe/models/face_landmarker.task", window.location.href).href;
+            const MEDIAPIPE_WASM_URL = new URL("../modules/mediapipe/wasm", window.location.href).href.replace(/\/$/, "");
+            const FACE_LANDMARKER_URL = new URL("../modules/mediapipe/models/face_landmarker.task", window.location.href).href;
             const DEMO_INTRO_MS = config.timingMs.demoIntro;
             const DEMO_LOOP_COUNT = config.training.demoLoopCount;
             const CLEAR_SCORE = config.training.clearScore;
