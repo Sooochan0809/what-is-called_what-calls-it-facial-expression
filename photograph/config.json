@@ -1,12 +1,13 @@
 {
   "rotationIntervalMs": 30000,
+  "partIntroDurationMs": 3000,
   "scoreSegmentCount": 10,
   "scoreStepIntervalMs": 80,
   "shutter": {
     "scoreThreshold": 80,
     "transitionDurationMs": 100,
     "holdDurationMs": 1500,
-    "previewDurationMs": 1500,
+    "previewDurationMs": 3000,
     "easing": "ease-in-out"
   },
   "recording": {

@@ -16,8 +16,13 @@
             --color-control: #343a40;
             --color-panel: #ffffff66;
             --color-timer: #ffffffe6;
+            --color-overlay: #f7f8fa94;
+            --color-overlay-card: #ffffffd1;
+            --color-overlay-border: #d9dee5d1;
+            --color-muted: #68727e;
             --color-panel-text: #17202a;
             --color-score-track: #e7ecf1;
+            --color-progress-track: #17202a1f;
             --color-positive: #27c28a;
             --color-warning: #ef8b39;
             --color-negative: #dd4d5d;
@@ -54,6 +59,27 @@
         #capturePreview {
             z-index: 3;
             pointer-events: none;
+        }
+
+        .captureProgress {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 5;
+            height: 8px;
+            background: var(--color-progress-track);
+        }
+
+        .captureProgress[hidden] {
+            display: none;
+        }
+
+        .captureProgressFill {
+            display: block;
+            width: 0;
+            height: 100%;
+            background: var(--color-positive);
         }
 
         .frameGuide {
@@ -189,6 +215,49 @@
             color: var(--color-negative);
         }
 
+        .partIntro {
+            position: absolute;
+            inset: 0;
+            z-index: 6;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: var(--color-overlay);
+            backdrop-filter: blur(10px);
+        }
+
+        .partIntro[hidden] {
+            display: none;
+        }
+
+        .partIntroCard {
+            box-sizing: border-box;
+            width: min(560px, 100%);
+            display: grid;
+            gap: 10px;
+            padding: 18px 24px;
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 6px;
+            background: var(--color-overlay-card);
+            text-align: center;
+        }
+
+        #partIntroLabel {
+            margin: 0;
+            color: var(--color-muted);
+            font-size: clamp(0.72rem, 1.5vw, 0.88rem);
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            line-height: 1.6;
+        }
+
+        #partIntroText {
+            margin: 0;
+            color: var(--color-panel-text);
+            font-size: clamp(1.6rem, 4vw, 3rem);
+            line-height: 1.2;
+        }
+
         .controlsFooter {
             position: absolute;
             inset: auto 16px 16px;
@@ -233,8 +302,17 @@
     <main>
         <video id="video" autoplay muted playsinline></video>
         <img id="capturePreview" alt="撮影画像" hidden>
+        <div id="captureProgress" class="captureProgress" aria-hidden="true" hidden>
+            <span id="captureProgressFill" class="captureProgressFill"></span>
+        </div>
         <div class="frameGuide" aria-hidden="true"></div>
         <div id="blink" class="blink" aria-hidden="true" hidden></div>
+        <section id="partIntro" class="partIntro" aria-live="polite" hidden>
+            <div class="partIntroCard">
+                <p id="partIntroLabel">パート1</p>
+                <h2 id="partIntroText">状況文</h2>
+            </div>
+        </section>
         <header class="emotionPanel" aria-label="感情推定">
             <strong id="scoreText">読込中</strong>
             <div id="scoreBar" class="scoreBar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
@@ -257,12 +335,17 @@
         const $ = (id) => document.getElementById(id);
         const video = $("video");
         const capturePreview = $("capturePreview");
+        const captureProgress = $("captureProgress");
+        const captureProgressFill = $("captureProgressFill");
         const statusLabel = $("statusLabel");
         const statusText = $("statusText");
         const cameraMode = $("cameraMode");
         const scoreText = $("scoreText");
         const scoreBar = $("scoreBar");
         const situationTimer = $("situationTimer");
+        const partIntro = $("partIntro");
+        const partIntroLabel = $("partIntroLabel");
+        const partIntroText = $("partIntroText");
         const blink = $("blink");
         const shutterAudio = new Audio("shutter.mp3");
         const emotionCanvas = document.createElement("canvas");
@@ -282,6 +365,8 @@
         let rotationTimer = 0;
         let rotationClockTimer = 0;
         let rotationStartedAt = 0;
+        let partIntroTimer = 0;
+        let partIntroDurationMs = 3000;
         let latestExpressions = {};
         let scoreSegments = [];
         let displayedSegmentCount = 0;
@@ -301,6 +386,7 @@
 
         function stepScore() {
             scoreStepTimer = 0;
+            if (!partIntro.hidden) return;
             if (displayedSegmentCount === targetSegmentCount) return;
             const direction = Math.sign(targetSegmentCount - displayedSegmentCount);
             displayedSegmentCount += direction;
@@ -316,7 +402,7 @@
         }
 
         function renderScore() {
-            if (captureInProgress) return;
+            if (captureInProgress || !partIntro.hidden) return;
             const emotions = situations[situationIndex]?.emotions || [];
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
@@ -328,9 +414,23 @@
         }
 
         function showSituation(index) {
+            clearTimeout(partIntroTimer);
+            clearTimeout(rotationTimer);
+            clearInterval(rotationClockTimer);
+            clearTimeout(scoreStepTimer);
+            scoreStepTimer = 0;
             situationIndex = (index + situations.length) % situations.length;
             scoreText.textContent = situations[situationIndex].text;
-            renderScore();
+            partIntroLabel.textContent = `パート${situationIndex + 1}`;
+            partIntroText.textContent = situations[situationIndex].text;
+            partIntro.hidden = false;
+            rotationStartedAt = performance.now();
+            updateSituationTimer();
+            partIntroTimer = setTimeout(() => {
+                partIntro.hidden = true;
+                renderScore();
+                startSituationRotation();
+            }, partIntroDurationMs);
         }
 
         function updateSituationTimer() {
@@ -347,7 +447,6 @@
             rotationClockTimer = setInterval(updateSituationTimer, 250);
             rotationTimer = setTimeout(() => {
                 showSituation(situationIndex + 1);
-                startSituationRotation();
             }, rotationIntervalMs);
         }
 
@@ -361,7 +460,6 @@
             scoreBar.classList.remove("is-frozen");
             scoreBar.setAttribute("aria-valuenow", 0);
             showSituation(situationIndex + 1);
-            startSituationRotation();
         }
 
         async function loadConfig() {
@@ -374,6 +472,7 @@
 
             situations = config.situations;
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
+            partIntroDurationMs = Math.max(0, Number(config.partIntroDurationMs) || 3000);
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
             const shutter = config.shutter || {};
             shutterScoreThreshold = Math.min(100, Math.max(0, Number(shutter.scoreThreshold ?? 80)));
@@ -389,7 +488,6 @@
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
             scoreSegments = [...scoreBar.children];
             showSituation(0);
-            startSituationRotation();
         }
 
         const findWebmCluster = (bytes) => {
@@ -810,7 +908,7 @@
         }
 
         function playShutter() {
-            if (!blink.hidden || captureInProgress) return;
+            if (!blink.hidden || captureInProgress || !partIntro.hidden) return;
             captureInProgress = true;
             updateSituationTimer();
             clearTimeout(rotationTimer);
@@ -848,18 +946,23 @@
                         { backgroundSize: "100% 0, 100% 0" }
                     ], { duration: shutterTransitionDurationMs, easing: shutterEasing }).finished;
                     blink.hidden = true;
-                    await new Promise((resolve) => setTimeout(resolve, shutterPreviewDurationMs));
+                    captureProgress.hidden = false;
+                    await captureProgressFill.animate([
+                        { width: "0%" },
+                        { width: "100%" }
+                    ], { duration: shutterPreviewDurationMs, easing: "linear" }).finished;
                 } catch (error) {
                     console.error("撮影画像を表示できませんでした。", error);
                 } finally {
                     blink.hidden = true;
                     blink.style.removeProperty("background-size");
+                    captureProgress.hidden = true;
                     capturePreview.hidden = true;
                     capturePreview.removeAttribute("src");
                     if (previewUrl) URL.revokeObjectURL(previewUrl);
+                    captureInProgress = false;
                     advanceAfterShutter();
                     await savePromise;
-                    captureInProgress = false;
                 }
             })();
         }
@@ -889,9 +992,9 @@
             if (!step) return;
             event.preventDefault();
             showSituation(situationIndex + step);
-            startSituationRotation();
         });
         window.addEventListener("pagehide", () => {
+            clearTimeout(partIntroTimer);
             clearTimeout(rotationTimer);
             clearInterval(rotationClockTimer);
             stopRecordingBuffer();
