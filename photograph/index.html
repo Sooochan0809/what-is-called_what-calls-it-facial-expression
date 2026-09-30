@@ -100,7 +100,7 @@
         }
 
         #cameraMode {
-            padding: 8px 10px;
+            padding: 8px;
             border: 0;
             border-radius: 8px;
             background: var(--color-control);
@@ -163,7 +163,7 @@
 
         #statusText {
             overflow: hidden;
-            padding-left: 15px;
+            padding-left: 12px;
             text-overflow: ellipsis;
         }
 
@@ -424,8 +424,8 @@
             try {
                 video.srcObject = await navigator.mediaDevices.getUserMedia({
                     video: {
-                        width: { ideal: 3840 },
-                        height: { ideal: 2160 },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
                         frameRate: { ideal: 60 }
                     }
                 });
