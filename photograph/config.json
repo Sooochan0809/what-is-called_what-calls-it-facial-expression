@@ -9,6 +9,10 @@
     "holdDurationMs": 1500,
     "easing": "ease-in-out"
   },
+  "recording": {
+    "secondsBefore": 2,
+    "secondsAfter": 3
+  },
   "situations": [
     { "text": "喜びの状況文", "emotions": ["happy","sad"]},
     { "text": "悲しみの状況文", "emotions": ["sad"] },

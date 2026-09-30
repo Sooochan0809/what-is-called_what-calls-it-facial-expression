@@ -222,6 +222,7 @@
         const emotionCanvas = document.createElement("canvas");
         const emotionContext = emotionCanvas.getContext("2d");
         const MODEL_URL = "../modules/faceAPI/models";
+        const RECORDING_MIME_TYPES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
         const cameraModes = [
             [3840, 2160, 60], [3840, 2160, 30],
             [2560, 1440, 60], [2560, 1440, 30],
@@ -246,6 +247,17 @@
         let shutterHoldDurationMs = 60;
         let shutterEasing = "ease-in-out";
         let shutterWasAboveThreshold = false;
+        let recordingBeforeMs = 2000;
+        let recordingAfterMs = 3000;
+        let mediaRecorder = null;
+        let recordingTrack = null;
+        let recordingHeader = null;
+        let recordingChunks = [];
+        let recordingStartedAt = 0;
+        let lastChunkAt = 0;
+        let recordingQueue = Promise.resolve();
+        let pendingClip = null;
+        let captureInProgress = false;
 
         function stepScore() {
             scoreStepTimer = 0;
@@ -326,12 +338,295 @@
             shutterTransitionDurationMs = Math.max(1, Number(shutter.transitionDurationMs ?? 270));
             shutterHoldDurationMs = Math.max(0, Number(shutter.holdDurationMs ?? 60));
             shutterEasing = shutter.easing || "ease-in-out";
+            const recording = config.recording || {};
+            recordingBeforeMs = Math.max(0, Number(recording.secondsBefore ?? 2) || 0) * 1000;
+            recordingAfterMs = Math.max(0, Number(recording.secondsAfter ?? 3) || 0) * 1000;
             const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
             scoreSegments = [...scoreBar.children];
             showSituation(0);
             startSituationRotation();
+        }
+
+        const findWebmCluster = (bytes) => {
+            for (let index = 0; index <= bytes.length - 4; index += 1) {
+                if (bytes[index] === 0x1f && bytes[index + 1] === 0x43 && bytes[index + 2] === 0xb6 && bytes[index + 3] === 0x75) return index;
+            }
+            return -1;
+        };
+
+        const findWebmHeader = (bytes) => {
+            for (let index = 0; index <= bytes.length - 4; index += 1) {
+                if (bytes[index] === 0x1a && bytes[index + 1] === 0x45 && bytes[index + 2] === 0xdf && bytes[index + 3] === 0xa3) return index;
+            }
+            return -1;
+        };
+
+        const hasWebmHeader = (bytes) => findWebmHeader(bytes) === 0;
+
+        const webmVintLength = (byte) => {
+            for (let length = 1, mask = 0x80; length <= 8; length += 1, mask >>= 1) {
+                if (byte & mask) return length;
+            }
+            return 0;
+        };
+
+        function normalizeWebmTimecodes(bytes) {
+            let firstTimecode;
+            for (let cluster = findWebmCluster(bytes); cluster >= 0;) {
+                const nextOffset = findWebmCluster(bytes.subarray(cluster + 4));
+                const nextCluster = nextOffset < 0 ? bytes.length : cluster + 4 + nextOffset;
+                const sizeLength = webmVintLength(bytes[cluster + 4]);
+                const limit = Math.min(nextCluster, cluster + 4 + sizeLength + 64);
+                for (let index = cluster + 4 + sizeLength; index < limit - 2; index += 1) {
+                    if (bytes[index] !== 0xe7) continue;
+                    const valueLength = bytes[index + 1] & 0x7f;
+                    const valueAt = index + 2;
+                    if (!valueLength || valueLength > 4 || valueAt + valueLength > limit) break;
+                    let value = 0;
+                    for (let offset = 0; offset < valueLength; offset += 1) value = value * 256 + bytes[valueAt + offset];
+                    firstTimecode ??= value;
+                    value -= firstTimecode;
+                    for (let offset = valueLength - 1; offset >= 0; offset -= 1) {
+                        bytes[valueAt + offset] = value & 0xff;
+                        value = Math.floor(value / 256);
+                    }
+                    break;
+                }
+                if (nextOffset < 0) break;
+                cluster = nextCluster;
+            }
+            return bytes;
+        }
+
+        const webmTimecodeCheck = normalizeWebmTimecodes(Uint8Array.of(
+            0x1f, 0x43, 0xb6, 0x75, 0x84, 0xe7, 0x82, 0x03, 0xe8,
+            0x1f, 0x43, 0xb6, 0x75, 0x84, 0xe7, 0x82, 0x04, 0x4c
+        ));
+        console.assert(
+            findWebmHeader(Uint8Array.of(0, 0x1a, 0x45, 0xdf, 0xa3)) === 1
+            && webmTimecodeCheck[7] === 0 && webmTimecodeCheck[8] === 0 && webmTimecodeCheck[17] === 100,
+            "WebMデータを正規化できません"
+        );
+
+        async function createWebmClip(blobs, type) {
+            const bytes = new Uint8Array(await new Blob(blobs).arrayBuffer());
+            const clusterAt = findWebmCluster(bytes);
+            if (!recordingHeader || clusterAt < 0) throw new Error("WebMデータを作成できませんでした");
+            const clip = new Blob([recordingHeader, normalizeWebmTimecodes(bytes.slice(clusterAt))], { type });
+            if (!hasWebmHeader(new Uint8Array(await clip.slice(0, 4).arrayBuffer()))) {
+                throw new Error("WebMヘッダーを作成できませんでした");
+            }
+            return clip;
+        }
+
+        function stopRecordingBuffer() {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.ondataavailable = null;
+                mediaRecorder.stop();
+            }
+            recordingTrack?.stop();
+            pendingClip?.reject(new Error("録画設定が変更されました"));
+            mediaRecorder = recordingTrack = recordingHeader = pendingClip = null;
+            recordingChunks = [];
+        }
+
+        function startRecordingBuffer() {
+            const sourceTrack = video.srcObject?.getVideoTracks()[0];
+            if (!sourceTrack || typeof MediaRecorder === "undefined") return;
+            stopRecordingBuffer();
+            recordingTrack = sourceTrack.clone();
+            const mimeType = RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+            try {
+                mediaRecorder = new MediaRecorder(new MediaStream([recordingTrack]), mimeType ? { mimeType } : undefined);
+            } catch (error) {
+                recordingTrack.stop();
+                recordingTrack = null;
+                console.error("WebM録画を開始できませんでした。", error);
+                return;
+            }
+            recordingStartedAt = performance.now();
+            lastChunkAt = recordingStartedAt;
+            recordingQueue = Promise.resolve();
+            const recorder = mediaRecorder;
+            const initialBlobs = [];
+            recorder.ondataavailable = ({ data }) => {
+                const endAt = performance.now();
+                recordingQueue = recordingQueue.then(async () => {
+                    if (mediaRecorder !== recorder || !data?.size) return;
+                    let chunk = data;
+                    if (!recordingHeader) {
+                        initialBlobs.push(data);
+                        const initialBlob = new Blob(initialBlobs, { type: data.type });
+                        const bytes = new Uint8Array(await initialBlob.arrayBuffer());
+                        const headerAt = findWebmHeader(bytes);
+                        if (headerAt < 0) {
+                            if (initialBlob.size > 16 * 1024 * 1024) throw new Error(`WebMヘッダーを取得できませんでした（${data.type || "形式不明"}）`);
+                            return;
+                        }
+                        const clusterOffset = findWebmCluster(bytes.subarray(headerAt));
+                        if (clusterOffset < 0) return;
+                        const clusterAt = headerAt + clusterOffset;
+                        recordingHeader = new Blob([bytes.slice(headerAt, clusterAt)], { type: data.type });
+                        initialBlobs.length = 0;
+                        lastChunkAt = recordingStartedAt;
+                        chunk = new Blob([bytes.slice(clusterAt)], { type: data.type });
+                    }
+                    recordingChunks.push({ startAt: lastChunkAt, endAt, blob: chunk });
+                    lastChunkAt = endAt;
+                    const cutoff = pendingClip?.startAt ?? endAt - recordingBeforeMs - 1500;
+                    recordingChunks = recordingChunks.filter(({ endAt: chunkEnd }) => chunkEnd >= cutoff);
+                    if (pendingClip && endAt >= pendingClip.endAt) {
+                        const capture = pendingClip;
+                        pendingClip = null;
+                        const blobs = recordingChunks
+                            .filter(({ startAt, endAt: chunkEnd }) => startAt <= capture.endAt && chunkEnd >= capture.startAt)
+                            .map(({ blob }) => blob);
+                        capture.resolve(await createWebmClip(blobs, recorder.mimeType || "video/webm"));
+                    }
+                }).catch((error) => {
+                    pendingClip?.reject(error);
+                    pendingClip = null;
+                    console.error("WebMデータを処理できませんでした。", error);
+                });
+            };
+            mediaRecorder.onerror = ({ error }) => {
+                pendingClip?.reject(error);
+                pendingClip = null;
+                console.error("WebM録画に失敗しました。", error);
+            };
+            mediaRecorder.start(250);
+        }
+
+        function recordClip(triggerAt) {
+            return new Promise((resolve, reject) => {
+                if (!recordingHeader || mediaRecorder?.state !== "recording" || pendingClip) {
+                    reject(new Error("WebM録画の準備ができていません"));
+                    return;
+                }
+                pendingClip = {
+                    startAt: triggerAt - recordingBeforeMs,
+                    endAt: triggerAt + recordingAfterMs,
+                    resolve,
+                    reject
+                };
+                setTimeout(() => mediaRecorder?.state === "recording" && mediaRecorder.requestData(), recordingAfterMs);
+            });
+        }
+
+        const canvasBlob = (canvas) => new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNGを作成できませんでした")), "image/png");
+        });
+
+        function captureImage() {
+            const canvas = document.createElement("canvas");
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0);
+            return canvasBlob(canvas);
+        }
+
+        const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
+            let value = index;
+            for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+            return value >>> 0;
+        });
+
+        async function blobCrc32(blob) {
+            let crc = 0xffffffff;
+            for await (const bytes of blob.stream()) {
+                for (const byte of bytes) crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+
+        function zipStamp(date) {
+            return {
+                date: ((Math.max(1980, date.getFullYear()) - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+                time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2)
+            };
+        }
+
+        async function createZip(files) {
+            const encoder = new TextEncoder();
+            const localParts = [];
+            const entries = [];
+            let offset = 0;
+            for (const file of files) {
+                const name = encoder.encode(file.name);
+                const crc = await blobCrc32(file.blob);
+                const stamp = zipStamp(file.createdAt);
+                const header = new Uint8Array(30 + name.length);
+                const view = new DataView(header.buffer);
+                view.setUint32(0, 0x04034b50, true);
+                view.setUint16(4, 20, true);
+                view.setUint16(6, 0x0800, true);
+                view.setUint16(10, stamp.time, true);
+                view.setUint16(12, stamp.date, true);
+                view.setUint32(14, crc, true);
+                view.setUint32(18, file.blob.size, true);
+                view.setUint32(22, file.blob.size, true);
+                view.setUint16(26, name.length, true);
+                header.set(name, 30);
+                localParts.push(header, file.blob);
+                entries.push({ name, crc, stamp, size: file.blob.size, offset });
+                offset += header.length + file.blob.size;
+            }
+            const centralParts = entries.map((entry) => {
+                const header = new Uint8Array(46 + entry.name.length);
+                const view = new DataView(header.buffer);
+                view.setUint32(0, 0x02014b50, true);
+                view.setUint16(4, 20, true);
+                view.setUint16(6, 20, true);
+                view.setUint16(8, 0x0800, true);
+                view.setUint16(12, entry.stamp.time, true);
+                view.setUint16(14, entry.stamp.date, true);
+                view.setUint32(16, entry.crc, true);
+                view.setUint32(20, entry.size, true);
+                view.setUint32(24, entry.size, true);
+                view.setUint16(28, entry.name.length, true);
+                view.setUint32(42, entry.offset, true);
+                header.set(entry.name, 46);
+                return header;
+            });
+            const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+            const end = new Uint8Array(22);
+            const endView = new DataView(end.buffer);
+            endView.setUint32(0, 0x06054b50, true);
+            endView.setUint16(8, entries.length, true);
+            endView.setUint16(10, entries.length, true);
+            endView.setUint32(12, centralSize, true);
+            endView.setUint32(16, offset, true);
+            return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = filename;
+            anchor.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function captureNames(createdAt) {
+            const emotion = situations[situationIndex].emotions.reduce((best, key) => {
+                const score = Number(latestExpressions[key]) || 0;
+                return score > best.score ? { key, score } : best;
+            }, { key: situations[situationIndex].emotions[0], score: 0 });
+            const two = (value) => String(value).padStart(2, "0");
+            const archive = `called_${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}`;
+            return { archive, file: `${emotion.key}_${Math.round(emotion.score * 100)}` };
+        }
+
+        async function saveCapture(triggerAt, createdAt, names, imagePromise) {
+            const [image, clip] = await Promise.all([imagePromise, recordClip(triggerAt)]);
+            const zip = await createZip([
+                { name: `${names.file}.png`, blob: image, createdAt },
+                { name: `${names.file}.webm`, blob: clip, createdAt }
+            ]);
+            downloadBlob(zip, `${names.archive}.zip`);
         }
 
         function videoFrameSize() {
@@ -435,6 +730,7 @@
                 await detectCameraModes(track);
                 updateEmotionCanvas();
                 measureStatus();
+                startRecordingBuffer();
             } catch (error) {
                 cameraMode.innerHTML = "<option>画質を検出できません</option>";
                 cameraMode.disabled = true;
@@ -475,8 +771,18 @@
         }
 
         function playShutter() {
-            if (!blink.hidden) return;
+            if (!blink.hidden || captureInProgress) return;
+            captureInProgress = true;
             clearInterval(rotationTimer);
+            const triggerAt = performance.now();
+            const createdAt = new Date();
+            const names = captureNames(createdAt);
+            const imagePromise = captureImage();
+            void saveCapture(triggerAt, createdAt, names, imagePromise).catch((error) => {
+                console.error("画像と映像を保存できませんでした。", error);
+            }).finally(() => {
+                captureInProgress = false;
+            });
             blink.hidden = false;
             shutterAudio.currentTime = 0;
             shutterAudio.play().catch(() => { });
@@ -501,6 +807,7 @@
                 const nativeOnly = track.getCapabilities?.().resizeMode?.includes("none");
                 await track.applyConstraints(modeConstraints(cameraMode.value.split(",").map(Number), nativeOnly));
                 updateEmotionCanvas();
+                startRecordingBuffer();
                 if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
                 measureStatus();
             } catch (error) {
@@ -521,6 +828,7 @@
         });
         window.addEventListener("pagehide", () => {
             clearInterval(rotationTimer);
+            stopRecordingBuffer();
             clearTimeout(scoreStepTimer);
             clearTimeout(scoreTextTimer);
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
