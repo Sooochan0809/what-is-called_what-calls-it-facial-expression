@@ -520,6 +520,10 @@
             box-shadow: 0 0 0 8px var(--color-positive-glow);
         }
 
+        .frameGuide.tutorialFocus {
+            z-index: 6;
+        }
+
         .tutorialFocus,
         .tutorialFocusItem {
             outline: 4px solid var(--color-tutorial-focus);
@@ -835,7 +839,7 @@
             const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-card-gap"));
             const left = anchorRect.left - containerRect.left + (anchorRect.width - card.offsetWidth) / 2;
             const top = insideAnchor
-                ? anchorRect.top - containerRect.top + anchorRect.height * 0.24
+                ? anchorRect.top - containerRect.top + anchorRect.height * 0
                 : anchorRect.bottom - containerRect.top + gap;
             card.style.top = `${top}px`;
             card.style.left = `${Math.min(Math.max(24, left), containerRect.width - card.offsetWidth - 24)}px`;
