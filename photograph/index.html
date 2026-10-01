@@ -85,6 +85,75 @@
             text-align: left;
         }
 
+        .finalContent {
+            width: min(720px, 100%);
+        }
+
+        .finalScores {
+            width: 100%;
+            display: grid;
+            gap: 14px;
+        }
+
+        .finalScoreHeader {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 24px;
+            border-bottom: 2px solid var(--color-panel-text);
+            padding: 0 0 10px;
+            color: var(--color-muted);
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .finalScoreHeader span:last-child {
+            text-align: right;
+        }
+
+        .finalScoreRow {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 24px;
+            align-items: center;
+            border-bottom: 1px solid var(--color-overlay-border);
+            padding: 4px 0 14px;
+            opacity: 0;
+            transform: translateY(8px);
+            animation: revealFinalScore 620ms ease forwards;
+            animation-delay: calc(400ms + var(--score-index) * 240ms);
+        }
+
+        .finalScoreRow:last-child {
+            border-bottom: 0;
+        }
+
+        .finalScoreLabel,
+        .finalScoreValue {
+            font-size: clamp(1rem, 2vw, 1.4rem);
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .finalScoreValue {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        @keyframes revealFinalScore {
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .finalScoreRow {
+                opacity: 1;
+                transform: none;
+                animation: none;
+            }
+        }
+
         .startButton {
             justify-self: end;
             min-height: 44px;
@@ -657,10 +726,18 @@
         </footer>
     </main>
 
+    <section id="finalScene" class="introScene" hidden>
+        <div class="introContent finalContent">
+            <div id="finalScores" class="finalScores" aria-label="シーンごとの最高スコア"></div>
+        </div>
+    </section>
+
     <script>
         const $ = (id) => document.getElementById(id);
         const introScene = $("introScene");
         const photographScene = $("photographScene");
+        const finalScene = $("finalScene");
+        const finalScores = $("finalScores");
         const startButton = $("startButton");
         const consentDialog = $("consentDialog");
         const video = $("video");
@@ -703,6 +780,8 @@
         let situations = [];
         let situationIndex = 0;
         let rotationIntervalMs = 30000;
+        let resultDurationMs = 8000;
+        let resultTimer = 0;
         let rotationTimer = 0;
         let rotationClockTimer = 0;
         let rotationStartedAt = 0;
@@ -714,6 +793,7 @@
         let tutorialActive = false;
         let tutorialShown = false;
         let latestExpressions = {};
+        let maximumScores = [];
         let scoreSegments = [];
         let displayedSegmentCount = 0;
         let targetSegmentCount = 0;
@@ -770,6 +850,7 @@
             const emotions = situations[situationIndex]?.emotions || [];
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
+            maximumScores[situationIndex] = Math.max(maximumScores[situationIndex] || 0, rounded);
             targetSegmentCount = Math.ceil(score * scoreSegments.length);
             const accent = rounded >= 72 ? "var(--color-positive)" : rounded >= 44 ? "var(--color-warning)" : "var(--color-negative)";
             scoreBar.style.setProperty("--accent", accent);
@@ -925,7 +1006,36 @@
             scoreSegments.forEach((segment) => segment.classList.remove("is-filled"));
             scoreBar.classList.remove("is-frozen");
             scoreBar.setAttribute("aria-valuenow", 0);
-            showSituation(situationIndex + 1);
+            if (situationIndex === situations.length - 1) showResults();
+            else showSituation(situationIndex + 1);
+        }
+
+        function showResults() {
+            clearTimeout(partIntroTimer);
+            stopSituationRotation();
+            stopScoreAnimation();
+            stopRecordingBuffer();
+            partIntro.hidden = true;
+            photographScene.hidden = true;
+            finalScene.hidden = false;
+            const header = document.createElement("div");
+            header.className = "finalScoreHeader";
+            header.innerHTML = "<span>状況</span><span>適切度</span>";
+            finalScores.replaceChildren(header, ...situations.map(({ text }, index) => {
+                const row = document.createElement("div");
+                row.className = "finalScoreRow";
+                row.style.setProperty("--score-index", index);
+                const label = document.createElement("span");
+                label.className = "finalScoreLabel";
+                label.textContent = text;
+                const value = document.createElement("span");
+                value.className = "finalScoreValue";
+                value.textContent = `${maximumScores[index] || 0}%`;
+                row.append(label, value);
+                return row;
+            }));
+            clearTimeout(resultTimer);
+            resultTimer = setTimeout(() => window.location.reload(), resultDurationMs);
         }
 
         async function loadConfig() {
@@ -951,6 +1061,7 @@
             situations = config.situations;
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
             partIntroDurationMs = Math.max(0, Number(config.partIntroDurationMs) || 3000);
+            resultDurationMs = Math.max(1000, Number(config.resultDurationMs) || 8000);
             tutorialSteps = config.tutorial?.steps || [];
             if (!tutorialSteps.length || tutorialSteps.some(({ target, text, durationMs }) =>
                 !["scoreText", "scoreBar", "situationTimer", "timeoutShutter"].includes(target)
@@ -1452,9 +1563,9 @@
                 capturePreview.hidden = true;
                 capturePreview.removeAttribute("src");
                 if (previewUrl) URL.revokeObjectURL(previewUrl);
+                await savePromise;
                 captureInProgress = false;
                 advanceAfterShutter();
-                await savePromise;
             }
         }
 
@@ -1480,6 +1591,7 @@
         function startExperience(enableRecording) {
             if (!photographScene.hidden) return;
             recordingEnabled = enableRecording;
+            maximumScores = Array(situations.length).fill(0);
             if (consentDialog.open) consentDialog.close();
             introScene.hidden = true;
             photographScene.hidden = false;
@@ -1499,6 +1611,7 @@
                 }
                 return;
             }
+            if (!finalScene.hidden) return;
             if (event.code === "Space") {
                 event.preventDefault();
                 status.hidden = !status.hidden;
@@ -1508,11 +1621,13 @@
             const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
             if (!step) return;
             event.preventDefault();
-            showSituation(situationIndex + step);
+            if (step > 0 && situationIndex === situations.length - 1) showResults();
+            else showSituation(situationIndex + step);
         });
         window.addEventListener("pagehide", () => {
             guideAudio.pause();
             clearTimeout(partIntroTimer);
+            clearTimeout(resultTimer);
             stopTutorial();
             stopSituationRotation();
             stopRecordingBuffer();
