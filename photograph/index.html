@@ -597,6 +597,8 @@
         const MODEL_URL = "../modules/faceAPI/models";
         const COPY_FIELDS = ["introTitle", "introText", "consentQuestion"];
         const RECORDING_MIME_TYPES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
+        const WEBM_CLUSTER_LOOKBACK_MS = 2000;
+        const WEBM_KEYFRAME_INTERVAL_MS = 1000;
         const cameraModes = [
             [3840, 2160, 60], [3840, 2160, 30],
             [2560, 1440, 60], [2560, 1440, 30],
@@ -822,6 +824,15 @@
             return clip;
         }
 
+        const overlapsCaptureWindow = ({ startAt, endAt }, capture) =>
+            startAt <= capture.endAt && endAt >= capture.startAt - WEBM_CLUSTER_LOOKBACK_MS;
+
+        console.assert(
+            overlapsCaptureWindow({ startAt: 1500, endAt: 2500 }, { startAt: 4000, endAt: 9000 })
+            && !overlapsCaptureWindow({ startAt: 1000, endAt: 1999 }, { startAt: 4000, endAt: 9000 }),
+            "WebMの先行映像を保持できません"
+        );
+
         function stopRecordingBuffer() {
             const session = recording;
             recording = null;
@@ -840,7 +851,10 @@
             const mimeType = RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
             let recorder;
             try {
-                recorder = new MediaRecorder(new MediaStream([track]), mimeType ? { mimeType } : undefined);
+                recorder = new MediaRecorder(new MediaStream([track]), {
+                    ...(mimeType && { mimeType }),
+                    videoKeyFrameIntervalDuration: WEBM_KEYFRAME_INTERVAL_MS
+                });
             } catch (error) {
                 track.stop();
                 console.error("WebM録画を開始できませんでした。", error);
@@ -851,8 +865,7 @@
             let lastChunkAt = startedAt;
             let queue = Promise.resolve();
             const initialBlobs = [];
-            recorder.ondataavailable = ({ data }) => {
-                const endAt = performance.now();
+            recorder.ondataavailable = ({ data, timeStamp: endAt }) => {
                 queue = queue.then(async () => {
                     if (recording !== session || !data?.size) return;
                     let chunk = data;
@@ -875,14 +888,12 @@
                     }
                     session.chunks.push({ startAt: lastChunkAt, endAt, blob: chunk });
                     lastChunkAt = endAt;
-                    const cutoff = session.pending?.startAt ?? endAt - recordingBeforeMs - 1500;
+                    const cutoff = (session.pending?.startAt ?? endAt - recordingBeforeMs) - WEBM_CLUSTER_LOOKBACK_MS;
                     session.chunks = session.chunks.filter(({ endAt: chunkEnd }) => chunkEnd >= cutoff);
                     if (session.pending && endAt >= session.pending.endAt) {
                         const capture = session.pending;
                         session.pending = null;
-                        const blobs = session.chunks
-                            .filter(({ startAt, endAt: chunkEnd }) => startAt <= capture.endAt && chunkEnd >= capture.startAt)
-                            .map(({ blob }) => blob);
+                        const blobs = session.chunks.filter((chunk) => overlapsCaptureWindow(chunk, capture)).map(({ blob }) => blob);
                         capture.resolve(await createWebmClip(blobs, session.header, recorder.mimeType || "video/webm"));
                     }
                 }).catch((error) => {
@@ -912,6 +923,7 @@
                     resolve,
                     reject
                 };
+                session.recorder.requestData();
                 setTimeout(() => session.recorder.state === "recording" && session.recorder.requestData(), recordingAfterMs);
             });
         }
