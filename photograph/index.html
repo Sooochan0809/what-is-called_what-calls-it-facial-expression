@@ -281,10 +281,6 @@
             pointer-events: none;
         }
 
-        #photographScene.is-tutorial #video {
-            filter: blur(16px);
-        }
-
         .captureProgress {
             position: absolute;
             left: 0;
@@ -310,24 +306,13 @@
             position: absolute;
             left: 50%;
             top: 50%;
+            width: min(88%, 880px);
+            height: min(92%, 1248px);
+            border: 2px solid var(--color-positive);
+            border-radius: 50%;
             transform: translate(-50%, -50%);
-            pointer-events: none;
-            --length: 12%;
-            --thickness: 8px;
-            color: var(--color-positive);
             opacity: 0.88;
-            width: min(80%, 800px);
-            height: min(84%, 1140px);
-            border-radius: 12px;
-            background:
-                linear-gradient(currentColor 0 0) top left / var(--length) var(--thickness) no-repeat,
-                linear-gradient(currentColor 0 0) top left / var(--thickness) var(--length) no-repeat,
-                linear-gradient(currentColor 0 0) top right / var(--length) var(--thickness) no-repeat,
-                linear-gradient(currentColor 0 0) top right / var(--thickness) var(--length) no-repeat,
-                linear-gradient(currentColor 0 0) bottom left / var(--length) var(--thickness) no-repeat,
-                linear-gradient(currentColor 0 0) bottom left / var(--thickness) var(--length) no-repeat,
-                linear-gradient(currentColor 0 0) bottom right / var(--length) var(--thickness) no-repeat,
-                linear-gradient(currentColor 0 0) bottom right / var(--thickness) var(--length) no-repeat;
+            pointer-events: none;
         }
 
         .blink {
@@ -747,6 +732,7 @@
         const scoreText = $("scoreText");
         const scoreBar = $("scoreBar");
         const emotionPanel = document.querySelector(".emotionPanel");
+        const frameGuide = document.querySelector(".frameGuide");
         const situationTimer = $("situationTimer");
         const situationCountdown = $("situationCountdown");
         const tutorialOverlay = $("tutorialOverlay");
@@ -901,6 +887,7 @@
             emotionPanel.classList.remove("tutorialLayer");
             scoreText.classList.remove("tutorialFocusItem");
             scoreBar.classList.remove("tutorialFocusItem");
+            frameGuide.classList.remove("tutorialFocus");
             situationTimer.classList.remove("tutorialFocus");
         }
 
@@ -961,17 +948,21 @@
             const step = tutorialSteps[index];
             tutorialOverlay.dataset.target = step.target;
             const focusPanel = step.target === "scoreText" || step.target === "scoreBar";
-            const cardAnchor = focusPanel ? emotionPanel : situationTimer;
+            const cardAnchor = focusPanel ? emotionPanel : step.target === "frameGuide" ? frameGuide : situationTimer;
             emotionPanel.classList.toggle("tutorialLayer", focusPanel);
             scoreText.classList.toggle("tutorialFocusItem", step.target === "scoreText");
             scoreBar.classList.toggle("tutorialFocusItem", step.target === "scoreBar");
+            frameGuide.classList.toggle("tutorialFocus", step.target === "frameGuide");
             situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
             tutorialText.textContent = step.text;
             const overlayRect = tutorialOverlay.getBoundingClientRect();
             const targetRect = cardAnchor.getBoundingClientRect();
             const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-card-gap"));
             const left = targetRect.left - overlayRect.left + (targetRect.width - tutorialCard.offsetWidth) / 2;
-            tutorialCard.style.top = `${targetRect.bottom - overlayRect.top + gap}px`;
+            const top = step.target === "frameGuide"
+                ? targetRect.top - overlayRect.top + targetRect.height * 0.24
+                : targetRect.bottom - overlayRect.top + gap;
+            tutorialCard.style.top = `${top}px`;
             tutorialCard.style.left = `${Math.min(Math.max(24, left), overlayRect.width - tutorialCard.offsetWidth - 24)}px`;
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
             if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
@@ -1059,7 +1050,7 @@
             resultDurationMs = Math.max(1000, Number(config.resultDurationMs) || 8000);
             tutorialSteps = config.tutorial?.steps || [];
             if (!tutorialSteps.length || tutorialSteps.some(({ target, text, durationMs }) =>
-                !["scoreText", "scoreBar", "situationTimer", "timeoutShutter"].includes(target)
+                !["frameGuide", "scoreText", "scoreBar", "situationTimer", "timeoutShutter"].includes(target)
                 || typeof text !== "string" || !(Number(durationMs) > 0)
             )) throw new Error("チュートリアル設定が不正です");
             tutorialSteps = tutorialSteps.map((step) => ({ ...step, durationMs: Number(step.durationMs) }));

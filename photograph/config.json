@@ -15,13 +15,13 @@
   "tutorial": {
     "steps": [
       {
-        "target": "scoreText",
-        "text": "この状況に相応しいと思う表情を作ってみましょう。",
-        "durationMs": 6000
+        "target": "frameGuide",
+        "text": "顔の位置を円の中に収まるように調整してください",
+        "durationMs": 5000
       },
       {
         "target": "scoreBar",
-        "text": "あなたの表情の適切さを機械が判定して、最高の瞬間を撮影してくれます。",
+        "text": "あなたの表情の適切さを装置が判定して、最高の瞬間を撮影してくれます。",
         "durationMs": 6000
       },
       {
@@ -32,6 +32,11 @@
       {
         "target": "timeoutShutter",
         "text": "時間内に撮影されなかった場合でも、最後に3、2、1のカウントダウンで撮影されます。",
+        "durationMs": 6000
+      },
+      {
+        "target": "scoreText",
+        "text": "この状況に相応しいと思う表情を作ってみましょう。",
         "durationMs": 6000
       }
     ]
@@ -50,11 +55,50 @@
     "secondsAfter": 5
   },
   "situations": [
-    { "text": "ずっと欲しかったプレゼントをもらった！", "emotions": ["happy","surprised"] },
-    { "text": "楽しみだった旅行が中止に...", "emotions": ["sad","angry","disgusted"] },
-    { "text": "列に横入りされた！", "emotions": ["angry","fearful",""] },
-    { "text": "出張先で友人にばったり遭遇！", "emotions": ["surprised","happy"] },
-    { "text": "暗闇から足音が近づいてくる...", "emotions": ["fearful","disgusted"] },
-    { "text": "犬のフンを踏んでしまった...", "emotions": ["disgusted","fearful","surprised"] }
+    {
+      "text": "ずっと欲しかったプレゼントをもらった！",
+      "emotions": [
+        "happy",
+        "surprised"
+      ]
+    },
+    {
+      "text": "楽しみだった旅行が中止に...",
+      "emotions": [
+        "sad",
+        "angry",
+        "disgusted"
+      ]
+    },
+    {
+      "text": "列に横入りされた！",
+      "emotions": [
+        "angry",
+        "fearful",
+        ""
+      ]
+    },
+    {
+      "text": "出張先で友人にばったり遭遇！",
+      "emotions": [
+        "surprised",
+        "happy"
+      ]
+    },
+    {
+      "text": "暗闇から足音が近づいてくる...",
+      "emotions": [
+        "fearful",
+        "disgusted"
+      ]
+    },
+    {
+      "text": "犬のフンを踏んでしまった...",
+      "emotions": [
+        "disgusted",
+        "fearful",
+        "surprised"
+      ]
+    }
   ]
 }
