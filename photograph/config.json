@@ -17,7 +17,7 @@
       {
         "target": "scoreText",
         "text": "この状況に相応しいと思う表情を作ってみましょう。",
-        "durationMs": 5000
+        "durationMs": 6000
       },
       {
         "target": "scoreBar",
@@ -31,7 +31,7 @@
       },
       {
         "target": "timeoutShutter",
-        "text": "時間内に撮影されなかった場合は、最後に3、2、1のカウントダウンで撮影されます。",
+        "text": "時間内に撮影されなかった場合でも、最後に3、2、1のカウントダウンで撮影されます。",
         "durationMs": 6000
       }
     ]
