@@ -95,10 +95,14 @@
             gap: 14px;
         }
 
-        .finalScoreHeader {
+        .finalScoreHeader,
+        .finalScoreRow {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
             gap: 24px;
+        }
+
+        .finalScoreHeader {
             border-bottom: 2px solid var(--color-panel-text);
             padding: 0 0 10px;
             color: var(--color-muted);
@@ -106,14 +110,12 @@
             font-weight: 600;
         }
 
-        .finalScoreHeader span:last-child {
+        .finalScoreHeader span:last-child,
+        .finalScoreValue {
             text-align: right;
         }
 
         .finalScoreRow {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 24px;
             align-items: center;
             border-bottom: 1px solid var(--color-overlay-border);
             padding: 4px 0 14px;
@@ -135,7 +137,6 @@
         }
 
         .finalScoreValue {
-            text-align: right;
             font-variant-numeric: tabular-nums;
         }
 
@@ -513,19 +514,17 @@
             margin: 0;
         }
 
-        .tutorialFocus {
-            z-index: 8;
-            opacity: 1;
-            outline: 4px solid var(--color-tutorial-focus);
-            outline-offset: 6px;
-            box-shadow: 0 0 0 8px #27c28a24;
-        }
-
+        .tutorialFocus,
         .tutorialLayer {
             z-index: 8;
             opacity: 1;
         }
 
+        .tutorialFocus {
+            box-shadow: 0 0 0 8px #27c28a24;
+        }
+
+        .tutorialFocus,
         .tutorialFocusItem {
             outline: 4px solid var(--color-tutorial-focus);
             outline-offset: 6px;
@@ -676,10 +675,7 @@
         <div class="consentContent">
             <p id="consentText" class="consentText">
                 <span id="consentQuestion" class="consentQuestion"></span>
-                <span id="consentNotes" class="consentNotes">
-                    <span class="consentNote"></span>
-                    <span class="consentNote"></span>
-                </span>
+                <span id="consentNotes" class="consentNotes"></span>
             </p>
             <div class="consentActions">
                 <button id="consentAcceptButton" class="consentButton consentButton--accept" type="button">はい</button>
@@ -790,7 +786,6 @@
         let tutorialSteps = [];
         let tutorialTimer = 0;
         let tutorialEffectTimer = 0;
-        let tutorialActive = false;
         let tutorialShown = false;
         let latestExpressions = {};
         let maximumScores = [];
@@ -819,6 +814,18 @@
         );
         console.assert(finalCountdownValue(4) === "" && finalCountdownValue(3) === 3 && finalCountdownValue(0) === "", "撮影カウントダウンが不正です");
 
+        function replayAudio(audio) {
+            audio.currentTime = 0;
+            audio.play().catch(() => { });
+        }
+
+        function textElement(tag, className, text) {
+            const element = document.createElement(tag);
+            element.className = className;
+            element.textContent = text;
+            return element;
+        }
+
         function stopSituationRotation() {
             clearTimeout(rotationTimer);
             clearInterval(rotationClockTimer);
@@ -830,23 +837,26 @@
             scoreStepTimer = 0;
         }
 
+        function paintScore(filled) {
+            scoreSegments.forEach((segment, index) => segment.classList.toggle("is-filled", index < filled));
+            const score = Math.round(filled / scoreSegments.length * 100);
+            scoreBar.setAttribute("aria-valuenow", score);
+            return score;
+        }
+
         function stepScore() {
             scoreStepTimer = 0;
-            if (tutorialActive || !partIntro.hidden) return;
+            if (!tutorialOverlay.hidden || !partIntro.hidden) return;
             if (displayedSegmentCount === targetSegmentCount) return;
-            const direction = Math.sign(targetSegmentCount - displayedSegmentCount);
-            displayedSegmentCount += direction;
-            const segmentIndex = direction > 0 ? displayedSegmentCount - 1 : displayedSegmentCount;
-            scoreSegments[segmentIndex].classList.toggle("is-filled", direction > 0);
-            const displayedScore = Math.round(displayedSegmentCount / scoreSegments.length * 100);
-            scoreBar.setAttribute("aria-valuenow", displayedScore);
+            displayedSegmentCount += Math.sign(targetSegmentCount - displayedSegmentCount);
+            const displayedScore = paintScore(displayedSegmentCount);
             if (displayedScore >= shutterScoreThreshold) playShutter();
             if (!captureInProgress && displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
         }
 
         function renderScore() {
-            if (photographScene.hidden || captureInProgress || tutorialActive || !partIntro.hidden) return;
+            if (photographScene.hidden || captureInProgress || !tutorialOverlay.hidden || !partIntro.hidden) return;
             const emotions = situations[situationIndex]?.emotions || [];
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
@@ -868,8 +878,7 @@
             partIntroText.textContent = situations[situationIndex].text;
             partIntro.hidden = false;
             guideAudio.pause();
-            guideAudio.currentTime = 0;
-            guideAudio.play().catch(() => { });
+            replayAudio(guideAudio);
             rotationStartedAt = performance.now();
             updateSituationTimer();
             partIntroTimer = setTimeout(() => {
@@ -886,7 +895,6 @@
         function stopTutorial() {
             clearTimeout(tutorialTimer);
             clearTimeout(tutorialEffectTimer);
-            tutorialActive = false;
             photographScene.classList.remove("is-tutorial");
             tutorialOverlay.hidden = true;
             situationCountdown.hidden = true;
@@ -897,8 +905,7 @@
         }
 
         async function playTutorialShutter() {
-            shutterAudio.currentTime = 0;
-            shutterAudio.play().catch(() => { });
+            replayAudio(shutterAudio);
             blink.hidden = false;
             await blink.animate([
                 { backgroundSize: "100% 0, 100% 0" },
@@ -915,10 +922,9 @@
             const intervalMs = Math.max(40, durationMs / (peak * 2 + 1));
             scoreBar.style.setProperty("--accent", "var(--color-positive)");
             const tick = () => {
-                if (!tutorialActive) return;
+                if (tutorialOverlay.hidden) return;
                 const filled = tutorialFilledSegments(frame, peak);
-                scoreSegments.forEach((segment, index) => segment.classList.toggle("is-filled", index < filled));
-                scoreBar.setAttribute("aria-valuenow", Math.round(filled / peak * 100));
+                paintScore(filled);
                 if (frame === peak) playTutorialShutter().catch(console.error);
                 if (frame++ < peak * 2) tutorialEffectTimer = setTimeout(tick, intervalMs);
             };
@@ -931,7 +937,7 @@
             situationCountdown.textContent = count;
             situationCountdown.hidden = false;
             const tick = () => {
-                if (!tutorialActive) return;
+                if (tutorialOverlay.hidden) return;
                 count -= 1;
                 if (count) {
                     situationCountdown.textContent = count;
@@ -947,8 +953,7 @@
         function showTutorialStep(index = 0) {
             if (index >= tutorialSteps.length) {
                 stopTutorial();
-                scoreSegments.forEach((segment) => segment.classList.remove("is-filled"));
-                scoreBar.setAttribute("aria-valuenow", 0);
+                paintScore(0);
                 renderScore();
                 startSituationRotation();
                 return;
@@ -975,7 +980,6 @@
 
         function showTutorial() {
             tutorialShown = true;
-            tutorialActive = true;
             photographScene.classList.add("is-tutorial");
             stopScoreAnimation();
             tutorialOverlay.hidden = false;
@@ -986,7 +990,7 @@
             const remainingSeconds = Math.ceil(Math.max(0, rotationIntervalMs - (performance.now() - rotationStartedAt)) / 1000);
             situationTimer.textContent = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`;
             situationTimer.classList.toggle("is-ending", remainingSeconds <= 10);
-            const countdown = !captureInProgress && partIntro.hidden && !tutorialActive && finalCountdownValue(remainingSeconds);
+            const countdown = !captureInProgress && partIntro.hidden && tutorialOverlay.hidden && finalCountdownValue(remainingSeconds);
             situationCountdown.hidden = !countdown;
             if (countdown) situationCountdown.textContent = countdown;
         }
@@ -1003,9 +1007,8 @@
             stopScoreAnimation();
             displayedSegmentCount = 0;
             latestExpressions = {};
-            scoreSegments.forEach((segment) => segment.classList.remove("is-filled"));
+            paintScore(0);
             scoreBar.classList.remove("is-frozen");
-            scoreBar.setAttribute("aria-valuenow", 0);
             if (situationIndex === situations.length - 1) showResults();
             else showSituation(situationIndex + 1);
         }
@@ -1025,13 +1028,10 @@
                 const row = document.createElement("div");
                 row.className = "finalScoreRow";
                 row.style.setProperty("--score-index", index);
-                const label = document.createElement("span");
-                label.className = "finalScoreLabel";
-                label.textContent = text;
-                const value = document.createElement("span");
-                value.className = "finalScoreValue";
-                value.textContent = `${maximumScores[index] || 0}%`;
-                row.append(label, value);
+                row.append(
+                    textElement("span", "finalScoreLabel", text),
+                    textElement("span", "finalScoreValue", `${maximumScores[index] || 0}%`)
+                );
                 return row;
             }));
             clearTimeout(resultTimer);
@@ -1051,12 +1051,7 @@
                 || copy.consentNotes.some((text) => typeof text !== "string")) throw new Error("表示文言の設定が不正です");
 
             COPY_FIELDS.forEach((field) => $(field).textContent = copy[field]);
-            $("consentNotes").replaceChildren(...copy.consentNotes.map((text) => {
-                const note = document.createElement("span");
-                note.className = "consentNote";
-                note.textContent = text;
-                return note;
-            }));
+            $("consentNotes").replaceChildren(...copy.consentNotes.map((text) => textElement("span", "consentNote", text)));
 
             situations = config.situations;
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
@@ -1075,9 +1070,9 @@
             shutterHoldDurationMs = Math.max(0, Number(shutter.holdDurationMs ?? 60));
             shutterPreviewDurationMs = Math.max(0, Number(shutter.previewDurationMs ?? 2000) || 0);
             shutterEasing = shutter.easing || "ease-in-out";
-            const recording = config.recording || {};
-            recordingBeforeMs = Math.max(0, Number(recording.secondsBefore ?? 2) || 0) * 1000;
-            recordingAfterMs = Math.max(0, Number(recording.secondsAfter ?? 3) || 0) * 1000;
+            const recordingConfig = config.recording || {};
+            recordingBeforeMs = Math.max(0, Number(recordingConfig.secondsBefore ?? 2) || 0) * 1000;
+            recordingAfterMs = Math.max(0, Number(recordingConfig.secondsAfter ?? 3) || 0) * 1000;
             const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
@@ -1513,7 +1508,7 @@
         }
 
         async function playShutter() {
-            if (tutorialActive || !blink.hidden || captureInProgress || !partIntro.hidden) return;
+            if (!tutorialOverlay.hidden || !blink.hidden || captureInProgress || !partIntro.hidden) return;
             captureInProgress = true;
             updateSituationTimer();
             stopSituationRotation();
@@ -1528,8 +1523,7 @@
                 })
                 : Promise.resolve();
             blink.hidden = false;
-            shutterAudio.currentTime = 0;
-            shutterAudio.play().catch(() => { });
+            replayAudio(shutterAudio);
             const closeAnimation = blink.animate([
                 { backgroundSize: "100% 0, 100% 0" },
                 { backgroundSize: "100% 50%, 100% 50%" }
@@ -1617,7 +1611,7 @@
                 status.hidden = !status.hidden;
                 return;
             }
-            if (!situations.length || tutorialActive || captureInProgress || event.target.matches("input, select, textarea, button")) return;
+            if (!situations.length || !tutorialOverlay.hidden || captureInProgress || event.target.matches("input, select, textarea, button")) return;
             const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
             if (!step) return;
             event.preventDefault();
