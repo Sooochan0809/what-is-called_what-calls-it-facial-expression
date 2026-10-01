@@ -373,6 +373,25 @@
             color: var(--color-negative);
         }
 
+        .situationCountdown {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            display: grid;
+            place-items: center;
+            color: var(--color-on-dark);
+            font-size: clamp(7rem, 24vw, 14rem);
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            line-height: 1;
+            pointer-events: none;
+            text-shadow: 0 6px 24px var(--color-status);
+        }
+
+        .situationCountdown[hidden] {
+            display: none;
+        }
+
         .partIntro {
             position: absolute;
             inset: 0;
@@ -621,6 +640,7 @@
                 aria-valuenow="0"></div>
         </header>
         <div id="situationTimer" class="situationTimer" aria-label="残り時間">0:30</div>
+        <div id="situationCountdown" class="situationCountdown" aria-live="assertive" hidden></div>
         <footer class="controlsFooter">
             <output id="status" aria-live="polite" hidden>
                 <label for="cameraMode">設定:</label>
@@ -651,6 +671,7 @@
         const scoreBar = $("scoreBar");
         const emotionPanel = document.querySelector(".emotionPanel");
         const situationTimer = $("situationTimer");
+        const situationCountdown = $("situationCountdown");
         const tutorialOverlay = $("tutorialOverlay");
         const tutorialCard = tutorialOverlay.firstElementChild;
         const tutorialText = $("tutorialText");
@@ -707,14 +728,17 @@
         let configurationReady;
 
         const tutorialFilledSegments = (frame, peak) => peak - Math.abs(peak - frame);
+        const finalCountdownValue = (seconds) => seconds > 0 && seconds <= 3 ? seconds : "";
         console.assert(
             [0, 5, 10, 5, 0].every((value, index) => value === tutorialFilledSegments(index * 5, 10)),
             "チュートリアルのスコア推移が不正です"
         );
+        console.assert(finalCountdownValue(4) === "" && finalCountdownValue(3) === 3 && finalCountdownValue(0) === "", "撮影カウントダウンが不正です");
 
         function stopSituationRotation() {
             clearTimeout(rotationTimer);
             clearInterval(rotationClockTimer);
+            situationCountdown.hidden = true;
         }
 
         function stopScoreAnimation() {
@@ -856,6 +880,9 @@
             const remainingSeconds = Math.ceil(Math.max(0, rotationIntervalMs - (performance.now() - rotationStartedAt)) / 1000);
             situationTimer.textContent = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`;
             situationTimer.classList.toggle("is-ending", remainingSeconds <= 10);
+            const countdown = !captureInProgress && partIntro.hidden && !tutorialActive && finalCountdownValue(remainingSeconds);
+            situationCountdown.hidden = !countdown;
+            if (countdown) situationCountdown.textContent = countdown;
         }
 
         function startSituationRotation() {
@@ -863,7 +890,7 @@
             rotationStartedAt = performance.now();
             updateSituationTimer();
             rotationClockTimer = setInterval(updateSituationTimer, 250);
-            rotationTimer = setTimeout(() => showSituation(situationIndex + 1), rotationIntervalMs);
+            rotationTimer = setTimeout(playShutter, rotationIntervalMs);
         }
 
         function advanceAfterShutter() {

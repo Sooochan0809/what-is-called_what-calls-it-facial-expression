@@ -41,7 +41,7 @@
   },
   "recording": {
     "secondsBefore": 2,
-    "secondsAfter": 4
+    "secondsAfter": 5
   },
   "situations": [
     { "text": "ずっと欲しかったプレゼントをもらった！", "emotions": ["happy","surprised"] },
