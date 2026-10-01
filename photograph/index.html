@@ -278,6 +278,10 @@
             gap: 8px;
         }
 
+        output[hidden] {
+            display: none;
+        }
+
         #cameraMode {
             padding: 8px;
             border: 0;
@@ -553,7 +557,7 @@
         </header>
         <div id="situationTimer" class="situationTimer" aria-label="残り時間">0:30</div>
         <footer class="controlsFooter">
-            <output id="status" aria-live="polite">
+            <output id="status" aria-live="polite" hidden>
                 <label for="cameraMode">設定:</label>
                 <select id="cameraMode" aria-label="Webcam画質" disabled>
                     <option>画質検出中...</option>
@@ -580,6 +584,7 @@
         const capturePreview = $("capturePreview");
         const captureProgress = $("captureProgress");
         const captureProgressFill = $("captureProgressFill");
+        const status = $("status");
         const statusLabel = $("statusLabel");
         const statusText = $("statusText");
         const cameraMode = $("cameraMode");
@@ -1261,7 +1266,7 @@
             if (experienceStarted) return;
             experienceStarted = true;
             recordingEnabled = enableRecording;
-            consentDialog.close();
+            if (consentDialog.open) consentDialog.close();
             introScene.hidden = true;
             photographScene.hidden = false;
             if (recordingEnabled) startRecordingBuffer();
@@ -1273,9 +1278,16 @@
         consentAcceptButton.addEventListener("click", () => startExperience(true));
         consentDeclineButton.addEventListener("click", () => startExperience(false));
         document.addEventListener("keydown", (event) => {
-            if (!introScene.hidden && event.code === "Space") {
+            if (!introScene.hidden) {
+                if (event.code === "Space" && !startButton.disabled) {
+                    event.preventDefault();
+                    startExperience(true);
+                }
+                return;
+            }
+            if (event.code === "Space") {
                 event.preventDefault();
-                startButton.click();
+                status.hidden = !status.hidden;
                 return;
             }
             if (!situations.length || captureInProgress || event.target.matches("input, select, textarea, button")) return;
