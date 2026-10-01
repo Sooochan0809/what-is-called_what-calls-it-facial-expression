@@ -789,6 +789,7 @@
         let tutorialTimer = 0;
         let tutorialEffectTimer = 0;
         let tutorialShown = false;
+        let tutorialShutterEnabled = true;
         let latestExpressions = {};
         let maximumScores = [];
         let scoreSegments = [];
@@ -960,6 +961,7 @@
         }
 
         async function playTutorialShutter() {
+            if (!tutorialShutterEnabled) return;
             replayAudio(shutterAudio);
             blink.hidden = false;
             await blink.animate([
@@ -1657,6 +1659,10 @@
         $("consentAcceptButton").addEventListener("click", () => startExperience(true));
         $("consentDeclineButton").addEventListener("click", () => startExperience(false));
         document.addEventListener("keydown", (event) => {
+            if (event.key === "1" || event.key === "2") {
+                tutorialShutterEnabled = event.key === "1";
+                return;
+            }
             if (!introScene.hidden) {
                 if (event.code === "Space" && !startButton.disabled) {
                     event.preventDefault();
