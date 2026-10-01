@@ -516,7 +516,7 @@
         <div class="introContent">
             <h1 id="introTitle" class="introTitle"></h1>
             <p id="introText" class="introText"></p>
-            <button id="startButton" class="startButton" type="button" disabled>はじめる →</button>
+            <button id="startButton" class="startButton" type="button" disabled>はじめる</button>
         </div>
     </section>
 
@@ -571,15 +571,9 @@
     <script>
         const $ = (id) => document.getElementById(id);
         const introScene = $("introScene");
-        const introTitle = $("introTitle");
-        const introText = $("introText");
         const photographScene = $("photographScene");
         const startButton = $("startButton");
         const consentDialog = $("consentDialog");
-        const consentAcceptButton = $("consentAcceptButton");
-        const consentDeclineButton = $("consentDeclineButton");
-        const consentQuestion = $("consentQuestion");
-        const consentNotes = $("consentNotes");
         const video = $("video");
         const capturePreview = $("capturePreview");
         const captureProgress = $("captureProgress");
@@ -601,6 +595,7 @@
         const emotionCanvas = document.createElement("canvas");
         const emotionContext = emotionCanvas.getContext("2d");
         const MODEL_URL = "../modules/faceAPI/models";
+        const COPY_FIELDS = ["introTitle", "introText", "consentQuestion"];
         const RECORDING_MIME_TYPES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
         const cameraModes = [
             [3840, 2160, 60], [3840, 2160, 30],
@@ -628,14 +623,22 @@
         let shutterHoldDurationMs = 60;
         let shutterPreviewDurationMs = 2000;
         let shutterEasing = "ease-in-out";
-        let shutterWasAboveThreshold = false;
         let recordingBeforeMs = 2000;
         let recordingAfterMs = 3000;
         let recording = null;
         let captureInProgress = false;
         let recordingEnabled = false;
-        let experienceStarted = false;
         let configurationReady;
+
+        function stopSituationRotation() {
+            clearTimeout(rotationTimer);
+            clearInterval(rotationClockTimer);
+        }
+
+        function stopScoreAnimation() {
+            clearTimeout(scoreStepTimer);
+            scoreStepTimer = 0;
+        }
 
         function stepScore() {
             scoreStepTimer = 0;
@@ -647,9 +650,7 @@
             scoreSegments[segmentIndex].classList.toggle("is-filled", direction > 0);
             const displayedScore = Math.round(displayedSegmentCount / scoreSegments.length * 100);
             scoreBar.setAttribute("aria-valuenow", displayedScore);
-            const shutterIsAboveThreshold = displayedScore >= shutterScoreThreshold;
-            if (shutterIsAboveThreshold && !shutterWasAboveThreshold) playShutter();
-            shutterWasAboveThreshold = shutterIsAboveThreshold;
+            if (displayedScore >= shutterScoreThreshold) playShutter();
             if (!captureInProgress && displayedSegmentCount !== targetSegmentCount)
                 scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
         }
@@ -668,10 +669,8 @@
 
         function showSituation(index) {
             clearTimeout(partIntroTimer);
-            clearTimeout(rotationTimer);
-            clearInterval(rotationClockTimer);
-            clearTimeout(scoreStepTimer);
-            scoreStepTimer = 0;
+            stopSituationRotation();
+            stopScoreAnimation();
             situationIndex = (index + situations.length) % situations.length;
             scoreText.textContent = situations[situationIndex].text;
             partIntroLabel.textContent = `Scene${situationIndex + 1}`;
@@ -697,21 +696,16 @@
         }
 
         function startSituationRotation() {
-            clearTimeout(rotationTimer);
-            clearInterval(rotationClockTimer);
+            stopSituationRotation();
             rotationStartedAt = performance.now();
             updateSituationTimer();
             rotationClockTimer = setInterval(updateSituationTimer, 250);
-            rotationTimer = setTimeout(() => {
-                showSituation(situationIndex + 1);
-            }, rotationIntervalMs);
+            rotationTimer = setTimeout(() => showSituation(situationIndex + 1), rotationIntervalMs);
         }
 
         function advanceAfterShutter() {
-            clearTimeout(scoreStepTimer);
-            scoreStepTimer = 0;
+            stopScoreAnimation();
             displayedSegmentCount = 0;
-            shutterWasAboveThreshold = false;
             latestExpressions = {};
             scoreSegments.forEach((segment) => segment.classList.remove("is-filled"));
             scoreBar.classList.remove("is-frozen");
@@ -727,14 +721,12 @@
                 ({ text, emotions }) => typeof text !== "string" || !Array.isArray(emotions) || !emotions.length
             )) throw new Error("状況文の設定が不正です");
             const copy = config.copy;
-            if (!copy || [copy.introTitle, copy.introText, copy.consentQuestion].some((text) => typeof text !== "string")
+            if (!copy || COPY_FIELDS.some((field) => typeof copy[field] !== "string")
                 || !Array.isArray(copy.consentNotes) || !copy.consentNotes.length
                 || copy.consentNotes.some((text) => typeof text !== "string")) throw new Error("表示文言の設定が不正です");
 
-            introTitle.textContent = copy.introTitle;
-            introText.textContent = copy.introText;
-            consentQuestion.textContent = copy.consentQuestion;
-            consentNotes.replaceChildren(...copy.consentNotes.map((text) => {
+            COPY_FIELDS.forEach((field) => $(field).textContent = copy[field]);
+            $("consentNotes").replaceChildren(...copy.consentNotes.map((text) => {
                 const note = document.createElement("span");
                 note.className = "consentNote";
                 note.textContent = text;
@@ -1159,7 +1151,7 @@
 
         async function startEmotionDetection() {
             try {
-                await (configurationReady = loadConfig());
+                await configurationReady;
             } catch (error) {
                 scoreText.textContent = "設定を読み込めません";
                 console.error("photograph/config.json を読み込めませんでした。", error);
@@ -1178,14 +1170,12 @@
             }
         }
 
-        function playShutter() {
+        async function playShutter() {
             if (!blink.hidden || captureInProgress || !partIntro.hidden) return;
             captureInProgress = true;
             updateSituationTimer();
-            clearTimeout(rotationTimer);
-            clearInterval(rotationClockTimer);
-            clearTimeout(scoreStepTimer);
-            scoreStepTimer = 0;
+            stopSituationRotation();
+            stopScoreAnimation();
             scoreBar.classList.add("is-frozen");
             const triggerAt = performance.now();
             const createdAt = new Date();
@@ -1202,45 +1192,39 @@
                 { backgroundSize: "100% 0, 100% 0" },
                 { backgroundSize: "100% 50%, 100% 50%" }
             ], { duration: shutterTransitionDurationMs, easing: shutterEasing, fill: "forwards" });
-            void (async () => {
-                let previewUrl;
-                try {
-                    const [, image] = await Promise.all([closeAnimation.finished, imagePromise]);
-                    if (image) {
-                        previewUrl = URL.createObjectURL(image);
-                        capturePreview.src = previewUrl;
-                        capturePreview.hidden = false;
-                        await capturePreview.decode();
-                    }
-                    blink.style.backgroundSize = "100% 50%, 100% 50%";
-                    closeAnimation.cancel();
-                    await new Promise((resolve) => setTimeout(resolve, shutterHoldDurationMs));
-                    await blink.animate([
-                        { backgroundSize: "100% 50%, 100% 50%" },
-                        { backgroundSize: "100% 0, 100% 0" }
-                    ], { duration: shutterTransitionDurationMs, easing: shutterEasing }).finished;
-                    blink.hidden = true;
-                    if (image) {
-                        captureProgress.hidden = false;
-                        await captureProgressFill.animate([
-                            { width: "0%" },
-                            { width: "100%" }
-                        ], { duration: shutterPreviewDurationMs, easing: "linear" }).finished;
-                    }
-                } catch (error) {
-                    console.error("撮影画像を表示できませんでした。", error);
-                } finally {
-                    blink.hidden = true;
-                    blink.style.removeProperty("background-size");
-                    captureProgress.hidden = true;
-                    capturePreview.hidden = true;
-                    capturePreview.removeAttribute("src");
-                    if (previewUrl) URL.revokeObjectURL(previewUrl);
-                    captureInProgress = false;
-                    advanceAfterShutter();
-                    await savePromise;
-                }
-            })();
+            let previewUrl;
+            try {
+                const [, image] = await Promise.all([closeAnimation.finished, imagePromise]);
+                previewUrl = URL.createObjectURL(image);
+                capturePreview.src = previewUrl;
+                capturePreview.hidden = false;
+                await capturePreview.decode();
+                blink.style.backgroundSize = "100% 50%, 100% 50%";
+                closeAnimation.cancel();
+                await new Promise((resolve) => setTimeout(resolve, shutterHoldDurationMs));
+                await blink.animate([
+                    { backgroundSize: "100% 50%, 100% 50%" },
+                    { backgroundSize: "100% 0, 100% 0" }
+                ], { duration: shutterTransitionDurationMs, easing: shutterEasing }).finished;
+                blink.hidden = true;
+                captureProgress.hidden = false;
+                await captureProgressFill.animate([
+                    { width: "0%" },
+                    { width: "100%" }
+                ], { duration: shutterPreviewDurationMs, easing: "linear" }).finished;
+            } catch (error) {
+                console.error("撮影画像を表示できませんでした。", error);
+            } finally {
+                blink.hidden = true;
+                blink.style.removeProperty("background-size");
+                captureProgress.hidden = true;
+                capturePreview.hidden = true;
+                capturePreview.removeAttribute("src");
+                if (previewUrl) URL.revokeObjectURL(previewUrl);
+                captureInProgress = false;
+                advanceAfterShutter();
+                await savePromise;
+            }
         }
 
         cameraMode.addEventListener("change", async () => {
@@ -1263,8 +1247,7 @@
             }
         });
         function startExperience(enableRecording) {
-            if (experienceStarted) return;
-            experienceStarted = true;
+            if (!photographScene.hidden) return;
             recordingEnabled = enableRecording;
             if (consentDialog.open) consentDialog.close();
             introScene.hidden = true;
@@ -1275,8 +1258,8 @@
 
         startButton.addEventListener("click", () => consentDialog.showModal());
         consentDialog.addEventListener("cancel", (event) => event.preventDefault());
-        consentAcceptButton.addEventListener("click", () => startExperience(true));
-        consentDeclineButton.addEventListener("click", () => startExperience(false));
+        $("consentAcceptButton").addEventListener("click", () => startExperience(true));
+        $("consentDeclineButton").addEventListener("click", () => startExperience(false));
         document.addEventListener("keydown", (event) => {
             if (!introScene.hidden) {
                 if (event.code === "Space" && !startButton.disabled) {
@@ -1299,15 +1282,15 @@
         window.addEventListener("pagehide", () => {
             guideAudio.pause();
             clearTimeout(partIntroTimer);
-            clearTimeout(rotationTimer);
-            clearInterval(rotationClockTimer);
+            stopSituationRotation();
             stopRecordingBuffer();
-            clearTimeout(scoreStepTimer);
+            stopScoreAnimation();
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
             video.srcObject?.getTracks().forEach((track) => track.stop());
         });
         window.addEventListener("load", () => {
             startCamera();
+            configurationReady = loadConfig();
             startEmotionDetection();
             startButton.disabled = false;
         });
