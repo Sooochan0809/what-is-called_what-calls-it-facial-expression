@@ -41,7 +41,7 @@
       }
     ]
   },
-  "faceGuideMinWidthRatio": 0.80,
+  "faceGuideMinWidthRatio": 0.85,
   "scoreSegmentCount": 10,
   "scoreStepIntervalMs": 80,
   "shutter": {
