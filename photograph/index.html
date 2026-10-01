@@ -1401,7 +1401,7 @@
             const scale = 224 / video.videoHeight;
             emotionCanvas.width = 224;
             emotionCanvas.height = Math.round(video.videoWidth * scale);
-            emotionContext.setTransform(0, scale, scale, 0, 0, 0);
+            emotionContext.setTransform(0, -scale, -scale, 0, emotionCanvas.width, emotionCanvas.height);
         }
 
         function modeConstraints(mode, nativeOnly) {
