@@ -392,6 +392,10 @@
             display: none;
         }
 
+        #photographScene.is-tutorial .situationCountdown {
+            z-index: 8;
+        }
+
         .partIntro {
             position: absolute;
             inset: 0;
@@ -706,7 +710,7 @@
         let partIntroDurationMs = 3000;
         let tutorialSteps = [];
         let tutorialTimer = 0;
-        let tutorialScoreTimer = 0;
+        let tutorialEffectTimer = 0;
         let tutorialActive = false;
         let tutorialShown = false;
         let latestExpressions = {};
@@ -800,10 +804,11 @@
 
         function stopTutorial() {
             clearTimeout(tutorialTimer);
-            clearTimeout(tutorialScoreTimer);
+            clearTimeout(tutorialEffectTimer);
             tutorialActive = false;
             photographScene.classList.remove("is-tutorial");
             tutorialOverlay.hidden = true;
+            situationCountdown.hidden = true;
             emotionPanel.classList.remove("tutorialLayer");
             scoreText.classList.remove("tutorialFocusItem");
             scoreBar.classList.remove("tutorialFocusItem");
@@ -834,9 +839,28 @@
                 scoreSegments.forEach((segment, index) => segment.classList.toggle("is-filled", index < filled));
                 scoreBar.setAttribute("aria-valuenow", Math.round(filled / peak * 100));
                 if (frame === peak) playTutorialShutter().catch(console.error);
-                if (frame++ < peak * 2) tutorialScoreTimer = setTimeout(tick, intervalMs);
+                if (frame++ < peak * 2) tutorialEffectTimer = setTimeout(tick, intervalMs);
             };
             tick();
+        }
+
+        function playTutorialCountdown(durationMs) {
+            let count = 3;
+            const intervalMs = Math.min(1000, Math.max(400, durationMs / 5));
+            situationCountdown.textContent = count;
+            situationCountdown.hidden = false;
+            const tick = () => {
+                if (!tutorialActive) return;
+                count -= 1;
+                if (count) {
+                    situationCountdown.textContent = count;
+                    tutorialEffectTimer = setTimeout(tick, intervalMs);
+                } else {
+                    situationCountdown.hidden = true;
+                    playTutorialShutter().catch(console.error);
+                }
+            };
+            tutorialEffectTimer = setTimeout(tick, intervalMs);
         }
 
         function showTutorialStep(index = 0) {
@@ -864,6 +888,7 @@
             tutorialCard.style.top = `${targetRect.bottom - overlayRect.top + gap}px`;
             tutorialCard.style.left = `${Math.min(Math.max(24, left), overlayRect.width - tutorialCard.offsetWidth - 24)}px`;
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
+            if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
             tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);
         }
 
@@ -928,7 +953,7 @@
             partIntroDurationMs = Math.max(0, Number(config.partIntroDurationMs) || 3000);
             tutorialSteps = config.tutorial?.steps || [];
             if (!tutorialSteps.length || tutorialSteps.some(({ target, text, durationMs }) =>
-                !["scoreText", "scoreBar", "situationTimer"].includes(target)
+                !["scoreText", "scoreBar", "situationTimer", "timeoutShutter"].includes(target)
                 || typeof text !== "string" || !(Number(durationMs) > 0)
             )) throw new Error("チュートリアル設定が不正です");
             tutorialSteps = tutorialSteps.map((step) => ({ ...step, durationMs: Number(step.durationMs) }));

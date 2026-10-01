@@ -25,8 +25,13 @@
       },
       {
         "target": "situationTimer",
-        "text": "制限時間は20秒です。",
+        "text": "制限時間は20秒です",
         "durationMs": 5000
+      },
+      {
+        "target": "timeoutShutter",
+        "text": "時間内に撮影されなかった場合は、最後に3、2、1のカウントダウンで撮影されます。",
+        "durationMs": 6000
       }
     ]
   },
