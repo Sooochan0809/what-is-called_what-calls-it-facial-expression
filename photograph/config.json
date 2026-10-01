@@ -9,8 +9,27 @@
       "同意しない場合でも、体験は可能です。"
     ]
   },
-  "rotationIntervalMs": 30000,
+  "rotationIntervalMs": 20000,
   "partIntroDurationMs": 3000,
+  "tutorial": {
+    "steps": [
+      {
+        "target": "scoreText",
+        "text": "この状況に相応しいと思う表情を作ってみましょう。",
+        "durationMs": 6000
+      },
+      {
+        "target": "scoreBar",
+        "text": "あなたの表情の適切さを機械が判定して、最高の瞬間を撮影してくれます。",
+        "durationMs": 6000
+      },
+      {
+        "target": "situationTimer",
+        "text": "制限時間は30秒です。",
+        "durationMs": 5000
+      }
+    ]
+  },
   "scoreSegmentCount": 10,
   "scoreStepIntervalMs": 80,
   "shutter": {

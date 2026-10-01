@@ -30,6 +30,10 @@
             --color-panel-text: #17202a;
             --color-score-track: #e7ecf1;
             --color-progress-track: #17202a1f;
+            --color-tutorial-backdrop: #11182138;
+            --color-tutorial-focus: #27c28a;
+            --tutorial-card-gap: 24px;
+            --tutorial-card-max-width: 580px;
             --color-positive: #27c28a;
             --color-warning: #ef8b39;
             --color-negative: #dd4d5d;
@@ -207,6 +211,10 @@
             pointer-events: none;
         }
 
+        #photographScene.is-tutorial #video {
+            filter: blur(16px);
+        }
+
         .captureProgress {
             position: absolute;
             left: 0;
@@ -380,6 +388,57 @@
             display: none;
         }
 
+        .tutorialOverlay {
+            position: absolute;
+            inset: 0;
+            z-index: 7;
+            background: var(--color-tutorial-backdrop);
+            pointer-events: none;
+        }
+
+        .tutorialOverlay[hidden] {
+            display: none;
+        }
+
+        .tutorialCard {
+            box-sizing: border-box;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: max-content;
+            max-width: min(var(--tutorial-card-max-width), calc(100% - 48px));
+            border-left: 6px solid var(--color-tutorial-focus);
+            border-radius: 8px;
+            background: var(--color-overlay-card);
+            padding: 24px 28px;
+            box-shadow: 0 12px 36px var(--color-dialog-shadow);
+            color: var(--color-panel-text);
+            font-size: clamp(1rem, 2.5vw, 1.35rem);
+            line-height: 1.8;
+        }
+
+        .tutorialCard p {
+            margin: 0;
+        }
+
+        .tutorialFocus {
+            z-index: 8;
+            opacity: 1;
+            outline: 4px solid var(--color-tutorial-focus);
+            outline-offset: 6px;
+            box-shadow: 0 0 0 8px #27c28a24;
+        }
+
+        .tutorialLayer {
+            z-index: 8;
+            opacity: 1;
+        }
+
+        .tutorialFocusItem {
+            outline: 4px solid var(--color-tutorial-focus);
+            outline-offset: 6px;
+        }
+
         .partIntroCard {
             box-sizing: border-box;
             width: min(680px, 100%);
@@ -460,6 +519,7 @@
                 padding: 12px 20px;
                 font-size: 1.75rem;
             }
+
         }
 
         @media (min-width: 768px) and (min-height: 1200px) and (orientation: portrait) {
@@ -550,6 +610,11 @@
                 <h2 id="partIntroText">状況文</h2>
             </div>
         </section>
+        <section id="tutorialOverlay" class="tutorialOverlay" aria-live="polite" hidden>
+            <div class="tutorialCard">
+                <p id="tutorialText"></p>
+            </div>
+        </section>
         <header class="emotionPanel" aria-label="感情推定">
             <strong id="scoreText">読込中</strong>
             <div id="scoreBar" class="scoreBar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
@@ -584,7 +649,11 @@
         const cameraMode = $("cameraMode");
         const scoreText = $("scoreText");
         const scoreBar = $("scoreBar");
+        const emotionPanel = document.querySelector(".emotionPanel");
         const situationTimer = $("situationTimer");
+        const tutorialOverlay = $("tutorialOverlay");
+        const tutorialCard = tutorialOverlay.firstElementChild;
+        const tutorialText = $("tutorialText");
         const partIntro = $("partIntro");
         const partIntroLabel = $("partIntroLabel");
         const partIntroText = $("partIntroText");
@@ -614,6 +683,11 @@
         let rotationStartedAt = 0;
         let partIntroTimer = 0;
         let partIntroDurationMs = 3000;
+        let tutorialSteps = [];
+        let tutorialTimer = 0;
+        let tutorialScoreTimer = 0;
+        let tutorialActive = false;
+        let tutorialShown = false;
         let latestExpressions = {};
         let scoreSegments = [];
         let displayedSegmentCount = 0;
@@ -632,6 +706,12 @@
         let recordingEnabled = false;
         let configurationReady;
 
+        const tutorialFilledSegments = (frame, peak) => peak - Math.abs(peak - frame);
+        console.assert(
+            [0, 5, 10, 5, 0].every((value, index) => value === tutorialFilledSegments(index * 5, 10)),
+            "チュートリアルのスコア推移が不正です"
+        );
+
         function stopSituationRotation() {
             clearTimeout(rotationTimer);
             clearInterval(rotationClockTimer);
@@ -644,7 +724,7 @@
 
         function stepScore() {
             scoreStepTimer = 0;
-            if (!partIntro.hidden) return;
+            if (tutorialActive || !partIntro.hidden) return;
             if (displayedSegmentCount === targetSegmentCount) return;
             const direction = Math.sign(targetSegmentCount - displayedSegmentCount);
             displayedSegmentCount += direction;
@@ -658,7 +738,7 @@
         }
 
         function renderScore() {
-            if (photographScene.hidden || captureInProgress || !partIntro.hidden) return;
+            if (photographScene.hidden || captureInProgress || tutorialActive || !partIntro.hidden) return;
             const emotions = situations[situationIndex]?.emotions || [];
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
@@ -686,9 +766,90 @@
             partIntroTimer = setTimeout(() => {
                 guideAudio.pause();
                 partIntro.hidden = true;
+                if (situationIndex === 0 && !tutorialShown) showTutorial();
+                else {
+                    renderScore();
+                    startSituationRotation();
+                }
+            }, partIntroDurationMs);
+        }
+
+        function stopTutorial() {
+            clearTimeout(tutorialTimer);
+            clearTimeout(tutorialScoreTimer);
+            tutorialActive = false;
+            photographScene.classList.remove("is-tutorial");
+            tutorialOverlay.hidden = true;
+            emotionPanel.classList.remove("tutorialLayer");
+            scoreText.classList.remove("tutorialFocusItem");
+            scoreBar.classList.remove("tutorialFocusItem");
+            situationTimer.classList.remove("tutorialFocus");
+        }
+
+        async function playTutorialShutter() {
+            shutterAudio.currentTime = 0;
+            shutterAudio.play().catch(() => { });
+            blink.hidden = false;
+            await blink.animate([
+                { backgroundSize: "100% 0, 100% 0" },
+                { backgroundSize: "100% 50%, 100% 50%" },
+                { backgroundSize: "100% 50%, 100% 50%", offset: 0.65 },
+                { backgroundSize: "100% 0, 100% 0" }
+            ], { duration: shutterTransitionDurationMs * 2 + shutterHoldDurationMs, easing: shutterEasing }).finished;
+            blink.hidden = true;
+        }
+
+        function animateTutorialScore(durationMs) {
+            let frame = 0;
+            const peak = scoreSegments.length;
+            const intervalMs = Math.max(40, durationMs / (peak * 2 + 1));
+            scoreBar.style.setProperty("--accent", "var(--color-positive)");
+            const tick = () => {
+                if (!tutorialActive) return;
+                const filled = tutorialFilledSegments(frame, peak);
+                scoreSegments.forEach((segment, index) => segment.classList.toggle("is-filled", index < filled));
+                scoreBar.setAttribute("aria-valuenow", Math.round(filled / peak * 100));
+                if (frame === peak) playTutorialShutter().catch(console.error);
+                if (frame++ < peak * 2) tutorialScoreTimer = setTimeout(tick, intervalMs);
+            };
+            tick();
+        }
+
+        function showTutorialStep(index = 0) {
+            if (index >= tutorialSteps.length) {
+                stopTutorial();
+                scoreSegments.forEach((segment) => segment.classList.remove("is-filled"));
+                scoreBar.setAttribute("aria-valuenow", 0);
                 renderScore();
                 startSituationRotation();
-            }, partIntroDurationMs);
+                return;
+            }
+            const step = tutorialSteps[index];
+            tutorialOverlay.dataset.target = step.target;
+            const focusPanel = step.target === "scoreText" || step.target === "scoreBar";
+            const cardAnchor = focusPanel ? emotionPanel : situationTimer;
+            emotionPanel.classList.toggle("tutorialLayer", focusPanel);
+            scoreText.classList.toggle("tutorialFocusItem", step.target === "scoreText");
+            scoreBar.classList.toggle("tutorialFocusItem", step.target === "scoreBar");
+            situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
+            tutorialText.textContent = step.text;
+            const overlayRect = tutorialOverlay.getBoundingClientRect();
+            const targetRect = cardAnchor.getBoundingClientRect();
+            const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-card-gap"));
+            const left = targetRect.left - overlayRect.left + (targetRect.width - tutorialCard.offsetWidth) / 2;
+            tutorialCard.style.top = `${targetRect.bottom - overlayRect.top + gap}px`;
+            tutorialCard.style.left = `${Math.min(Math.max(24, left), overlayRect.width - tutorialCard.offsetWidth - 24)}px`;
+            if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
+            tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);
+        }
+
+        function showTutorial() {
+            tutorialShown = true;
+            tutorialActive = true;
+            photographScene.classList.add("is-tutorial");
+            stopScoreAnimation();
+            tutorialOverlay.hidden = false;
+            showTutorialStep();
         }
 
         function updateSituationTimer() {
@@ -738,6 +899,12 @@
             situations = config.situations;
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
             partIntroDurationMs = Math.max(0, Number(config.partIntroDurationMs) || 3000);
+            tutorialSteps = config.tutorial?.steps || [];
+            if (!tutorialSteps.length || tutorialSteps.some(({ target, text, durationMs }) =>
+                !["scoreText", "scoreBar", "situationTimer"].includes(target)
+                || typeof text !== "string" || !(Number(durationMs) > 0)
+            )) throw new Error("チュートリアル設定が不正です");
+            tutorialSteps = tutorialSteps.map((step) => ({ ...step, durationMs: Number(step.durationMs) }));
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
             const shutter = config.shutter || {};
             shutterScoreThreshold = Math.min(100, Math.max(0, Number(shutter.scoreThreshold ?? 80)));
@@ -1183,7 +1350,7 @@
         }
 
         async function playShutter() {
-            if (!blink.hidden || captureInProgress || !partIntro.hidden) return;
+            if (tutorialActive || !blink.hidden || captureInProgress || !partIntro.hidden) return;
             captureInProgress = true;
             updateSituationTimer();
             stopSituationRotation();
@@ -1285,7 +1452,7 @@
                 status.hidden = !status.hidden;
                 return;
             }
-            if (!situations.length || captureInProgress || event.target.matches("input, select, textarea, button")) return;
+            if (!situations.length || tutorialActive || captureInProgress || event.target.matches("input, select, textarea, button")) return;
             const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
             if (!step) return;
             event.preventDefault();
@@ -1294,6 +1461,7 @@
         window.addEventListener("pagehide", () => {
             guideAudio.pause();
             clearTimeout(partIntroTimer);
+            stopTutorial();
             stopSituationRotation();
             stopRecordingBuffer();
             stopScoreAnimation();
