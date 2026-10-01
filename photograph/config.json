@@ -16,7 +16,7 @@
       {
         "target": "scoreText",
         "text": "この状況に相応しいと思う表情を作ってみましょう。",
-        "durationMs": 6000
+        "durationMs": 5000
       },
       {
         "target": "scoreBar",
@@ -25,7 +25,7 @@
       },
       {
         "target": "situationTimer",
-        "text": "制限時間は30秒です。",
+        "text": "制限時間は20秒です。",
         "durationMs": 5000
       }
     ]
