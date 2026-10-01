@@ -15,7 +15,6 @@
     "secondsAfter": 3
   },
   "situations": [
-    { "text": "宝くじで大当たり！", "emotions": ["happy","surprised"]},
     { "text": "ずっと欲しかったプレゼントをもらった！", "emotions": ["happy","surprised"] },
     { "text": "楽しみだった旅行が中止に...", "emotions": ["sad","angry","disgusted"] },
     { "text": "列に横入りされた！", "emotions": ["angry","fearful",""] },

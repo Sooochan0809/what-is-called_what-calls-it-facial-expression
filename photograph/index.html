@@ -347,7 +347,9 @@
         const partIntroLabel = $("partIntroLabel");
         const partIntroText = $("partIntroText");
         const blink = $("blink");
+        const guideAudio = new Audio("guide.mp3");
         const shutterAudio = new Audio("shutter.mp3");
+        guideAudio.preload = "auto";
         const emotionCanvas = document.createElement("canvas");
         const emotionContext = emotionCanvas.getContext("2d");
         const MODEL_URL = "../modules/faceAPI/models";
@@ -421,12 +423,16 @@
             scoreStepTimer = 0;
             situationIndex = (index + situations.length) % situations.length;
             scoreText.textContent = situations[situationIndex].text;
-            partIntroLabel.textContent = `パート${situationIndex + 1}`;
+            partIntroLabel.textContent = `Scene${situationIndex + 1}`;
             partIntroText.textContent = situations[situationIndex].text;
             partIntro.hidden = false;
+            guideAudio.pause();
+            guideAudio.currentTime = 0;
+            guideAudio.play().catch(() => { });
             rotationStartedAt = performance.now();
             updateSituationTimer();
             partIntroTimer = setTimeout(() => {
+                guideAudio.pause();
                 partIntro.hidden = true;
                 renderScore();
                 startSituationRotation();
@@ -994,6 +1000,7 @@
             showSituation(situationIndex + step);
         });
         window.addEventListener("pagehide", () => {
+            guideAudio.pause();
             clearTimeout(partIntroTimer);
             clearTimeout(rotationTimer);
             clearInterval(rotationClockTimer);
