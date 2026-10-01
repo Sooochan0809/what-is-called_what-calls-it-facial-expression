@@ -9,7 +9,8 @@
     <style>
         :root {
             --font-sans: "ヒラギノ明朝 ProN W6", "HiraMinProN-W6", "HG明朝E", "ＭＳ Ｐ明朝", "MS PMincho", "MS 明朝", serif;
-            --color-page: #f0f0f0;
+            --color-page: #f7f8fa;
+            --color-on-dark: #fff;
             --color-shutter: #000;
             --color-status: #1b2026e0;
             --color-status-text: #f4f7fb;
@@ -20,6 +21,12 @@
             --color-overlay-card: #ffffffd1;
             --color-overlay-border: #d9dee5d1;
             --color-muted: #68727e;
+            --color-backdrop: #1118217a;
+            --color-dialog-shadow: #17202a3d;
+            --color-note-border: #ead8bd;
+            --color-note-background: #fffaf3;
+            --color-note-text: #3f4650;
+            --color-note-accent: #b85f16;
             --color-panel-text: #17202a;
             --color-score-track: #e7ecf1;
             --color-progress-track: #17202a1f;
@@ -34,7 +41,146 @@
             display: grid;
             place-items: center;
             background: var(--color-page);
+            color: var(--color-panel-text);
             font-family: var(--font-sans);
+        }
+
+        .introScene {
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        .introScene[hidden] {
+            display: none;
+        }
+
+        .introContent {
+            width: min(480px, 100%);
+            display: grid;
+            gap: 20px;
+            justify-items: start;
+            text-align: start;
+            transform: translateY(88px);
+        }
+
+        .introTitle {
+            margin: 0;
+            font-size: clamp(1.5rem, 3vw, 2rem);
+            line-height: 1.15;
+        }
+
+        .introText {
+            margin: 0;
+            color: var(--color-muted);
+            font-size: clamp(0.95rem, 2vw, 1.08rem);
+            line-height: 1.9;
+            text-align: left;
+        }
+
+        .startButton {
+            justify-self: end;
+            min-height: 44px;
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 6px;
+            background: var(--color-panel-text);
+            padding: 0 18px;
+            color: var(--color-on-dark);
+            font: inherit;
+            font-size: 0.98rem;
+            cursor: pointer;
+        }
+
+        .consentDialog {
+            width: min(640px, calc(100% - 40px));
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 16px;
+            background: var(--color-on-dark);
+            padding: 0;
+            color: var(--color-panel-text);
+            box-shadow: 0 24px 72px var(--color-dialog-shadow);
+            transform: translateY(88px);
+        }
+
+        .consentDialog::backdrop {
+            background: var(--color-backdrop);
+            backdrop-filter: blur(3px);
+        }
+
+        .consentContent {
+            display: grid;
+            gap: 24px;
+            padding: 32px 36px;
+            text-align: center;
+        }
+
+        .consentText {
+            margin: 0;
+            font-size: 1.15rem;
+            font-weight: 600;
+            line-height: 1.7;
+        }
+
+        .consentQuestion {
+            display: block;
+            font-size: 1.4rem;
+            line-height: 1.5;
+            white-space: nowrap;
+        }
+
+        .consentNotes {
+            display: grid;
+            gap: 8px;
+            margin-top: 24px;
+            border: 1px solid var(--color-note-border);
+            border-radius: 10px;
+            background: var(--color-note-background);
+            padding: 14px 16px;
+            text-align: left;
+        }
+
+        .consentNote {
+            display: grid;
+            grid-template-columns: 1.2em minmax(0, 1fr);
+            column-gap: 8px;
+            align-items: start;
+            color: var(--color-note-text);
+            font-size: 0.7em;
+            font-weight: 400;
+            line-height: 1.6;
+        }
+
+        .consentNote::before {
+            content: "※";
+            color: var(--color-note-accent);
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .consentActions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .consentButton {
+            min-height: 54px;
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 8px;
+            background: var(--color-on-dark);
+            color: var(--color-panel-text);
+            font: inherit;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        .consentButton--accept {
+            border-color: var(--color-panel-text);
+            background: var(--color-panel-text);
+            color: var(--color-on-dark);
         }
 
         main {
@@ -271,6 +417,22 @@
             text-overflow: ellipsis;
         }
 
+        @media (max-width: 600px) {
+            .consentQuestion {
+                font-size: clamp(0.7rem, 3.6vw, 1.4rem);
+            }
+        }
+
+        @media (max-width: 400px) {
+            .consentContent {
+                padding: 24px 12px;
+            }
+
+            .consentNotes {
+                padding-inline: 12px;
+            }
+        }
+
         @media (max-width: 1120px) {
             .emotionPanel {
                 top: 32px;
@@ -295,11 +457,82 @@
                 font-size: 1.75rem;
             }
         }
+
+        @media (min-width: 768px) and (min-height: 1200px) and (orientation: portrait) {
+            .introScene {
+                padding: 48px;
+            }
+
+            .introContent {
+                width: min(820px, 100%);
+            }
+
+            .introTitle {
+                font-size: clamp(2.4rem, 4.2vw, 3rem);
+            }
+
+            .introText {
+                font-size: clamp(1.25rem, 2.25vw, 1.5rem);
+                line-height: 1.85;
+            }
+
+            .startButton {
+                min-height: 64px;
+                padding: 0 32px;
+                font-size: 1.25rem;
+            }
+
+            .consentDialog {
+                width: min(720px, calc(100% - 96px));
+            }
+
+            .consentContent {
+                gap: 36px;
+                padding: 44px;
+            }
+
+            .consentText {
+                font-size: 1.5rem;
+            }
+
+            .consentQuestion {
+                font-size: 1.7rem;
+            }
+
+            .consentButton {
+                min-height: 64px;
+                font-size: 1.25rem;
+            }
+        }
     </style>
 </head>
 
 <body>
-    <main>
+    <section id="introScene" class="introScene">
+        <div class="introContent">
+            <h1 id="introTitle" class="introTitle"></h1>
+            <p id="introText" class="introText"></p>
+            <button id="startButton" class="startButton" type="button" disabled>はじめる →</button>
+        </div>
+    </section>
+
+    <dialog id="consentDialog" class="consentDialog" aria-labelledby="consentText">
+        <div class="consentContent">
+            <p id="consentText" class="consentText">
+                <span id="consentQuestion" class="consentQuestion"></span>
+                <span id="consentNotes" class="consentNotes">
+                    <span class="consentNote"></span>
+                    <span class="consentNote"></span>
+                </span>
+            </p>
+            <div class="consentActions">
+                <button id="consentAcceptButton" class="consentButton consentButton--accept" type="button">はい</button>
+                <button id="consentDeclineButton" class="consentButton" type="button">いいえ</button>
+            </div>
+        </div>
+    </dialog>
+
+    <main id="photographScene" hidden>
         <video id="video" autoplay muted playsinline></video>
         <img id="capturePreview" alt="撮影画像" hidden>
         <div id="captureProgress" class="captureProgress" aria-hidden="true" hidden>
@@ -333,6 +566,16 @@
 
     <script>
         const $ = (id) => document.getElementById(id);
+        const introScene = $("introScene");
+        const introTitle = $("introTitle");
+        const introText = $("introText");
+        const photographScene = $("photographScene");
+        const startButton = $("startButton");
+        const consentDialog = $("consentDialog");
+        const consentAcceptButton = $("consentAcceptButton");
+        const consentDeclineButton = $("consentDeclineButton");
+        const consentQuestion = $("consentQuestion");
+        const consentNotes = $("consentNotes");
         const video = $("video");
         const capturePreview = $("capturePreview");
         const captureProgress = $("captureProgress");
@@ -385,6 +628,9 @@
         let recordingAfterMs = 3000;
         let recording = null;
         let captureInProgress = false;
+        let recordingEnabled = false;
+        let experienceStarted = false;
+        let configurationReady;
 
         function stepScore() {
             scoreStepTimer = 0;
@@ -404,7 +650,7 @@
         }
 
         function renderScore() {
-            if (captureInProgress || !partIntro.hidden) return;
+            if (photographScene.hidden || captureInProgress || !partIntro.hidden) return;
             const emotions = situations[situationIndex]?.emotions || [];
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
@@ -475,6 +721,20 @@
             if (!Array.isArray(config.situations) || !config.situations.length || config.situations.some(
                 ({ text, emotions }) => typeof text !== "string" || !Array.isArray(emotions) || !emotions.length
             )) throw new Error("状況文の設定が不正です");
+            const copy = config.copy;
+            if (!copy || [copy.introTitle, copy.introText, copy.consentQuestion].some((text) => typeof text !== "string")
+                || !Array.isArray(copy.consentNotes) || !copy.consentNotes.length
+                || copy.consentNotes.some((text) => typeof text !== "string")) throw new Error("表示文言の設定が不正です");
+
+            introTitle.textContent = copy.introTitle;
+            introText.textContent = copy.introText;
+            consentQuestion.textContent = copy.consentQuestion;
+            consentNotes.replaceChildren(...copy.consentNotes.map((text) => {
+                const note = document.createElement("span");
+                note.className = "consentNote";
+                note.textContent = text;
+                return note;
+            }));
 
             situations = config.situations;
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
@@ -493,7 +753,6 @@
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
             scoreSegments = [...scoreBar.children];
-            showSituation(0);
         }
 
         const findWebmCluster = (bytes) => {
@@ -873,7 +1132,7 @@
                 await detectCameraModes(track);
                 updateEmotionCanvas();
                 measureStatus();
-                startRecordingBuffer();
+                if (recordingEnabled) startRecordingBuffer();
             } catch (error) {
                 cameraMode.innerHTML = "<option>画質を検出できません</option>";
                 cameraMode.disabled = true;
@@ -895,7 +1154,7 @@
 
         async function startEmotionDetection() {
             try {
-                await loadConfig();
+                await (configurationReady = loadConfig());
             } catch (error) {
                 scoreText.textContent = "設定を読み込めません";
                 console.error("photograph/config.json を読み込めませんでした。", error);
@@ -908,8 +1167,9 @@
                     faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
                 ]);
                 detectEmotion(new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }));
-            } catch {
+            } catch (error) {
                 scoreText.textContent = "モデルを読み込めません";
+                console.error("FaceAPIモデルを読み込めませんでした。", error);
             }
         }
 
@@ -924,11 +1184,12 @@
             scoreBar.classList.add("is-frozen");
             const triggerAt = performance.now();
             const createdAt = new Date();
-            const names = captureNames(createdAt);
             const imagePromise = captureImage();
-            const savePromise = saveCapture(triggerAt, createdAt, names, imagePromise).catch((error) => {
-                console.error("画像と映像を保存できませんでした。", error);
-            });
+            const savePromise = recordingEnabled
+                ? saveCapture(triggerAt, createdAt, captureNames(createdAt), imagePromise).catch((error) => {
+                    console.error("画像と映像を保存できませんでした。", error);
+                })
+                : Promise.resolve();
             blink.hidden = false;
             shutterAudio.currentTime = 0;
             shutterAudio.play().catch(() => { });
@@ -940,10 +1201,12 @@
                 let previewUrl;
                 try {
                     const [, image] = await Promise.all([closeAnimation.finished, imagePromise]);
-                    previewUrl = URL.createObjectURL(image);
-                    capturePreview.src = previewUrl;
-                    capturePreview.hidden = false;
-                    await capturePreview.decode();
+                    if (image) {
+                        previewUrl = URL.createObjectURL(image);
+                        capturePreview.src = previewUrl;
+                        capturePreview.hidden = false;
+                        await capturePreview.decode();
+                    }
                     blink.style.backgroundSize = "100% 50%, 100% 50%";
                     closeAnimation.cancel();
                     await new Promise((resolve) => setTimeout(resolve, shutterHoldDurationMs));
@@ -952,11 +1215,13 @@
                         { backgroundSize: "100% 0, 100% 0" }
                     ], { duration: shutterTransitionDurationMs, easing: shutterEasing }).finished;
                     blink.hidden = true;
-                    captureProgress.hidden = false;
-                    await captureProgressFill.animate([
-                        { width: "0%" },
-                        { width: "100%" }
-                    ], { duration: shutterPreviewDurationMs, easing: "linear" }).finished;
+                    if (image) {
+                        captureProgress.hidden = false;
+                        await captureProgressFill.animate([
+                            { width: "0%" },
+                            { width: "100%" }
+                        ], { duration: shutterPreviewDurationMs, easing: "linear" }).finished;
+                    }
                 } catch (error) {
                     console.error("撮影画像を表示できませんでした。", error);
                 } finally {
@@ -981,7 +1246,7 @@
                 const nativeOnly = track.getCapabilities?.().resizeMode?.includes("none");
                 await track.applyConstraints(modeConstraints(cameraMode.value.split(",").map(Number), nativeOnly));
                 updateEmotionCanvas();
-                startRecordingBuffer();
+                if (recordingEnabled) startRecordingBuffer();
                 if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
                 measureStatus();
             } catch (error) {
@@ -992,7 +1257,27 @@
                 cameraMode.disabled = false;
             }
         });
+        function startExperience(enableRecording) {
+            if (experienceStarted) return;
+            experienceStarted = true;
+            recordingEnabled = enableRecording;
+            consentDialog.close();
+            introScene.hidden = true;
+            photographScene.hidden = false;
+            if (recordingEnabled) startRecordingBuffer();
+            configurationReady.then(() => showSituation(0)).catch(() => { });
+        }
+
+        startButton.addEventListener("click", () => consentDialog.showModal());
+        consentDialog.addEventListener("cancel", (event) => event.preventDefault());
+        consentAcceptButton.addEventListener("click", () => startExperience(true));
+        consentDeclineButton.addEventListener("click", () => startExperience(false));
         document.addEventListener("keydown", (event) => {
+            if (!introScene.hidden && event.code === "Space") {
+                event.preventDefault();
+                startButton.click();
+                return;
+            }
             if (!situations.length || captureInProgress || event.target.matches("input, select, textarea, button")) return;
             const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
             if (!step) return;
@@ -1009,8 +1294,11 @@
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
             video.srcObject?.getTracks().forEach((track) => track.stop());
         });
-        window.addEventListener("load", startEmotionDetection);
-        startCamera();
+        window.addEventListener("load", () => {
+            startCamera();
+            startEmotionDetection();
+            startButton.disabled = false;
+        });
     </script>
 </body>
 
