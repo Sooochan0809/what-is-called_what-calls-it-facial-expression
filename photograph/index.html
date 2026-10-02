@@ -267,8 +267,7 @@
             overflow: hidden;
         }
 
-        #video,
-        #capturePreview {
+        #video {
             position: absolute;
             left: 50%;
             top: 50%;
@@ -279,6 +278,12 @@
         }
 
         #capturePreview {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
             z-index: 3;
             pointer-events: none;
         }
@@ -808,6 +813,8 @@
         let shutterEasing = "ease-in-out";
         let recordingBeforeMs = 2000;
         let recordingAfterMs = 3000;
+        let recordingRotationDegrees = 270;
+        let recordingVideoBitsPerSecond = 50_000_000;
         let recording = null;
         let captureInProgress = false;
         let recordingEnabled = false;
@@ -1135,6 +1142,9 @@
             const recordingConfig = config.recording || {};
             recordingBeforeMs = Math.max(0, Number(recordingConfig.secondsBefore ?? 2) || 0) * 1000;
             recordingAfterMs = Math.max(0, Number(recordingConfig.secondsAfter ?? 3) || 0) * 1000;
+            recordingRotationDegrees = Number(recordingConfig.rotationDegrees ?? 270);
+            if (![0, 90, 180, 270].includes(recordingRotationDegrees)) throw new Error("録画の回転角度は0、90、180、270のいずれかにしてください");
+            recordingVideoBitsPerSecond = Math.max(1, Number(recordingConfig.videoBitsPerSecond) || 50_000_000);
             const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
@@ -1224,6 +1234,7 @@
             const session = recording;
             recording = null;
             if (!session) return;
+            if (session.frameCallback) video.cancelVideoFrameCallback(session.frameCallback);
             session.recorder.ondataavailable = null;
             if (session.recorder.state !== "inactive") session.recorder.stop();
             session.track.stop();
@@ -1234,12 +1245,16 @@
             const sourceTrack = video.srcObject?.getVideoTracks()[0];
             if (!sourceTrack || typeof MediaRecorder === "undefined") return;
             stopRecordingBuffer();
-            const track = sourceTrack.clone();
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d", { alpha: false });
+            drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
+            const track = canvas.captureStream(0).getVideoTracks()[0];
             const mimeType = RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
             let recorder;
             try {
                 recorder = new MediaRecorder(new MediaStream([track]), {
                     ...(mimeType && { mimeType }),
+                    videoBitsPerSecond: recordingVideoBitsPerSecond,
                     videoKeyFrameIntervalDuration: WEBM_KEYFRAME_INTERVAL_MS
                 });
             } catch (error) {
@@ -1247,7 +1262,13 @@
                 console.error("WebM録画を開始できませんでした。", error);
                 return;
             }
-            const session = recording = { recorder, track, header: null, chunks: [], pending: null };
+            const session = recording = { recorder, track, header: null, chunks: [], pending: null, frameCallback: 0 };
+            const copyFrame = () => {
+                if (recording !== session) return;
+                drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
+                track.requestFrame();
+                session.frameCallback = video.requestVideoFrameCallback(copyFrame);
+            };
             const startedAt = performance.now();
             let lastChunkAt = startedAt;
             let queue = Promise.resolve();
@@ -1295,6 +1316,7 @@
                 console.error("WebM録画に失敗しました。", error);
             };
             recorder.start(250);
+            session.frameCallback = video.requestVideoFrameCallback(copyFrame);
         }
 
         function recordClip(triggerAt) {
@@ -1315,11 +1337,27 @@
             });
         }
 
+        function drawRotatedFrame(canvas, context, source, degrees) {
+            const swapSides = degrees % 180 !== 0;
+            const width = swapSides ? source.videoHeight : source.videoWidth;
+            const height = swapSides ? source.videoWidth : source.videoHeight;
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+            }
+            const transforms = {
+                0: [1, 0, 0, 1, 0, 0],
+                90: [0, 1, -1, 0, source.videoHeight, 0],
+                180: [-1, 0, 0, -1, source.videoWidth, source.videoHeight],
+                270: [0, -1, 1, 0, 0, source.videoWidth]
+            };
+            context.setTransform(...transforms[degrees]);
+            context.drawImage(source, 0, 0);
+        }
+
         function captureImage() {
             const canvas = document.createElement("canvas");
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0);
+            drawRotatedFrame(canvas, canvas.getContext("2d", { alpha: false }), video, recordingRotationDegrees);
             return new Promise((resolve, reject) => {
                 canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNGを作成できませんでした")), "image/png");
             });

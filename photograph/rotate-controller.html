@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>映像・画像回転ツール</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            background: Canvas;
+            color: CanvasText;
+        }
+
+        main {
+            box-sizing: border-box;
+            width: min(100%, 920px);
+            min-height: 100dvh;
+            margin: auto;
+            padding: 32px 20px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+        }
+
+        p {
+            margin: 0 0 24px;
+            color: color-mix(in srgb, CanvasText 70%, transparent);
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+        }
+
+        input,
+        select,
+        button,
+        a {
+            box-sizing: border-box;
+            min-height: 42px;
+            padding: 9px 12px;
+            border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+            border-radius: 7px;
+            font: inherit;
+        }
+
+        button,
+        a {
+            background: #1473e6;
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: 0.45;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            max-height: 65dvh;
+            margin-top: 12px;
+            background: #111;
+            object-fit: contain;
+        }
+
+        output {
+            display: block;
+            min-height: 1.5em;
+        }
+
+        video,
+        img {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>WebM・PNG回転ツール</h1>
+        <p>WebMまたはPNGを選び、向きを指定して再書き出します。元ファイルは変更しません。</p>
+        <div class="controls">
+            <label>ファイル
+                <input id="file" type="file" accept="video/webm,image/png,.webm,.png">
+            </label>
+            <label>回転
+                <select id="degrees">
+                    <option value="270">左へ90°（270°）</option>
+                    <option value="90">右へ90°</option>
+                    <option value="180">180°</option>
+                    <option value="0">回転なし</option>
+                </select>
+            </label>
+            <button id="convert" type="button" disabled>変換する</button>
+            <a id="download" hidden>ダウンロード</a>
+        </div>
+        <output id="status">WebMまたはPNGを選択してください。</output>
+        <canvas id="preview"></canvas>
+        <video id="video" muted playsinline></video>
+        <img id="image" alt="">
+    </main>
+
+    <script>
+        const fileInput = document.getElementById("file");
+        const degreesInput = document.getElementById("degrees");
+        const convertButton = document.getElementById("convert");
+        const download = document.getElementById("download");
+        const status = document.getElementById("status");
+        const canvas = document.getElementById("preview");
+        const context = canvas.getContext("2d");
+        const video = document.getElementById("video");
+        const image = document.getElementById("image");
+        let source = video;
+        let sourceUrl;
+        let resultUrl;
+
+        function drawFrame() {
+            const degrees = Number(degreesInput.value);
+            const sourceWidth = source === video ? video.videoWidth : image.naturalWidth;
+            const sourceHeight = source === video ? video.videoHeight : image.naturalHeight;
+            const swapSides = degrees % 180 !== 0;
+            const width = swapSides ? sourceHeight : sourceWidth;
+            const height = swapSides ? sourceWidth : sourceHeight;
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+            }
+            const transforms = {
+                0: [1, 0, 0, 1, 0, 0],
+                90: [0, 1, -1, 0, sourceHeight, 0],
+                180: [-1, 0, 0, -1, sourceWidth, sourceHeight],
+                270: [0, -1, 1, 0, 0, sourceWidth]
+            };
+            context.setTransform(...transforms[degrees]);
+            context.drawImage(source, 0, 0);
+        }
+
+        function clearResult() {
+            if (resultUrl) URL.revokeObjectURL(resultUrl);
+            resultUrl = "";
+            download.hidden = true;
+        }
+
+        function showDownload(blob, extension) {
+            resultUrl = URL.createObjectURL(blob);
+            const file = fileInput.files[0];
+            download.href = resultUrl;
+            download.download = `${file.name.replace(/\.(webm|png)$/i, "")}_rotated_${degreesInput.value}.${extension}`;
+            download.hidden = false;
+            status.textContent = "変換が完了しました。";
+            convertButton.disabled = false;
+        }
+
+        fileInput.addEventListener("change", async () => {
+            clearResult();
+            if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+            const file = fileInput.files[0];
+            convertButton.disabled = !file;
+            if (!file) return;
+            sourceUrl = URL.createObjectURL(file);
+            try {
+                if (file.type === "image/png" || /\.png$/i.test(file.name)) {
+                    source = image;
+                    image.src = sourceUrl;
+                    await image.decode();
+                } else {
+                    source = video;
+                    video.src = sourceUrl;
+                    await new Promise((resolve, reject) => {
+                        video.onloadeddata = resolve;
+                        video.onerror = () => reject(new Error("WebMを読み込めませんでした"));
+                    });
+                }
+                drawFrame();
+                status.textContent = source === video
+                    ? `${video.videoWidth}×${video.videoHeight} / ${video.duration.toFixed(1)}秒`
+                    : `${image.naturalWidth}×${image.naturalHeight}`;
+            } catch (error) {
+                convertButton.disabled = true;
+                status.textContent = error.message;
+            }
+        });
+
+        degreesInput.addEventListener("change", () => {
+            clearResult();
+            if (canvas.width && canvas.height) drawFrame();
+        });
+
+        convertButton.addEventListener("click", async () => {
+            clearResult();
+            convertButton.disabled = true;
+            if (source === image) {
+                drawFrame();
+                canvas.toBlob((blob) => {
+                    if (blob) showDownload(blob, "png");
+                    else {
+                        status.textContent = "PNGを作成できませんでした。";
+                        convertButton.disabled = false;
+                    }
+                }, "image/png");
+                return;
+            }
+            video.pause();
+            video.currentTime = 0;
+            drawFrame();
+
+            const frameTrack = canvas.captureStream(0).getVideoTracks()[0];
+            const sourceStream = video.captureStream?.();
+            const stream = new MediaStream([frameTrack, ...(sourceStream?.getAudioTracks() || [])]);
+            const mimeType = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"]
+                .find((type) => MediaRecorder.isTypeSupported(type));
+            const recorder = new MediaRecorder(stream, {
+                ...(mimeType && { mimeType }),
+                videoBitsPerSecond: 30_000_000
+            });
+            const chunks = [];
+            let frameCallback;
+            recorder.ondataavailable = ({ data }) => data.size && chunks.push(data);
+            recorder.onstop = () => {
+                frameTrack.stop();
+                showDownload(new Blob(chunks, { type: recorder.mimeType || "video/webm" }), "webm");
+            };
+            video.onended = () => recorder.state !== "inactive" && recorder.stop();
+            const copyFrame = () => {
+                drawFrame();
+                frameTrack.requestFrame();
+                status.textContent = `変換中… ${Math.round(video.currentTime / video.duration * 100)}%`;
+                if (!video.ended) frameCallback = video.requestVideoFrameCallback(copyFrame);
+            };
+
+            try {
+                recorder.start();
+                frameCallback = video.requestVideoFrameCallback(copyFrame);
+                await video.play();
+            } catch (error) {
+                if (frameCallback) video.cancelVideoFrameCallback(frameCallback);
+                if (recorder.state !== "inactive") recorder.stop();
+                status.textContent = `変換できませんでした: ${error.message}`;
+                convertButton.disabled = false;
+            }
+        });
+
+        window.addEventListener("pagehide", () => {
+            if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+            clearResult();
+        });
+    </script>
+</body>
+
+</html>
