@@ -203,7 +203,7 @@
 <body>
     <main>
         <h1>表情フレーム一括解析</h1>
-        <p class="lead">基準PNGからシャッター開始を特定し、Before／シャッター演出中／Afterの3区間に分けます。</p>
+        <p class="lead">基準PNGからシャッター開始を特定し、Before／暗転中／Afterの3区間に分けます。</p>
         <div class="toolbar">
             <button id="addPair" class="secondary" type="button">ペアを追加</button>
             <button id="analyzeAll" type="button" disabled>すべて解析</button>
@@ -255,12 +255,13 @@
         const pairs = [];
         let zipUrl;
         let busy = false;
-        let shutterEffectSeconds;
+        let shutterTransitionSeconds;
+        let shutterHoldSeconds;
 
         const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
-        const shutterRange = (split, duration, effectSeconds) => ({
-            start: split,
-            end: Math.min(duration, split + effectSeconds)
+        const shutterRange = (trigger, duration, transition, hold) => ({
+            start: Math.min(duration, trigger + transition),
+            end: Math.min(duration, trigger + transition + hold)
         });
         const similarity = (left, right) => {
             let difference = 0;
@@ -272,21 +273,25 @@
             return 1 - difference / (left.length / 4 * 255);
         };
         console.assert(similarity(Uint8ClampedArray.of(0, 0, 0, 255), Uint8ClampedArray.of(0, 0, 0, 255)) === 1, "類似度計算が不正です");
-        console.assert(JSON.stringify(shutterRange(5, 10, 1.7)) === '{"start":5,"end":6.7}', "シャッター区間の計算が不正です");
+        console.assert(JSON.stringify(shutterRange(5, 10, .1, 1.5)) === '{"start":5.1,"end":6.6}', "暗転区間の計算が不正です");
 
         fetch("config.json").then((response) => {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return response.json();
         }).then(({ shutter }) => {
-            const transition = Math.max(1, Number(shutter?.transitionDurationMs ?? 270));
-            const hold = Math.max(0, Number(shutter?.holdDurationMs ?? 60));
-            shutterEffectSeconds = (transition * 2 + hold) / 1000;
+            shutterTransitionSeconds = Math.max(1, Number(shutter?.transitionDurationMs ?? 270)) / 1000;
+            shutterHoldSeconds = Math.max(0, Number(shutter?.holdDurationMs ?? 60)) / 1000;
             updateControls();
         }).catch((error) => {
             status.textContent = `config.jsonを読み込めませんでした: ${error.message}`;
         });
 
-        const pairShutterRange = (pair) => shutterRange(pair.splitTime, pair.video.duration, shutterEffectSeconds);
+        const pairShutterRange = (pair) => shutterRange(
+            pair.splitTime,
+            pair.video.duration,
+            shutterTransitionSeconds,
+            shutterHoldSeconds
+        );
 
         function clearZip() {
             if (zipUrl) URL.revokeObjectURL(zipUrl);
@@ -297,7 +302,8 @@
         function updateControls() {
             const ready = pairs.length && pairs.every(({ video, image }) =>
                 video.readyState >= HTMLMediaElement.HAVE_METADATA && image.complete && image.naturalWidth)
-                && Number.isFinite(shutterEffectSeconds);
+                && Number.isFinite(shutterTransitionSeconds)
+                && Number.isFinite(shutterHoldSeconds);
             addPairButton.disabled = busy;
             analyzeAllButton.disabled = busy || !ready;
             if (!pairs.every(({ splitTime }) => Number.isFinite(splitTime))) splitAllButton.disabled = true;
@@ -421,7 +427,7 @@
             const shutter = pairShutterRange(pair);
             pair.beforeLabel.textContent = `Before  0:00.00〜${formatTime(shutter.start)}`;
             pair.afterLabel.textContent = `After  ${formatTime(shutter.end)}〜${formatTime(pair.video.duration)}`;
-            pair.splitLabel.textContent = `シャッター演出  ${formatTime(shutter.start)}〜${formatTime(shutter.end)}\n基準画像  ${formatTime(pair.splitTime)} / ${(pair.closestScore * 100).toFixed(2)}%`;
+            pair.splitLabel.textContent = `シャッター暗転  ${formatTime(shutter.start)}〜${formatTime(shutter.end)}\n基準画像  ${formatTime(pair.splitTime)} / ${(pair.closestScore * 100).toFixed(2)}%`;
             pair.splitLabel.style.whiteSpace = "pre-line";
             drawTimeline(pair);
         }
@@ -579,7 +585,7 @@
                     status.textContent = `ペア ${index + 1}/${pairs.length} のBeforeを切り分けています…`;
                     const prefix = String(index + 1).padStart(2, "0");
                     if (shutter.start > .02) files.push({ name: `${prefix}_${base}_before.webm`, blob: await cutSegment(pair, 0, shutter.start), createdAt });
-                    status.textContent = `ペア ${index + 1}/${pairs.length} のシャッター演出中を切り分けています…`;
+                    status.textContent = `ペア ${index + 1}/${pairs.length} のシャッター暗転中を切り分けています…`;
                     if (shutter.end - shutter.start > .02) files.push({ name: `${prefix}_${base}_shutter.webm`, blob: await cutSegment(pair, shutter.start, shutter.end), createdAt });
                     status.textContent = `ペア ${index + 1}/${pairs.length} のAfterを切り分けています…`;
                     if (pair.video.duration - shutter.end > .02) files.push({ name: `${prefix}_${base}_after.webm`, blob: await cutSegment(pair, shutter.end, pair.video.duration), createdAt });
