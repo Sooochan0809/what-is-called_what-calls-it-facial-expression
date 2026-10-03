@@ -156,13 +156,25 @@
             background: color-mix(in srgb, var(--after) 20%, transparent);
         }
 
+        .summary span {
+            padding: 10px;
+            border-radius: 7px;
+            background: color-mix(in srgb, #64c28a 20%, transparent);
+        }
+
         .timeline {
             display: block;
             width: 100%;
             height: 210px;
             border: 1px solid var(--border);
             border-radius: 7px;
-            cursor: pointer;
+        }
+
+        .seekBar {
+            width: 100%;
+            min-height: 30px;
+            margin-top: 8px;
+            padding: 0;
         }
 
         .actions {
@@ -191,7 +203,7 @@
 <body>
     <main>
         <h1>表情フレーム一括解析</h1>
-        <p class="lead">WebMと基準PNGのペアを複数登録し、最も近い瞬間で各映像をBefore／Afterに分けます。</p>
+        <p class="lead">基準PNGからシャッター開始を特定し、Before／シャッター演出中／Afterの3区間に分けます。</p>
         <div class="toolbar">
             <button id="addPair" class="secondary" type="button">ペアを追加</button>
             <button id="analyzeAll" type="button" disabled>すべて解析</button>
@@ -199,7 +211,7 @@
         <output id="status">WebMとPNGを設定してください。</output>
         <div id="pairList"></div>
         <div class="actions">
-            <button id="exportAll" type="button" disabled>すべて書き出す</button>
+            <button id="splitAll" type="button" disabled>すべて切り分ける</button>
             <a id="downloadZip" hidden>ZIPをダウンロード</a>
         </div>
         <canvas id="analysisCanvas" width="48" height="64"></canvas>
@@ -224,16 +236,18 @@
                 <div class="summary"><strong class="beforeLabel"></strong><span class="splitLabel"></span><strong
                         class="afterLabel"></strong></div>
                 <canvas class="timeline" aria-label="フレーム類似度の推移"></canvas>
+                <input class="seekBar" type="range" min="0" step="0.001" value="0" aria-label="映像の再生位置">
             </div>
         </section>
     </template>
 
-    <script>
+    <script type="module">
+        import { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Output, Quality, WebMOutputFormat } from "https://cdn.jsdelivr.net/npm/mediabunny@1.61.0/dist/bundles/mediabunny.min.mjs";
         const pairList = document.getElementById("pairList");
         const pairTemplate = document.getElementById("pairTemplate");
         const addPairButton = document.getElementById("addPair");
         const analyzeAllButton = document.getElementById("analyzeAll");
-        const exportAllButton = document.getElementById("exportAll");
+        const splitAllButton = document.getElementById("splitAll");
         const downloadZip = document.getElementById("downloadZip");
         const status = document.getElementById("status");
         const analysisCanvas = document.getElementById("analysisCanvas");
@@ -241,8 +255,13 @@
         const pairs = [];
         let zipUrl;
         let busy = false;
+        let shutterEffectSeconds;
 
         const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
+        const shutterRange = (split, duration, effectSeconds) => ({
+            start: split,
+            end: Math.min(duration, split + effectSeconds)
+        });
         const similarity = (left, right) => {
             let difference = 0;
             for (let index = 0; index < left.length; index += 4) {
@@ -253,6 +272,21 @@
             return 1 - difference / (left.length / 4 * 255);
         };
         console.assert(similarity(Uint8ClampedArray.of(0, 0, 0, 255), Uint8ClampedArray.of(0, 0, 0, 255)) === 1, "類似度計算が不正です");
+        console.assert(JSON.stringify(shutterRange(5, 10, 1.7)) === '{"start":5,"end":6.7}', "シャッター区間の計算が不正です");
+
+        fetch("config.json").then((response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        }).then(({ shutter }) => {
+            const transition = Math.max(1, Number(shutter?.transitionDurationMs ?? 270));
+            const hold = Math.max(0, Number(shutter?.holdDurationMs ?? 60));
+            shutterEffectSeconds = (transition * 2 + hold) / 1000;
+            updateControls();
+        }).catch((error) => {
+            status.textContent = `config.jsonを読み込めませんでした: ${error.message}`;
+        });
+
+        const pairShutterRange = (pair) => shutterRange(pair.splitTime, pair.video.duration, shutterEffectSeconds);
 
         function clearZip() {
             if (zipUrl) URL.revokeObjectURL(zipUrl);
@@ -262,12 +296,13 @@
 
         function updateControls() {
             const ready = pairs.length && pairs.every(({ video, image }) =>
-                video.readyState >= HTMLMediaElement.HAVE_METADATA && image.complete && image.naturalWidth);
+                video.readyState >= HTMLMediaElement.HAVE_METADATA && image.complete && image.naturalWidth)
+                && Number.isFinite(shutterEffectSeconds);
             addPairButton.disabled = busy;
             analyzeAllButton.disabled = busy || !ready;
-            if (!pairs.every(({ splitTime }) => Number.isFinite(splitTime))) exportAllButton.disabled = true;
+            if (!pairs.every(({ splitTime }) => Number.isFinite(splitTime))) splitAllButton.disabled = true;
             pairs.forEach((pair) => {
-                pair.videoFile.disabled = pair.imageFile.disabled = pair.removeButton.disabled = busy;
+                pair.videoFile.disabled = pair.imageFile.disabled = pair.removeButton.disabled = pair.seekBar.disabled = busy;
             });
         }
 
@@ -279,7 +314,7 @@
             element.src = pair[urlKey];
             pair.splitTime = NaN;
             pair.result.hidden = true;
-            exportAllButton.disabled = true;
+            splitAllButton.disabled = true;
             clearZip();
             updateControls();
         }
@@ -297,22 +332,30 @@
                 splitLabel: element.querySelector(".splitLabel"),
                 afterLabel: element.querySelector(".afterLabel"),
                 timeline: element.querySelector(".timeline"),
+                seekBar: element.querySelector(".seekBar"),
                 removeButton: element.querySelector(".removePair"),
                 samples: [],
                 splitTime: NaN
             };
             pair.videoFile.addEventListener("change", () => pair.videoFile.files[0] && setFile(pair, "video", pair.videoFile.files[0]));
             pair.imageFile.addEventListener("change", () => pair.imageFile.files[0] && setFile(pair, "image", pair.imageFile.files[0]));
-            pair.video.addEventListener("loadedmetadata", updateControls);
+            pair.video.addEventListener("loadedmetadata", () => {
+                pair.seekBar.max = pair.video.duration;
+                updateControls();
+            });
+            pair.video.addEventListener("timeupdate", () => pair.seekBar.value = pair.video.currentTime);
             pair.image.addEventListener("load", updateControls);
-            pair.timeline.addEventListener("click", ({ offsetX }) => seek(pair.video, offsetX / pair.timeline.clientWidth * pair.video.duration));
+            pair.seekBar.addEventListener("input", () => {
+                pair.video.pause();
+                pair.video.currentTime = Number(pair.seekBar.value);
+            });
             pair.removeButton.addEventListener("click", () => {
                 if (pair.videoUrl) URL.revokeObjectURL(pair.videoUrl);
                 if (pair.imageUrl) URL.revokeObjectURL(pair.imageUrl);
                 pairs.splice(pairs.indexOf(pair), 1);
                 element.remove();
                 if (!pairs.length) addPair();
-                exportAllButton.disabled = true;
+                splitAllButton.disabled = true;
                 clearZip();
                 updateControls();
             });
@@ -345,11 +388,16 @@
             pair.timeline.height = Math.round(height * ratio);
             context.setTransform(ratio, 0, 0, ratio, 0, 0);
             context.clearRect(0, 0, width, height);
+            const shutter = pairShutterRange(pair);
+            const centerStartX = shutter.start / pair.video.duration * width;
+            const centerEndX = shutter.end / pair.video.duration * width;
             const markerX = pair.splitTime / pair.video.duration * width;
             context.fillStyle = "rgba(79,140,255,.16)";
-            context.fillRect(0, 0, markerX, height);
+            context.fillRect(0, 0, centerStartX, height);
+            context.fillStyle = "rgba(100,194,138,.2)";
+            context.fillRect(centerStartX, 0, centerEndX - centerStartX, height);
             context.fillStyle = "rgba(242,155,82,.18)";
-            context.fillRect(markerX, 0, width - markerX, height);
+            context.fillRect(centerEndX, 0, width - centerEndX, height);
             const minimum = Math.min(...pair.samples.map(({ score }) => score));
             const maximum = Math.max(...pair.samples.map(({ score }) => score));
             const range = maximum - minimum || 1;
@@ -367,6 +415,15 @@
             context.lineTo(markerX, height);
             context.strokeStyle = "#fff";
             context.stroke();
+        }
+
+        function renderPairResult(pair) {
+            const shutter = pairShutterRange(pair);
+            pair.beforeLabel.textContent = `Before  0:00.00〜${formatTime(shutter.start)}`;
+            pair.afterLabel.textContent = `After  ${formatTime(shutter.end)}〜${formatTime(pair.video.duration)}`;
+            pair.splitLabel.textContent = `シャッター演出  ${formatTime(shutter.start)}〜${formatTime(shutter.end)}\n基準画像  ${formatTime(pair.splitTime)} / ${(pair.closestScore * 100).toFixed(2)}%`;
+            pair.splitLabel.style.whiteSpace = "pre-line";
+            drawTimeline(pair);
         }
 
         async function analyzePair(pair, index) {
@@ -395,12 +452,9 @@
             pair.video.playbackRate = 1;
             const closest = pair.samples.reduce((best, sample) => sample.score > best.score ? sample : best);
             pair.splitTime = closest.time;
-            pair.beforeLabel.textContent = `Before  0:00.00〜${formatTime(pair.splitTime)}`;
-            pair.afterLabel.textContent = `After  ${formatTime(pair.splitTime)}〜${formatTime(pair.video.duration)}`;
-            pair.splitLabel.textContent = `最も近いフレーム\n${formatTime(pair.splitTime)} / ${(closest.score * 100).toFixed(2)}%`;
-            pair.splitLabel.style.whiteSpace = "pre-line";
+            pair.closestScore = closest.score;
             pair.result.hidden = false;
-            drawTimeline(pair);
+            renderPairResult(pair);
             await seek(pair.video, pair.splitTime);
             return skippedFrames;
         }
@@ -409,13 +463,13 @@
             if (busy) return;
             busy = true;
             updateControls();
-            exportAllButton.disabled = true;
+            splitAllButton.disabled = true;
             clearZip();
             let skipped = 0;
             try {
                 for (let index = 0; index < pairs.length; index += 1) skipped += await analyzePair(pairs[index], index);
                 status.textContent = `${pairs.length}ペアの解析が完了しました${skipped ? `（未取得 ${skipped}フレーム）` : ""}。`;
-                exportAllButton.disabled = false;
+                splitAllButton.disabled = false;
             } catch (error) {
                 status.textContent = `解析できませんでした: ${error.message}`;
             } finally {
@@ -424,24 +478,21 @@
             }
         });
 
-        async function exportSegment(pair, start, end) {
-            await seek(pair.video, start);
-            const stream = pair.video.captureStream();
-            const mimeType = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"].find((type) => MediaRecorder.isTypeSupported(type));
-            const recorder = new MediaRecorder(stream, { ...(mimeType && { mimeType }), videoBitsPerSecond: 50_000_000 });
-            const chunks = [];
-            recorder.ondataavailable = ({ data }) => data.size && chunks.push(data);
-            const completed = new Promise((resolve) => recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || "video/webm" })));
-            const stop = () => recorder.state !== "inactive" && recorder.stop();
-            const stopAtEnd = (_now, metadata) => metadata.mediaTime >= end || pair.video.ended ? stop() : pair.video.requestVideoFrameCallback(stopAtEnd);
-            pair.video.addEventListener("ended", stop, { once: true });
-            recorder.start();
-            pair.video.requestVideoFrameCallback(stopAtEnd);
-            await pair.video.play();
-            const blob = await completed;
-            pair.video.removeEventListener("ended", stop);
-            pair.video.pause();
-            return blob;
+        async function cutSegment(pair, start, end) {
+            const target = new BufferTarget();
+            const output = new Output({ format: new WebMOutputFormat(), target });
+            const conversion = await Conversion.init({
+                input: new Input({ source: new BlobSource(pair.videoFile.files[0]), formats: ALL_FORMATS }),
+                output,
+                trim: { start, end },
+                video: {
+                    quality: new Quality("very-high"),
+                    keyFrameInterval: 1
+                }
+            });
+            if (!conversion.isValid) throw new Error("このWebMを変換できません");
+            await conversion.execute();
+            return new Blob([target.buffer], { type: "video/webm" });
         }
 
         const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
@@ -513,10 +564,10 @@
             return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
         }
 
-        exportAllButton.addEventListener("click", async () => {
+        splitAllButton.addEventListener("click", async () => {
             if (busy) return;
             busy = true;
-            analyzeAllButton.disabled = exportAllButton.disabled = true;
+            analyzeAllButton.disabled = splitAllButton.disabled = true;
             clearZip();
             const files = [];
             const createdAt = new Date();
@@ -524,25 +575,29 @@
                 for (let index = 0; index < pairs.length; index += 1) {
                     const pair = pairs[index];
                     const base = pair.videoFile.files[0].name.replace(/\.webm$/i, "");
-                    status.textContent = `ペア ${index + 1}/${pairs.length} のBeforeを書き出しています…`;
+                    const shutter = pairShutterRange(pair);
+                    status.textContent = `ペア ${index + 1}/${pairs.length} のBeforeを切り分けています…`;
                     const prefix = String(index + 1).padStart(2, "0");
-                    files.push({ name: `${prefix}_${base}_before.webm`, blob: await exportSegment(pair, 0, pair.splitTime), createdAt });
-                    status.textContent = `ペア ${index + 1}/${pairs.length} のAfterを書き出しています…`;
-                    files.push({ name: `${prefix}_${base}_after.webm`, blob: await exportSegment(pair, pair.splitTime, pair.video.duration), createdAt });
+                    if (shutter.start > .02) files.push({ name: `${prefix}_${base}_before.webm`, blob: await cutSegment(pair, 0, shutter.start), createdAt });
+                    status.textContent = `ペア ${index + 1}/${pairs.length} のシャッター演出中を切り分けています…`;
+                    if (shutter.end - shutter.start > .02) files.push({ name: `${prefix}_${base}_shutter.webm`, blob: await cutSegment(pair, shutter.start, shutter.end), createdAt });
+                    status.textContent = `ペア ${index + 1}/${pairs.length} のAfterを切り分けています…`;
+                    if (pair.video.duration - shutter.end > .02) files.push({ name: `${prefix}_${base}_after.webm`, blob: await cutSegment(pair, shutter.end, pair.video.duration), createdAt });
                 }
+                if (!files.length) throw new Error("切り分け可能な区間がありません");
                 status.textContent = "ZIPを作成しています…";
                 zipUrl = URL.createObjectURL(await createZip(files));
                 const two = (value) => String(value).padStart(2, "0");
                 downloadZip.href = zipUrl;
                 downloadZip.download = `expression_split_${createdAt.getFullYear()}${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}.zip`;
                 downloadZip.hidden = false;
-                status.textContent = `${files.length}本の映像を書き出しました。`;
+                status.textContent = `${files.length}本の映像に切り分けました。`;
             } catch (error) {
-                status.textContent = `書き出せませんでした: ${error.message}`;
+                status.textContent = `切り分けできませんでした: ${error.message}`;
             } finally {
                 busy = false;
                 updateControls();
-                exportAllButton.disabled = !pairs.every(({ splitTime }) => Number.isFinite(splitTime));
+                splitAllButton.disabled = !pairs.every(({ splitTime }) => Number.isFinite(splitTime));
             }
         });
 

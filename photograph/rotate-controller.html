@@ -19,15 +19,21 @@
 
         main {
             box-sizing: border-box;
-            width: min(100%, 920px);
+            width: min(1100px, 100%);
             min-height: 100dvh;
             margin: auto;
-            padding: 32px 20px;
+            padding: 28px 20px 48px;
+        }
+
+        h1,
+        p,
+        figure {
+            margin: 0;
         }
 
         h1 {
-            margin: 0 0 8px;
-            font-size: clamp(1.5rem, 4vw, 2.2rem);
+            margin-bottom: 8px;
+            font-size: clamp(1.6rem, 4vw, 2.4rem);
         }
 
         p {
@@ -119,7 +125,9 @@
         <img id="image" alt="">
     </main>
 
-    <script>
+    <script type="module">
+        import { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Output, Quality, WebMOutputFormat } from "https://cdn.jsdelivr.net/npm/mediabunny@1.61.0/dist/bundles/mediabunny.min.mjs";
+
         const fileInput = document.getElementById("file");
         const degreesInput = document.getElementById("degrees");
         const convertButton = document.getElementById("convert");
@@ -219,41 +227,24 @@
                 }, "image/png");
                 return;
             }
-            video.pause();
-            video.currentTime = 0;
-            drawFrame();
-
-            const frameTrack = canvas.captureStream(0).getVideoTracks()[0];
-            const sourceStream = video.captureStream?.();
-            const stream = new MediaStream([frameTrack, ...(sourceStream?.getAudioTracks() || [])]);
-            const mimeType = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"]
-                .find((type) => MediaRecorder.isTypeSupported(type));
-            const recorder = new MediaRecorder(stream, {
-                ...(mimeType && { mimeType }),
-                videoBitsPerSecond: 30_000_000
-            });
-            const chunks = [];
-            let frameCallback;
-            recorder.ondataavailable = ({ data }) => data.size && chunks.push(data);
-            recorder.onstop = () => {
-                frameTrack.stop();
-                showDownload(new Blob(chunks, { type: recorder.mimeType || "video/webm" }), "webm");
-            };
-            video.onended = () => recorder.state !== "inactive" && recorder.stop();
-            const copyFrame = () => {
-                drawFrame();
-                frameTrack.requestFrame();
-                status.textContent = `変換中… ${Math.round(video.currentTime / video.duration * 100)}%`;
-                if (!video.ended) frameCallback = video.requestVideoFrameCallback(copyFrame);
-            };
-
             try {
-                recorder.start();
-                frameCallback = video.requestVideoFrameCallback(copyFrame);
-                await video.play();
+                const target = new BufferTarget();
+                const output = new Output({ format: new WebMOutputFormat(), target });
+                const conversion = await Conversion.init({
+                    input: new Input({ source: new BlobSource(fileInput.files[0]), formats: ALL_FORMATS }),
+                    output,
+                    video: {
+                        rotate: Number(degreesInput.value),
+                        allowTransformationMetadata: false,
+                        frameRate: 60,
+                        quality: new Quality("very-high")
+                    }
+                });
+                if (!conversion.isValid) throw new Error("このWebMを変換できません");
+                conversion.onProgress = (progress) => status.textContent = `変換中… ${Math.round(progress * 100)}%`;
+                await conversion.execute();
+                showDownload(new Blob([target.buffer], { type: "video/webm" }), "webm");
             } catch (error) {
-                if (frameCallback) video.cancelVideoFrameCallback(frameCallback);
-                if (recorder.state !== "inactive") recorder.stop();
                 status.textContent = `変換できませんでした: ${error.message}`;
                 convertButton.disabled = false;
             }
