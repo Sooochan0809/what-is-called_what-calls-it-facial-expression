@@ -1197,7 +1197,7 @@
                 if (nextOffset < 0) break;
                 cluster = nextCluster;
             }
-            return bytes;
+            return { bytes, firstTimecode };
         }
 
         const webmTimecodeCheck = normalizeWebmTimecodes(Uint8Array.of(
@@ -1206,7 +1206,8 @@
         ));
         console.assert(
             findWebmHeader(Uint8Array.of(0, 0x1a, 0x45, 0xdf, 0xa3)) === 1
-            && webmTimecodeCheck[7] === 0 && webmTimecodeCheck[8] === 0 && webmTimecodeCheck[17] === 100,
+            && webmTimecodeCheck.firstTimecode === 1000
+            && webmTimecodeCheck.bytes[7] === 0 && webmTimecodeCheck.bytes[8] === 0 && webmTimecodeCheck.bytes[17] === 100,
             "WebMデータを正規化できません"
         );
 
@@ -1214,11 +1215,13 @@
             const bytes = new Uint8Array(await new Blob(blobs).arrayBuffer());
             const clusterAt = findWebmCluster(bytes);
             if (!header || clusterAt < 0) throw new Error("WebMデータを作成できませんでした");
-            const clip = new Blob([header, normalizeWebmTimecodes(bytes.slice(clusterAt))], { type });
+            const normalized = normalizeWebmTimecodes(bytes.slice(clusterAt));
+            if (!Number.isFinite(normalized.firstTimecode)) throw new Error("WebMの開始時刻を取得できませんでした");
+            const clip = new Blob([header, normalized.bytes], { type });
             if (findWebmHeader(new Uint8Array(await clip.slice(0, 4).arrayBuffer())) !== 0) {
                 throw new Error("WebMヘッダーを作成できませんでした");
             }
-            return clip;
+            return { blob: clip, firstTimecodeMs: normalized.firstTimecode };
         }
 
         const overlapsCaptureWindow = ({ startAt, endAt }, capture) =>
@@ -1262,14 +1265,14 @@
                 console.error("WebM録画を開始できませんでした。", error);
                 return;
             }
-            const session = recording = { recorder, track, header: null, chunks: [], pending: null, frameCallback: 0 };
+            const startedAt = performance.now();
+            const session = recording = { recorder, track, header: null, chunks: [], pending: null, frameCallback: 0, startedAt };
             const copyFrame = () => {
                 if (recording !== session) return;
                 drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
                 track.requestFrame();
                 session.frameCallback = video.requestVideoFrameCallback(copyFrame);
             };
-            const startedAt = performance.now();
             let lastChunkAt = startedAt;
             let queue = Promise.resolve();
             const initialBlobs = [];
@@ -1301,8 +1304,12 @@
                     if (session.pending && endAt >= session.pending.endAt) {
                         const capture = session.pending;
                         session.pending = null;
-                        const blobs = session.chunks.filter((chunk) => overlapsCaptureWindow(chunk, capture)).map(({ blob }) => blob);
-                        capture.resolve(await createWebmClip(blobs, session.header, recorder.mimeType || "video/webm"));
+                        const chunks = session.chunks.filter((chunk) => overlapsCaptureWindow(chunk, capture));
+                        capture.resolve({
+                            ...await createWebmClip(chunks.map(({ blob }) => blob), session.header, recorder.mimeType || "video/webm"),
+                            startedAt: session.startedAt,
+                            endedAt: chunks.at(-1)?.endAt ?? capture.endAt
+                        });
                     }
                 }).catch((error) => {
                     session.pending?.reject(error);
@@ -1456,11 +1463,48 @@
             return { archive, file: `${emotion.key}_${Math.round(emotion.score * 100)}` };
         }
 
-        async function saveCapture(triggerAt, createdAt, names, imagePromise) {
-            const [image, clip] = await Promise.all([imagePromise, recordClip(triggerAt)]);
+        function captureMetadata(capture, timing, names) {
+            const origin = capture.startedAt + capture.firstTimecodeMs;
+            const at = (timestamp) => Math.max(0, (timestamp - origin) / 1000);
+            const trigger = at(timing.triggerAt);
+            const fullyDark = Math.max(trigger, at(timing.fullyDarkAt));
+            const openingStarted = Math.max(fullyDark, at(timing.openingStartedAt));
+            const fullyOpen = Math.max(openingStarted, at(timing.fullyOpenAt));
+            const end = Math.max(fullyOpen, at(capture.endedAt));
+            return {
+                version: 1,
+                video: `${names.file}.webm`,
+                image: `${names.file}.png`,
+                timeUnit: "seconds-from-webm-start",
+                events: { trigger, fullyDark, openingStarted, fullyOpen },
+                segments: {
+                    before: { start: 0, end: fullyDark },
+                    shutter: { start: fullyDark, end: openingStarted },
+                    after: { start: openingStarted, end }
+                }
+            };
+        }
+
+        const captureMetadataCheck = captureMetadata(
+            { startedAt: 1000, firstTimecodeMs: 2000, endedAt: 9000 },
+            { triggerAt: 5000, fullyDarkAt: 5100, openingStartedAt: 6600, fullyOpenAt: 6700 },
+            { file: "happy_99" }
+        );
+        console.assert(
+            captureMetadataCheck.events.trigger === 2
+            && captureMetadataCheck.segments.shutter.start === 2.1
+            && captureMetadataCheck.segments.shutter.end === 3.6
+            && captureMetadataCheck.segments.after.end === 6,
+            "撮影時刻JSONの計算が不正です"
+        );
+
+        async function saveCapture(triggerAt, createdAt, names, imagePromise, timingPromise) {
+            const [image, capture, timing] = await Promise.all([imagePromise, recordClip(triggerAt), timingPromise]);
+            const metadata = new Blob([JSON.stringify(captureMetadata(capture, timing, names), null, 2)], { type: "application/json" });
             const zip = await createZip([
                 { name: `${names.file}.png`, blob: image, createdAt },
-                { name: `${names.file}.webm`, blob: clip, createdAt }
+                { name: `${names.file}.webm`, blob: capture.blob, createdAt },
+                { name: `${names.file}.json`, blob: metadata, createdAt }
             ]);
             downloadBlob(zip, `${names.archive}.zip`);
         }
@@ -1620,8 +1664,11 @@
             const triggerAt = performance.now();
             const createdAt = new Date();
             const imagePromise = captureImage();
+            const timing = { triggerAt };
+            let resolveTiming;
+            const timingPromise = new Promise((resolve) => { resolveTiming = resolve; });
             const savePromise = recordingEnabled
-                ? saveCapture(triggerAt, createdAt, captureNames(createdAt), imagePromise).catch((error) => {
+                ? saveCapture(triggerAt, createdAt, captureNames(createdAt), imagePromise, timingPromise).catch((error) => {
                     console.error("画像と映像を保存できませんでした。", error);
                 })
                 : Promise.resolve();
@@ -1631,9 +1678,12 @@
                 { backgroundSize: "100% 0, 100% 0" },
                 { backgroundSize: "100% 50%, 100% 50%" }
             ], { duration: shutterTransitionDurationMs, easing: shutterEasing, fill: "forwards" });
+            const closeFinished = closeAnimation.finished.then(() => {
+                timing.fullyDarkAt = performance.now();
+            });
             let previewUrl;
             try {
-                const [, image] = await Promise.all([closeAnimation.finished, imagePromise]);
+                const [, image] = await Promise.all([closeFinished, imagePromise]);
                 previewUrl = URL.createObjectURL(image);
                 capturePreview.src = previewUrl;
                 capturePreview.hidden = false;
@@ -1641,10 +1691,12 @@
                 blink.style.backgroundSize = "100% 50%, 100% 50%";
                 closeAnimation.cancel();
                 await new Promise((resolve) => setTimeout(resolve, shutterHoldDurationMs));
+                timing.openingStartedAt = performance.now();
                 await blink.animate([
                     { backgroundSize: "100% 50%, 100% 50%" },
                     { backgroundSize: "100% 0, 100% 0" }
                 ], { duration: shutterTransitionDurationMs, easing: shutterEasing }).finished;
+                timing.fullyOpenAt = performance.now();
                 blink.hidden = true;
                 captureProgress.hidden = false;
                 await captureProgressFill.animate([
@@ -1654,6 +1706,10 @@
             } catch (error) {
                 console.error("撮影画像を表示できませんでした。", error);
             } finally {
+                timing.fullyDarkAt ??= triggerAt + shutterTransitionDurationMs;
+                timing.openingStartedAt ??= timing.fullyDarkAt + shutterHoldDurationMs;
+                timing.fullyOpenAt ??= timing.openingStartedAt + shutterTransitionDurationMs;
+                resolveTiming(timing);
                 blink.hidden = true;
                 blink.style.removeProperty("background-size");
                 captureProgress.hidden = true;

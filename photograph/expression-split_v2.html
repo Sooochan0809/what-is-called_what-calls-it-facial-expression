@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WebM区間切り分け</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, sans-serif;
+            --accent: #4f8cff;
+            --border: color-mix(in srgb, CanvasText 22%, transparent);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: Canvas;
+            color: CanvasText;
+        }
+
+        main {
+            width: min(1100px, 100%);
+            margin: auto;
+            padding: 28px 20px 48px;
+        }
+
+        h1,
+        p {
+            margin: 0;
+        }
+
+        h1 {
+            margin-bottom: 8px;
+            font-size: clamp(1.6rem, 4vw, 2.4rem);
+        }
+
+        .lead {
+            margin-bottom: 22px;
+            opacity: .7;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 12px;
+            margin-top: 22px;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+        }
+
+        input,
+        button,
+        a {
+            min-height: 42px;
+            padding: 9px 13px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            font: inherit;
+        }
+
+        button,
+        a {
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: .45;
+        }
+
+        output {
+            display: block;
+            min-height: 1.5em;
+            margin: 16px 0;
+        }
+
+        a[hidden] {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>WebM区間一括切り分け</h1>
+        <p class="lead">複数の撮影ZIPを、JSONに従ってBefore／暗転中／Afterの3区間に一括で分けます。</p>
+        <label>撮影ZIP
+            <input id="zipFiles" type="file" accept="application/zip,.zip" multiple>
+        </label>
+        <output id="status">WebM・撮影JSONが入ったZIPを選択してください。</output>
+        <div class="actions">
+            <button id="splitAll" type="button" disabled>全て切り分ける</button>
+            <a id="downloadZip" hidden>ZIPをダウンロード</a>
+        </div>
+    </main>
+
+    <script type="module">
+        import { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Output, Quality, WebMOutputFormat } from "https://cdn.jsdelivr.net/npm/mediabunny@1.61.0/dist/bundles/mediabunny.min.mjs";
+        const zipFiles = document.getElementById("zipFiles");
+        const splitAllButton = document.getElementById("splitAll");
+        const downloadZip = document.getElementById("downloadZip");
+        const status = document.getElementById("status");
+        let archives = [];
+        let zipUrl;
+        let busy = false;
+
+        function validateMetadata(metadata) {
+            const segments = metadata?.segments;
+            const trigger = Number(metadata?.events?.trigger);
+            if (metadata?.version !== 1 || metadata.timeUnit !== "seconds-from-webm-start"
+                || !Number.isFinite(trigger)
+                || ["before", "shutter", "after"].some((name) => {
+                    const { start, end } = segments?.[name] || {};
+                    return !Number.isFinite(Number(start)) || !Number.isFinite(Number(end))
+                        || Number(start) < 0 || Number(end) <= Number(start);
+                })
+                || trigger < Number(segments?.before.start) || trigger > Number(segments?.before.end)
+                || Number(segments?.before.end) > Number(segments?.shutter.start)
+                || Number(segments?.shutter.end) > Number(segments?.after.start)) {
+                throw new Error("対応していない撮影JSONです");
+            }
+            return metadata;
+        }
+
+        function archiveSegments(archive) {
+            const duration = archive.duration;
+            const clamp = (value) => Math.max(0, Math.min(duration, Number(value)));
+            return Object.fromEntries(["before", "shutter", "after"].map((name) => [name, {
+                start: clamp(archive.metadata.segments[name].start),
+                end: clamp(archive.metadata.segments[name].end)
+            }]));
+        }
+
+        console.assert(validateMetadata({
+            version: 1,
+            timeUnit: "seconds-from-webm-start",
+            events: { trigger: 2 },
+            segments: {
+                before: { start: 0, end: 2.1 },
+                shutter: { start: 2.1, end: 3.6 },
+                after: { start: 3.6, end: 7 }
+            }
+        }).segments.shutter.end === 3.6, "撮影JSONの検証が不正です");
+
+        async function readZip(file) {
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            const view = new DataView(bytes.buffer);
+            let end = bytes.length - 22;
+            while (end >= Math.max(0, bytes.length - 65557) && view.getUint32(end, true) !== 0x06054b50) end -= 1;
+            if (end < 0) throw new Error("ZIPの終端情報が見つかりません");
+            const count = view.getUint16(end + 10, true);
+            let offset = view.getUint32(end + 16, true);
+            if (count === 0xffff) throw new Error("ZIP64には対応していません");
+            const decoder = new TextDecoder();
+            const entries = [];
+            for (let index = 0; index < count; index += 1) {
+                if (offset + 46 > bytes.length || view.getUint32(offset, true) !== 0x02014b50) throw new Error("ZIPのファイル情報が壊れています");
+                const flags = view.getUint16(offset + 8, true);
+                const method = view.getUint16(offset + 10, true);
+                const compressedSize = view.getUint32(offset + 20, true);
+                const size = view.getUint32(offset + 24, true);
+                const nameLength = view.getUint16(offset + 28, true);
+                const extraLength = view.getUint16(offset + 30, true);
+                const commentLength = view.getUint16(offset + 32, true);
+                const localOffset = view.getUint32(offset + 42, true);
+                const name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength));
+                if (flags & 1) throw new Error("暗号化ZIPには対応していません");
+                if (view.getUint32(localOffset, true) !== 0x04034b50) throw new Error("ZIP内のファイル位置が不正です");
+                const dataAt = localOffset + 30 + view.getUint16(localOffset + 26, true) + view.getUint16(localOffset + 28, true);
+                const compressed = file.slice(dataAt, dataAt + compressedSize);
+                let blob;
+                if (method === 0) blob = compressed;
+                else if (method === 8 && typeof DecompressionStream === "function") {
+                    blob = await new Response(compressed.stream().pipeThrough(new DecompressionStream("deflate-raw"))).blob();
+                } else throw new Error(`ZIPの圧縮方式${method}には対応していません`);
+                if (blob.size !== size) throw new Error(`${name}を正しく展開できませんでした`);
+                entries.push({ name, blob });
+                offset += 46 + nameLength + extraLength + commentLength;
+            }
+            return entries.filter(({ name }) => name && !name.endsWith("/") && !name.startsWith("__MACOSX/"));
+        }
+
+        function clearZip() {
+            if (zipUrl) URL.revokeObjectURL(zipUrl);
+            zipUrl = "";
+            downloadZip.hidden = true;
+        }
+
+        function updateControls() {
+            zipFiles.disabled = busy;
+            splitAllButton.disabled = busy || !archives.length;
+        }
+
+        async function loadArchive(file) {
+            const entries = await readZip(file);
+            const byExtension = (extension) => entries.filter(({ name }) => name.toLowerCase().endsWith(extension));
+            const videos = byExtension(".webm");
+            const metadataFiles = byExtension(".json");
+            if (videos.length !== 1 || metadataFiles.length !== 1) {
+                throw new Error(`${file.name}: WebMと撮影JSONを1つずつ入れてください`);
+            }
+            const videoName = videos[0].name.split("/").pop();
+            const videoBlob = new Blob([videos[0].blob], { type: "video/webm" });
+            const metadata = validateMetadata(JSON.parse(await metadataFiles[0].blob.text()));
+            if (metadata.video && metadata.video !== videoName) {
+                throw new Error(`${file.name}: ${metadata.video}に対応するWebMが入っていません`);
+            }
+            const input = new Input({ source: new BlobSource(videoBlob), formats: ALL_FORMATS });
+            const duration = await input.computeDuration();
+            if (!(duration > 0)) throw new Error(`${file.name}: WebMの長さを取得できません`);
+            return { videoName, videoBlob, metadata, duration };
+        }
+
+        async function cutSegment(archive, start, end) {
+            const target = new BufferTarget();
+            const output = new Output({ format: new WebMOutputFormat(), target });
+            const conversion = await Conversion.init({
+                input: new Input({ source: new BlobSource(archive.videoBlob), formats: ALL_FORMATS }),
+                output,
+                trim: { start, end },
+                video: {
+                    quality: new Quality("very-high"),
+                    keyFrameInterval: 1
+                }
+            });
+            if (!conversion.isValid) throw new Error("このWebMを変換できません");
+            await conversion.execute();
+            return new Blob([target.buffer], { type: "video/webm" });
+        }
+
+        const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
+            let value = index;
+            for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+            return value >>> 0;
+        });
+        async function blobCrc32(blob) {
+            let crc = 0xffffffff;
+            for await (const bytes of blob.stream()) for (const byte of bytes) crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+        function zipStamp(date) {
+            return {
+                date: ((Math.max(1980, date.getFullYear()) - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+                time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2)
+            };
+        }
+        async function createZip(files) {
+            const encoder = new TextEncoder();
+            const localParts = [];
+            const entries = [];
+            let offset = 0;
+            for (const file of files) {
+                const name = encoder.encode(file.name);
+                const crc = await blobCrc32(file.blob);
+                const stamp = zipStamp(file.createdAt);
+                const header = new Uint8Array(30 + name.length);
+                const view = new DataView(header.buffer);
+                view.setUint32(0, 0x04034b50, true);
+                view.setUint16(4, 20, true);
+                view.setUint16(6, 0x0800, true);
+                view.setUint16(10, stamp.time, true);
+                view.setUint16(12, stamp.date, true);
+                view.setUint32(14, crc, true);
+                view.setUint32(18, file.blob.size, true);
+                view.setUint32(22, file.blob.size, true);
+                view.setUint16(26, name.length, true);
+                header.set(name, 30);
+                localParts.push(header, file.blob);
+                entries.push({ name, crc, stamp, size: file.blob.size, offset });
+                offset += header.length + file.blob.size;
+            }
+            const centralParts = entries.map((entry) => {
+                const header = new Uint8Array(46 + entry.name.length);
+                const view = new DataView(header.buffer);
+                view.setUint32(0, 0x02014b50, true);
+                view.setUint16(4, 20, true);
+                view.setUint16(6, 20, true);
+                view.setUint16(8, 0x0800, true);
+                view.setUint16(12, entry.stamp.time, true);
+                view.setUint16(14, entry.stamp.date, true);
+                view.setUint32(16, entry.crc, true);
+                view.setUint32(20, entry.size, true);
+                view.setUint32(24, entry.size, true);
+                view.setUint16(28, entry.name.length, true);
+                view.setUint32(42, entry.offset, true);
+                header.set(entry.name, 46);
+                return header;
+            });
+            const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+            const end = new Uint8Array(22);
+            const view = new DataView(end.buffer);
+            view.setUint32(0, 0x06054b50, true);
+            view.setUint16(8, entries.length, true);
+            view.setUint16(10, entries.length, true);
+            view.setUint32(12, centralSize, true);
+            view.setUint32(16, offset, true);
+            return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+        }
+
+        createZip([{ name: "check.json", blob: new Blob(["{}"]), createdAt: new Date() }])
+            .then(readZip)
+            .then(async ([entry]) => console.assert(entry.name === "check.json" && await entry.blob.text() === "{}", "ZIPの読込処理が不正です"))
+            .catch((error) => console.error("ZIPの読込確認に失敗しました。", error));
+
+        zipFiles.addEventListener("change", async () => {
+            const files = [...zipFiles.files];
+            archives = [];
+            clearZip();
+            if (!files.length) {
+                status.textContent = "WebM・撮影JSONが入ったZIPを選択してください。";
+                updateControls();
+                return;
+            }
+            busy = true;
+            updateControls();
+            try {
+                for (let index = 0; index < files.length; index += 1) {
+                    status.textContent = `${index + 1}/${files.length}件目のZIPを読み込んでいます…`;
+                    archives.push(await loadArchive(files[index]));
+                }
+                status.textContent = `${archives.length}件の撮影ZIPを読み込みました。`;
+            } catch (error) {
+                archives = [];
+                zipFiles.value = "";
+                status.textContent = `撮影ZIPを読み込めませんでした: ${error.message}`;
+            } finally {
+                busy = false;
+                updateControls();
+            }
+        });
+
+        splitAllButton.addEventListener("click", async () => {
+            if (busy) return;
+            busy = true;
+            splitAllButton.disabled = true;
+            clearZip();
+            const files = [];
+            const createdAt = new Date();
+            try {
+                for (let index = 0; index < archives.length; index += 1) {
+                    const archive = archives[index];
+                    const base = archive.videoName.replace(/\.webm$/i, "");
+                    const segments = archiveSegments(archive);
+                    status.textContent = `${index + 1}/${archives.length}件目のBeforeを切り分けています…`;
+                    const prefix = String(index + 1).padStart(2, "0");
+                    if (segments.before.end - segments.before.start > .02) files.push({ name: `${prefix}_${base}_before.webm`, blob: await cutSegment(archive, segments.before.start, segments.before.end), createdAt });
+                    status.textContent = `${index + 1}/${archives.length}件目のシャッター暗転中を切り分けています…`;
+                    if (segments.shutter.end - segments.shutter.start > .02) files.push({ name: `${prefix}_${base}_shutter.webm`, blob: await cutSegment(archive, segments.shutter.start, segments.shutter.end), createdAt });
+                    status.textContent = `${index + 1}/${archives.length}件目のAfterを切り分けています…`;
+                    if (segments.after.end - segments.after.start > .02) files.push({ name: `${prefix}_${base}_after.webm`, blob: await cutSegment(archive, segments.after.start, segments.after.end), createdAt });
+                }
+                if (!files.length) throw new Error("切り分け可能な区間がありません");
+                status.textContent = "ZIPを作成しています…";
+                zipUrl = URL.createObjectURL(await createZip(files));
+                const two = (value) => String(value).padStart(2, "0");
+                downloadZip.href = zipUrl;
+                downloadZip.download = `expression_split_${createdAt.getFullYear()}${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}.zip`;
+                downloadZip.hidden = false;
+                status.textContent = `${files.length}本の映像に切り分けました。`;
+            } catch (error) {
+                status.textContent = `切り分けできませんでした: ${error.message}`;
+            } finally {
+                busy = false;
+                updateControls();
+            }
+        });
+
+        window.addEventListener("pagehide", clearZip);
+        updateControls();
+    </script>
+</body>
+
+</html>
