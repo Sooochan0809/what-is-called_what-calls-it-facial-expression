@@ -795,6 +795,7 @@
         let partIntroTimer = 0;
         let partIntroDurationMs = 3000;
         let tutorialSteps = [];
+        let tutorialStepIndex = 0;
         let tutorialTimer = 0;
         let tutorialEffectTimer = 0;
         let tutorialShown = false;
@@ -842,13 +843,15 @@
 
         function positionCard(card, anchor, insideAnchor = false) {
             const containerRect = photographScene.getBoundingClientRect();
+            if (insideAnchor) {
+                card.style.top = `${(containerRect.height - card.offsetHeight) / 2}px`;
+                card.style.left = `${(containerRect.width - card.offsetWidth) / 2}px`;
+                return;
+            }
             const anchorRect = anchor.getBoundingClientRect();
             const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-card-gap"));
             const left = anchorRect.left - containerRect.left + (anchorRect.width - card.offsetWidth) / 2;
-            const top = insideAnchor
-                ? anchorRect.top - containerRect.top + anchorRect.height * 0
-                : anchorRect.bottom - containerRect.top + gap;
-            card.style.top = `${top}px`;
+            card.style.top = `${anchorRect.bottom - containerRect.top + gap}px`;
             card.style.left = `${Math.min(Math.max(24, left), containerRect.width - card.offsetWidth - 24)}px`;
         }
 
@@ -892,6 +895,12 @@
         }
 
         function updateFacePosition(box) {
+            if (!tutorialOverlay.hidden && tutorialOverlay.dataset.target === "frameGuide") {
+                const ready = faceIsLargeEnough(box);
+                frameGuide.classList.toggle("is-face-too-small", !ready);
+                if (ready) showTutorialStep(tutorialStepIndex + 1);
+                return;
+            }
             const active = !photographScene.hidden && partIntro.hidden && tutorialOverlay.hidden && !captureInProgress;
             if (!active || (!rotationTimer && !facePositionPaused)) return;
             setFacePositionPaused(!faceIsLargeEnough(box));
@@ -1019,6 +1028,8 @@
         }
 
         function showTutorialStep(index = 0) {
+            clearTimeout(tutorialTimer);
+            tutorialStepIndex = index;
             if (index >= tutorialSteps.length) {
                 stopTutorial();
                 paintScore(0);
@@ -1039,7 +1050,7 @@
             positionCard(tutorialCard, cardAnchor, step.target === "frameGuide");
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
             if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
-            tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);
+            if (step.target !== "frameGuide") tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);
         }
 
         function showTutorial() {
