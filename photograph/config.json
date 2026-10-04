@@ -68,6 +68,7 @@
     },
     {
       "text": "楽しみだった旅行が中止に...",
+      "judgmentDelayMs": 2000,
       "emotions": [
         "sad",
         "angry",
