@@ -313,8 +313,8 @@
             position: absolute;
             left: 50%;
             top: 50%;
-            width: min(88%, 880px);
-            height: min(92%, 1248px);
+            width: min(94%, 940px);
+            height: min(96%, 1300px);
             border: 2px solid var(--color-positive);
             border-radius: 50%;
             transform: translate(-50%, -50%);
@@ -898,7 +898,15 @@
             if (!tutorialOverlay.hidden && tutorialOverlay.dataset.target === "frameGuide") {
                 const ready = faceIsLargeEnough(box);
                 frameGuide.classList.toggle("is-face-too-small", !ready);
-                if (ready) showTutorialStep(tutorialStepIndex + 1);
+                if (ready && !tutorialTimer) {
+                    tutorialTimer = setTimeout(
+                        () => showTutorialStep(tutorialStepIndex + 1),
+                        tutorialSteps[tutorialStepIndex].durationMs
+                    );
+                } else if (!ready) {
+                    clearTimeout(tutorialTimer);
+                    tutorialTimer = 0;
+                }
                 return;
             }
             const active = !photographScene.hidden && partIntro.hidden && tutorialOverlay.hidden && !captureInProgress;
@@ -1029,6 +1037,7 @@
 
         function showTutorialStep(index = 0) {
             clearTimeout(tutorialTimer);
+            tutorialTimer = 0;
             tutorialStepIndex = index;
             if (index >= tutorialSteps.length) {
                 stopTutorial();

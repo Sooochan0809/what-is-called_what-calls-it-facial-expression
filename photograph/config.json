@@ -17,7 +17,7 @@
       {
         "target": "frameGuide",
         "text": "顔の位置を円の中にぴったり収まるように調整してください",
-        "durationMs": 5000
+        "durationMs": 2000
       },
       {
         "target": "scoreBar",
@@ -41,7 +41,7 @@
       }
     ]
   },
-  "faceGuideMinWidthRatio": 0.80,
+  "faceGuideMinWidthRatio": 0.85,
   "scoreSegmentCount": 10,
   "scoreStepIntervalMs": 80,
   "shutter": {
