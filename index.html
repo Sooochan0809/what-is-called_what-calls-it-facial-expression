@@ -15,45 +15,67 @@
 
         main {
             min-height: 100svh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 0.65rem;
-            text-align: center;
-        }
-
-        h1,
-        p {
-            margin: 0;
-            line-height: 1.5;
+            box-sizing: border-box;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
         }
 
         h1 {
-            font-weight: 600;
-            font-size: clamp(1.6rem, 3vw, 2.4rem);
+            margin: 0 0 1.5rem;
+            font-size: clamp(1.4rem, 3vw, 2rem);
+            line-height: 1.5;
         }
 
-        p {
+        h1 span {
+            display: block;
             font-family: Arial, sans-serif;
-            font-size: clamp(0.88rem, 1.8vw, 1.2rem);
+            font-size: 0.6em;
+            font-weight: 400;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 1.5rem;
+        }
+
+        li {
+            margin: 0.65rem 0;
+            line-height: 1.5;
+        }
+
+        li li {
+            margin: 0.35rem 0;
         }
 
         a {
             color: inherit;
-            text-decoration: none;
         }
     </style>
 </head>
 
 <body>
     <main>
-        <h1>表情と<a href="training/index.html">呼ばれる</a>／<a href="layering/index.html">呼ぶ</a>モノ ver.1.0</h1>
-        <p>What Is <a href="training/index.html">Called</a> / What <a href="layering/index.html">Calls</a> It “Facial
-            Expression” ver.1.0</p>
-        <h1>表情と<a href="photograph/index.html">呼ばれる</a>／<a href="layering/index.html">呼ぶ</a>モノ ver.2.0</h1>
-        <p>What Is <a href="photograph/index.html">Called</a> / What <a href="layering/index.html">Calls</a> It “Facial
-            Expression” ver.2.0</p>
+        <div>
+            <h1>
+                表情と呼ばれる／呼ぶモノ
+                <span lang="en">What Is Called / What Calls It “Facial Expression”</span>
+            </h1>
+            <nav aria-label="ページ一覧">
+                <ul>
+                    <li>
+                        <a href="photograph/index.html">表情と呼ばれるモノ ver.2.0</a>
+                        <ul>
+                            <li><a href="photograph/expression-split_v2.html">切り分けver2.0</a></li>
+                            <li><a href="photograph/expression-split_v1.html">切り分けver1.0</a></li>
+                            <li><a href="photograph/rotate-controller.html">回転調整</a></li>
+                        </ul>
+                    </li>
+                    <li><a href="training/index.html">表情と呼ぶモノ ver.1.0</a></li>
+                    <li><a href="layering/index.html">表情と呼ばれるモノ ver.1.0</a></li>
+                </ul>
+            </nav>
+        </div>
     </main>
 </body>
 
