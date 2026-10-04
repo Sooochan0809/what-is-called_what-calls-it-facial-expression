@@ -1159,6 +1159,9 @@
             shutterHoldDurationMs = Math.max(0, Number(shutter.holdDurationMs ?? 60));
             shutterPreviewDurationMs = Math.max(0, Number(shutter.previewDurationMs ?? 2000) || 0);
             shutterEasing = shutter.easing || "ease-in-out";
+            const shutterVolume = Number(shutter.volume ?? 1);
+            if (!(shutterVolume >= 0 && shutterVolume <= 1)) throw new Error("シャッター音量の設定は0.0〜1.0にしてください");
+            shutterAudio.volume = shutterVolume;
             const recordingConfig = config.recording || {};
             recordingBeforeMs = Math.max(0, Number(recordingConfig.secondsBefore ?? 2) || 0) * 1000;
             recordingAfterMs = Math.max(0, Number(recordingConfig.secondsAfter ?? 3) || 0) * 1000;

@@ -49,6 +49,7 @@
     "transitionDurationMs": 100,
     "holdDurationMs": 1500,
     "previewDurationMs": 3000,
+    "volume": 0.6,
     "easing": "ease-in-out"
   },
   "recording": {
