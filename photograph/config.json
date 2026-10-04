@@ -22,12 +22,12 @@
       {
         "target": "scoreBar",
         "text": "あなたの表情の適切さを装置が判定して、最高の瞬間を撮影してくれます。",
-        "durationMs": 6000
+        "durationMs": 8000
       },
       {
         "target": "situationTimer",
         "text": "制限時間は20秒です",
-        "durationMs": 5000
+        "durationMs": 6000
       },
       {
         "target": "timeoutShutter",
@@ -41,7 +41,7 @@
       }
     ]
   },
-  "faceGuideMinWidthRatio": 0.82,
+  "faceGuideMinWidthRatio": 0.80,
   "scoreSegmentCount": 10,
   "scoreStepIntervalMs": 80,
   "shutter": {
@@ -49,7 +49,7 @@
     "transitionDurationMs": 100,
     "holdDurationMs": 1500,
     "previewDurationMs": 3000,
-    "volume": 0.6,
+    "volume": 0.4,
     "easing": "ease-in-out"
   },
   "recording": {
