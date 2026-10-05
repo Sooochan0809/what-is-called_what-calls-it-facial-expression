@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WebM→MOV変換</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: Canvas;
+            color: CanvasText;
+        }
+
+        main {
+            width: min(720px, 100%);
+            margin: auto;
+            padding: 32px 20px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+        }
+
+        p {
+            margin: 0 0 24px;
+            opacity: .7;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: end;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+        }
+
+        input,
+        button,
+        a {
+            min-height: 42px;
+            padding: 9px 13px;
+            border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+            border-radius: 7px;
+            font: inherit;
+        }
+
+        button,
+        a {
+            background: #1473e6;
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: .45;
+        }
+
+        a.downloaded {
+            background: #27864a;
+        }
+
+        output {
+            display: block;
+            min-height: 1.5em;
+            margin: 20px 0;
+        }
+
+        ul {
+            display: grid;
+            gap: 10px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .error {
+            color: #d33;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>WebM→MOV変換</h1>
+        <p>解像度とフレームレートを維持し、H.264の最高品質設定で変換します。処理はブラウザ内だけで行われます。</p>
+        <div class="controls">
+            <label>WebMファイル
+                <input id="files" type="file" accept="video/webm,.webm" multiple>
+            </label>
+            <button id="convert" type="button" disabled>すべて変換</button>
+        </div>
+        <output id="status">WebMファイルを選択してください。</output>
+        <ul id="results"></ul>
+    </main>
+
+    <script type="module">
+        import {
+            BlobSource,
+            BufferTarget,
+            Conversion,
+            Input,
+            MovOutputFormat,
+            Output,
+            Quality,
+            WEBM
+        } from "https://cdn.jsdelivr.net/npm/mediabunny@1.61.0/dist/bundles/mediabunny.min.mjs";
+
+        const filesInput = document.getElementById("files");
+        const convertButton = document.getElementById("convert");
+        const status = document.getElementById("status");
+        const results = document.getElementById("results");
+        const resultUrls = [];
+
+        function clearResults() {
+            resultUrls.splice(0).forEach(URL.revokeObjectURL);
+            results.replaceChildren();
+        }
+
+        async function convertFile(file, index, total) {
+            const target = new BufferTarget();
+            const output = new Output({ format: new MovOutputFormat(), target });
+            const conversion = await Conversion.init({
+                input: new Input({ source: new BlobSource(file), formats: [WEBM] }),
+                output,
+                video: { codec: "avc", quality: new Quality("very-high") },
+                audio: { codec: "aac", quality: new Quality("very-high") }
+            });
+            if (!conversion.isValid) throw new Error("このWebMをMOVへ変換できません");
+            conversion.onProgress = (progress) => {
+                status.textContent = `${index + 1}/${total} ${file.name} を変換中… ${Math.round(progress * 100)}%`;
+            };
+            await conversion.execute();
+            return new Blob([target.buffer], { type: "video/quicktime" });
+        }
+
+        filesInput.addEventListener("change", () => {
+            clearResults();
+            const count = filesInput.files.length;
+            convertButton.disabled = !count;
+            status.textContent = count ? `${count}件のWebMを選択しました。` : "WebMファイルを選択してください。";
+        });
+
+        convertButton.addEventListener("click", async () => {
+            const files = [...filesInput.files];
+            if (!files.length) return;
+            clearResults();
+            filesInput.disabled = convertButton.disabled = true;
+            let completed = 0;
+            for (const [index, file] of files.entries()) {
+                const item = document.createElement("li");
+                try {
+                    const blob = await convertFile(file, index, files.length);
+                    const url = URL.createObjectURL(blob);
+                    resultUrls.push(url);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = file.name.replace(/\.webm$/i, "") + ".mov";
+                    link.textContent = "ダウンロード";
+                    link.addEventListener("click", () => link.classList.add("downloaded"));
+                    item.append(file.name, link);
+                    completed += 1;
+                } catch (error) {
+                    item.className = "error";
+                    item.textContent = `${file.name}: ${error.message}`;
+                }
+                results.append(item);
+            }
+            status.textContent = `${completed}/${files.length}件の変換が完了しました。`;
+            filesInput.disabled = false;
+            convertButton.disabled = false;
+        });
+
+        window.addEventListener("pagehide", clearResults);
+    </script>
+</body>
+
+</html>
