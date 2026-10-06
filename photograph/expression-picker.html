@@ -60,12 +60,14 @@
             background: var(--panel);
         }
 
-        .controls label:first-child {
+        .toolbar label,
+        .fileName {
             flex: 1 1 300px;
         }
 
-        .controls .removePanel {
-            margin-left: auto;
+        .fileName {
+            align-self: center;
+            overflow-wrap: anywhere;
         }
 
         label {
@@ -93,11 +95,6 @@
             background: var(--accent);
             color: white;
             cursor: pointer;
-        }
-
-        button.secondary {
-            background: transparent;
-            color: CanvasText;
         }
 
         button:disabled {
@@ -196,13 +193,11 @@
         }
 
         @media (max-width: 680px) {
+            .toolbar label,
+            .toolbar button,
             .controls label,
             .controls button {
                 width: 100%;
-            }
-
-            .controls .removePanel {
-                margin-left: 0;
             }
         }
     </style>
@@ -213,7 +208,10 @@
         <h1>Expression Picker</h1>
         <p class="lead">複数の動画から、指定した表情が安定しているフレームを一括抽出します。</p>
         <div class="toolbar">
-            <button id="addPanel" class="secondary" type="button">追加</button>
+            <label>
+                videos
+                <input id="files" type="file" accept="video/webm,video/*" multiple>
+            </label>
             <button id="analyzeAll" type="button" disabled>すべて解析</button>
         </div>
         <output id="status">モデルを読み込んでいます。</output>
@@ -224,13 +222,11 @@
     <template id="panelTemplate">
         <section class="panel">
             <div class="controls">
-                <label>
-                    video
-                    <input class="file" type="file" accept="video/webm,video/*">
-                </label>
+                <strong class="fileName"></strong>
                 <label>
                     emotion
                     <select class="emotion">
+                        <option value="complicated">complicated</option>
                         <option value="neutral">neutral</option>
                         <option value="happy">happy</option>
                         <option value="sad">sad</option>
@@ -248,10 +244,9 @@
                     min score
                     <input class="minScore" type="number" min="0" max="1" step="0.01" value="0.7">
                 </label>
-                <button class="removePanel secondary" type="button">削除</button>
             </div>
             <div class="status">
-                <span class="message">動画を選択してください。</span>
+                <span class="message">待機中</span>
                 <progress value="0" max="1" hidden></progress>
                 <button class="downloadAll" type="button" disabled>download all</button>
             </div>
@@ -265,8 +260,8 @@
             const $ = (id) => document.getElementById(id);
             const MODEL_URL = "../modules/faceAPI/models";
             const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
-            const [video, panelList, panelTemplate, addPanelButton, analyzeAllButton, status] =
-                ["analysisVideo", "panelList", "panelTemplate", "addPanel", "analyzeAll", "status"].map($);
+            const [video, files, panelList, panelTemplate, analyzeAllButton, status] =
+                ["analysisVideo", "files", "panelList", "panelTemplate", "analyzeAll", "status"].map($);
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
             const frameCanvas = document.createElement("canvas");
             const frameCtx = frameCanvas.getContext("2d");
@@ -285,6 +280,12 @@
 
             const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
             const mean = (values) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+            const complicatedScore = (expressions) => {
+                const [first, second] = Object.values(expressions).sort((a, b) => b - a);
+                return 1 - first + second;
+            };
+            console.assert(complicatedScore({ a: .5, b: .5 }) === 1 && complicatedScore({ a: 1, b: 0 }) === 0,
+                "complicated score is invalid");
             const variance = (values) => {
                 const avg = mean(values);
                 return mean(values.map((value) => (value - avg) ** 2));
@@ -407,13 +408,16 @@
                 const selectedEmotion = panel.resultEmotion;
                 const targetCount = clamp(Math.round(Number(panel.count.value) || 8), 1, 24);
                 const minEmotionScore = clamp(Number(panel.minScore.value) || 0, 0, 1);
+                const scoreFrom = (frame) => selectedEmotion === "complicated"
+                    ? complicatedScore(frame.expressions)
+                    : frame.expressions[selectedEmotion] || 0;
                 const candidates = frames
                     .map((frame, index) => {
                         const from = Math.max(0, index - 2);
                         const to = Math.min(frames.length, index + 3);
                         const neighbors = frames.slice(from, to);
-                        const values = neighbors.map((item) => item.expressions[selectedEmotion] || 0);
-                        const expressionScore = frame.expressions[selectedEmotion] || 0;
+                        const values = neighbors.map(scoreFrom);
+                        const expressionScore = scoreFrom(frame);
                         const stabilityScore = clamp(1 - Math.sqrt(variance(values)) * 4, 0, 1);
                         const totalScore = expressionScore * 0.48 + stabilityScore * 0.24 + frame.quality.quality * 0.28;
                         return { ...frame, expressionScore, stabilityScore, totalScore };
@@ -450,10 +454,22 @@
                 anchor.click();
             };
 
+            const expressionValues = (expressions) => Object.entries(expressions)
+                .sort(([, a], [, b]) => b - a)
+                .map(([name, score]) => [name, Math.round(score * 100)])
+                .filter(([, score]) => score > 0);
+
             const filenameFor = (panel, pick, index) => {
-                const videoName = panel.file.files[0].name.replace(/\.[^.]+$/, "");
+                if (panel.resultEmotion === "complicated") {
+                    return `${expressionValues(pick.expressions).map(([name, score]) => `${name}_${score}`).join("-")}.png`;
+                }
+                const videoName = panel.file.name.replace(/\.[^.]+$/, "");
                 return `${videoName}_${panel.resultEmotion}_${String(index + 1).padStart(2, "0")}_${pick.time.toFixed(1)}s.png`;
             };
+
+            const expressionBreakdown = (expressions) => expressionValues(expressions)
+                .map(([name, score]) => `${name}: ${score}%`)
+                .join(" · ");
 
             const renderResults = (panel) => {
                 panel.results.innerHTML = "";
@@ -467,6 +483,7 @@
                         <div class="meta">
                             <strong>total ${pick.totalScore.toFixed(3)} / ${formatTime(pick.time)}</strong>
                             <span>${panel.resultEmotion} ${pick.expressionScore.toFixed(3)} · stable ${pick.stabilityScore.toFixed(3)}</span>
+                            ${panel.resultEmotion === "complicated" ? `<span>${expressionBreakdown(pick.expressions)}</span>` : ""}
                             <span>front ${pick.quality.frontalScore.toFixed(3)} · detect ${pick.quality.detectionScore.toFixed(3)}</span>
                             <button type="button">download</button>
                         </div>
@@ -485,11 +502,11 @@
             };
 
             const updateControls = () => {
-                addPanelButton.disabled = busy;
+                files.disabled = busy;
                 analyzeAllButton.disabled = busy || !modelsReady || !supportsVideoFrameCallback
-                    || panels.some((panel) => !panel.file.files[0]);
+                    || !panels.length;
                 panels.forEach((panel) => {
-                    [panel.file, panel.emotion, panel.count, panel.minScore, panel.remove].forEach((control) => control.disabled = busy);
+                    [panel.emotion, panel.count, panel.minScore].forEach((control) => control.disabled = busy);
                     panel.download.disabled = busy || !panel.picks.length;
                 });
             };
@@ -502,15 +519,14 @@
                 setTimeout(updateControls, Math.max(300, panel.picks.length * 180));
             };
 
-            const addPanel = () => {
+            const addPanel = (file) => {
                 const element = panelTemplate.content.firstElementChild.cloneNode(true);
                 const panel = {
                     element,
-                    file: element.querySelector(".file"),
+                    file,
                     emotion: element.querySelector(".emotion"),
                     count: element.querySelector(".count"),
                     minScore: element.querySelector(".minScore"),
-                    remove: element.querySelector(".removePanel"),
                     message: element.querySelector(".message"),
                     progress: element.querySelector("progress"),
                     download: element.querySelector(".downloadAll"),
@@ -518,29 +534,28 @@
                     empty: element.querySelector(".empty"),
                     picks: []
                 };
-                panel.file.addEventListener("change", () => {
-                    clearPanel(panel);
-                    setPanelStatus(panel, panel.file.files[0]?.name || "動画を選択してください。");
-                    updateControls();
-                });
-                panel.remove.addEventListener("click", () => {
-                    panels.splice(panels.indexOf(panel), 1);
-                    element.remove();
-                    if (!panels.length) addPanel();
-                    updateControls();
-                });
+                element.querySelector(".fileName").textContent = file.name;
                 panel.download.addEventListener("click", () => downloadPanel(panel));
                 panels.push(panel);
                 panelList.append(element);
-                updateControls();
             };
+
+            files.addEventListener("change", () => {
+                panels.splice(0);
+                panelList.replaceChildren();
+                [...files.files].forEach(addPanel);
+                status.textContent = panels.length
+                    ? `${panels.length}件の動画を選択しました。`
+                    : "動画を選択してください。";
+                updateControls();
+            });
 
             const analyzePanel = async (panel, panelIndex) => {
                 clearPanel(panel, "解析中です。");
                 panel.resultEmotion = panel.emotion.value;
                 const frames = [];
                 let analyzedFrames = 0;
-                const url = await loadVideo(panel.file.files[0]);
+                const url = await loadVideo(panel.file);
 
                 try {
                     await seek(0);
@@ -576,7 +591,6 @@
                 }
             };
 
-            addPanelButton.addEventListener("click", addPanel);
             analyzeAllButton.addEventListener("click", async () => {
                 if (busy) return;
                 busy = true;
@@ -600,13 +614,11 @@
                 }
             });
 
-            addPanel();
-
             try {
                 await models;
                 modelsReady = true;
                 status.textContent = supportsVideoFrameCallback
-                    ? "すべてのパネルに動画を設定してください。"
+                    ? "動画を選択してください。"
                     : "このブラウザはフレーム単位の解析に対応していません。";
             } catch (error) {
                 console.error(error);
