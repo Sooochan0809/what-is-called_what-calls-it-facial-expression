@@ -262,7 +262,7 @@
             let frames = [];
             let picks = [];
             let token = 0;
-            let cancelFrameWait = () => {};
+            let cancelFrameWait;
 
             const models = Promise.all([
                 faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
@@ -301,27 +301,19 @@
             });
 
             const nextVideoFrame = () => new Promise((resolve, reject) => {
-                let callbackId = 0;
-                let settled = false;
                 const finish = (metadata, error) => {
-                    if (settled) return;
-                    settled = true;
-                    if (callbackId) video.cancelVideoFrameCallback(callbackId);
-                    video.removeEventListener("ended", onEnded);
-                    cancelFrameWait = () => {};
+                    video.cancelVideoFrameCallback(callbackId);
+                    cancelFrameWait = null;
                     error ? reject(error) : resolve(metadata);
                 };
-                const onEnded = () => finish(null);
-
                 cancelFrameWait = () => finish(null);
-                video.addEventListener("ended", onEnded, { once: true });
-                callbackId = video.requestVideoFrameCallback((_now, metadata) => {
-                    callbackId = 0;
+                const callbackId = video.requestVideoFrameCallback((_now, metadata) => {
                     video.pause();
                     finish(metadata);
                 });
                 video.play().catch((error) => finish(null, error));
             });
+            video.addEventListener("ended", () => cancelFrameWait?.());
 
             const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
             const centerOf = (points) => ({
@@ -491,7 +483,7 @@
             file.addEventListener("change", () => {
                 if (!file.files[0]) return;
                 token += 1;
-                cancelFrameWait();
+                cancelFrameWait?.();
                 video.pause();
                 if (objectUrl) URL.revokeObjectURL(objectUrl);
                 objectUrl = URL.createObjectURL(file.files[0]);
