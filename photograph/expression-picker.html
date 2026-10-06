@@ -8,13 +8,11 @@
     <script defer src="../modules/faceAPI/face-api.min.js"></script>
     <style>
         :root {
-            color-scheme: light;
-            --line: #d8d8d8;
-            --muted: #666;
-            --text: #171717;
-            --bg: #fff;
-            --soft: #f6f6f6;
-            --accent: #111;
+            color-scheme: light dark;
+            font-family: system-ui, sans-serif;
+            --accent: #4f8cff;
+            --panel: color-mix(in srgb, Canvas 92%, CanvasText);
+            --border: color-mix(in srgb, CanvasText 22%, transparent);
         }
 
         * {
@@ -23,117 +21,131 @@
 
         body {
             margin: 0;
-            background: var(--bg);
-            color: var(--text);
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: Canvas;
+            color: CanvasText;
         }
 
         main {
-            width: clamp(320px, calc(100vw - 32px), 1040px);
-            margin: 24px auto 40px;
+            width: min(1100px, 100%);
+            margin: auto;
+            padding: 28px 20px 48px;
         }
 
         h1 {
-            margin: 0 0 18px;
-            font-size: 22px;
-            font-weight: 650;
+            margin: 0 0 8px;
+            font-size: clamp(1.6rem, 4vw, 2.4rem);
+        }
+
+        .lead {
+            margin: 0 0 22px;
+            opacity: .7;
+        }
+
+        .toolbar,
+        .controls,
+        .status {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 12px;
         }
 
         .panel {
             display: grid;
-            gap: 14px;
+            gap: 16px;
+            margin-top: 18px;
             padding: 16px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
         }
 
-        .controls {
-            display: grid;
-            grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(120px, 160px));
-            gap: 10px;
-            align-items: end;
+        .controls label:first-child {
+            flex: 1 1 300px;
+        }
+
+        .controls .removePanel {
+            margin-left: auto;
         }
 
         label {
             display: grid;
             gap: 6px;
-            color: var(--muted);
-            font-size: 12px;
         }
 
         input,
         select,
         button {
-            width: 100%;
-            min-height: 36px;
-            border: 1px solid var(--line);
-            border-radius: 6px;
-            background: #fff;
-            color: var(--text);
+            min-height: 42px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
             font: inherit;
         }
 
         input,
         select {
-            padding: 6px 8px;
+            width: 100%;
+            padding: 9px 13px;
         }
 
         button {
-            padding: 7px 12px;
+            padding: 9px 13px;
+            background: var(--accent);
+            color: white;
             cursor: pointer;
         }
 
-        button.primary {
-            border-color: var(--accent);
-            background: var(--accent);
-            color: #fff;
+        button.secondary {
+            background: transparent;
+            color: CanvasText;
         }
 
         button:disabled {
-            cursor: not-allowed;
-            opacity: 0.45;
+            cursor: default;
+            opacity: .45;
         }
 
-        video {
-            width: 100%;
-            max-height: 56vh;
+        output {
             display: block;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: #eee;
+            min-height: 1.5em;
+            margin: 16px 0;
         }
 
         .status {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px 16px;
-            align-items: center;
             min-height: 22px;
-            color: var(--muted);
-            font-size: 13px;
             font-variant-numeric: tabular-nums;
+        }
+
+        .analysisVideo {
+            position: fixed;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
         }
 
         progress {
             width: 160px;
             height: 8px;
-            accent-color: #111;
+            accent-color: var(--accent);
         }
 
         .results {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
             gap: 12px;
-            margin-top: 16px;
+        }
+
+        .results:empty {
+            display: none;
         }
 
         .card {
             position: relative;
-            border: 1px solid var(--line);
-            border-radius: 8px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
             overflow: hidden;
-            background: #fff;
+            background: var(--panel);
         }
 
         .rank {
@@ -141,9 +153,9 @@
             top: 8px;
             left: 8px;
             padding: 4px 8px;
-            border-radius: 6px;
-            background: rgba(0, 0, 0, 0.78);
-            color: #fff;
+            border-radius: 7px;
+            background: var(--accent);
+            color: white;
             font-size: 13px;
             font-weight: 700;
             line-height: 1.2;
@@ -154,22 +166,20 @@
             width: 100%;
             height: auto;
             display: block;
-            background: var(--soft);
+            background: Canvas;
         }
 
         .meta {
             display: grid;
             gap: 5px;
             padding: 10px;
-            font-size: 12px;
-            color: var(--muted);
+            font-size: 14px;
             font-variant-numeric: tabular-nums;
         }
 
         .meta strong {
-            color: var(--text);
-            font-size: 13px;
-            font-weight: 650;
+            color: CanvasText;
+            font-size: 16px;
         }
 
         .meta button {
@@ -178,27 +188,21 @@
         }
 
         .empty {
-            margin-top: 16px;
             padding: 18px;
-            border: 1px dashed var(--line);
-            border-radius: 8px;
-            color: var(--muted);
+            border: 1px dashed var(--border);
+            border-radius: 10px;
+            background: var(--panel);
             text-align: center;
         }
 
-        @media (max-width: 820px) {
-            main {
-                width: clamp(320px, calc(100vw - 20px), 1040px);
-                margin-top: 12px;
-            }
-
-            .controls {
-                grid-template-columns: 1fr 1fr;
-            }
-
-            .controls label:first-child,
+        @media (max-width: 680px) {
+            .controls label,
             .controls button {
-                grid-column: 1 / -1;
+                width: 100%;
+            }
+
+            .controls .removePanel {
+                margin-left: 0;
             }
         }
     </style>
@@ -207,15 +211,26 @@
 <body>
     <main>
         <h1>Expression Picker</h1>
+        <p class="lead">複数の動画から、指定した表情が安定しているフレームを一括抽出します。</p>
+        <div class="toolbar">
+            <button id="addPanel" class="secondary" type="button">追加</button>
+            <button id="analyzeAll" type="button" disabled>すべて解析</button>
+        </div>
+        <output id="status">モデルを読み込んでいます。</output>
+        <div id="panelList"></div>
+        <video id="analysisVideo" class="analysisVideo" muted playsinline aria-hidden="true"></video>
+    </main>
+
+    <template id="panelTemplate">
         <section class="panel">
             <div class="controls">
                 <label>
                     video
-                    <input id="file" type="file" accept="video/webm,video/*">
+                    <input class="file" type="file" accept="video/webm,video/*">
                 </label>
                 <label>
                     emotion
-                    <select id="emotion">
+                    <select class="emotion">
                         <option value="neutral">neutral</option>
                         <option value="happy">happy</option>
                         <option value="sad">sad</option>
@@ -227,41 +242,39 @@
                 </label>
                 <label>
                     images
-                    <input id="count" type="number" min="1" max="24" step="1" value="5">
+                    <input class="count" type="number" min="1" max="24" step="1" value="5">
                 </label>
                 <label>
                     min score
-                    <input id="minScore" type="number" min="0" max="1" step="0.01" value="0.7">
+                    <input class="minScore" type="number" min="0" max="1" step="0.01" value="0.7">
                 </label>
-                <button id="analyze" class="primary" type="button" disabled>analyze</button>
+                <button class="removePanel secondary" type="button">削除</button>
             </div>
-            <video id="video" controls playsinline muted></video>
             <div class="status">
-                <span id="message">モデルを読み込んでいます</span>
-                <progress id="progress" value="0" max="1" hidden></progress>
-                <button id="downloadAll" type="button" disabled>download all</button>
+                <span class="message">動画を選択してください。</span>
+                <progress value="0" max="1" hidden></progress>
+                <button class="downloadAll" type="button" disabled>download all</button>
             </div>
+            <div class="results"></div>
+            <div class="empty">解析結果はここに表示されます。</div>
         </section>
-        <div id="results" class="results"></div>
-        <div id="empty" class="empty">動画を選ぶと、指定した表情が安定して出ているフレームを抽出します。</div>
-    </main>
+    </template>
 
     <script>
         window.addEventListener("load", async () => {
             const $ = (id) => document.getElementById(id);
             const MODEL_URL = "../modules/faceAPI/models";
             const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
-            const [file, video, emotion, count, minScore, analyze, progress, message, results, empty, downloadAll] =
-                ["file", "video", "emotion", "count", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll"].map($);
+            const [video, panelList, panelTemplate, addPanelButton, analyzeAllButton, status] =
+                ["analysisVideo", "panelList", "panelTemplate", "addPanel", "analyzeAll", "status"].map($);
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
             const frameCanvas = document.createElement("canvas");
             const frameCtx = frameCanvas.getContext("2d");
             const supportsVideoFrameCallback = typeof video.requestVideoFrameCallback === "function";
 
-            let objectUrl = "";
-            let frames = [];
-            let picks = [];
-            let token = 0;
+            const panels = [];
+            let busy = false;
+            let modelsReady = false;
             let cancelFrameWait;
 
             const models = Promise.all([
@@ -282,11 +295,11 @@
                 return `${min}:${sec}`;
             };
 
-            const setStatus = (text, current = 0, total = 0) => {
-                message.textContent = text;
-                progress.hidden = !total;
-                progress.max = Math.max(1, total);
-                progress.value = current;
+            const setPanelStatus = (panel, text, current = 0, total = 0) => {
+                panel.message.textContent = text;
+                panel.progress.hidden = !total;
+                panel.progress.max = Math.max(1, total);
+                panel.progress.value = current;
             };
 
             const seek = (time) => new Promise((resolve) => {
@@ -314,6 +327,39 @@
                 video.play().catch((error) => finish(null, error));
             });
             video.addEventListener("ended", () => cancelFrameWait?.());
+
+            const loadVideo = (file) => {
+                const url = URL.createObjectURL(file);
+                return new Promise((resolve, reject) => {
+                    const cleanup = () => {
+                        video.removeEventListener("loadedmetadata", loaded);
+                        video.removeEventListener("error", failed);
+                    };
+                    const loaded = () => {
+                        cleanup();
+                        resolve(url);
+                    };
+                    const failed = () => {
+                        cleanup();
+                        video.removeAttribute("src");
+                        video.load();
+                        URL.revokeObjectURL(url);
+                        reject(new Error(`${file.name}を読み込めませんでした`));
+                    };
+                    video.addEventListener("loadedmetadata", loaded);
+                    video.addEventListener("error", failed);
+                    video.src = url;
+                    video.load();
+                });
+            };
+
+            const unloadVideo = (url) => {
+                video.pause();
+                cancelFrameWait?.();
+                video.removeAttribute("src");
+                video.load();
+                URL.revokeObjectURL(url);
+            };
 
             const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
             const centerOf = (points) => ({
@@ -346,19 +392,21 @@
                 const detectionScore = clamp(detection.detection.score, 0, 1);
                 const quality = detectionScore * 0.22 + sizeScore * 0.22 + centerScore * 0.18 + frontalScore * 0.38;
 
-                return { quality, sizeScore, centerScore, frontalScore, detectionScore, box };
+                return { quality, frontalScore, detectionScore };
             };
 
             const captureFrame = async (time) => {
                 await seek(time);
                 frameCanvas.width = video.videoWidth;
                 frameCanvas.height = video.videoHeight;
-                frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
                 frameCtx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
                 return frameCanvas.toDataURL("image/png");
             };
 
-            const pickFrames = async (selectedEmotion, targetCount, minEmotionScore, runToken) => {
+            const pickFrames = async (panel, frames) => {
+                const selectedEmotion = panel.resultEmotion;
+                const targetCount = clamp(Math.round(Number(panel.count.value) || 8), 1, 24);
+                const minEmotionScore = clamp(Number(panel.minScore.value) || 0, 0, 1);
                 const candidates = frames
                     .map((frame, index) => {
                         const from = Math.max(0, index - 2);
@@ -386,8 +434,7 @@
 
                 const captured = [];
                 for (let i = 0; i < selected.length; i++) {
-                    if (runToken !== token) return [];
-                    setStatus(`画像を書き出しています ${i + 1}/${selected.length}`, i + 1, selected.length);
+                    setPanelStatus(panel, `画像を書き出しています ${i + 1}/${selected.length}`, i + 1, selected.length);
                     captured.push({
                         ...selected[i],
                         imageUrl: await captureFrame(selected[i].time)
@@ -403,125 +450,169 @@
                 anchor.click();
             };
 
-            const renderResults = () => {
-                results.innerHTML = "";
-                empty.hidden = picks.length > 0;
-                downloadAll.disabled = picks.length === 0;
-                const selectedEmotion = emotion.value;
-                picks.forEach((pick, index) => {
-                    const filename = `${selectedEmotion}_${String(index + 1).padStart(2, "0")}_${pick.time.toFixed(1)}s.png`;
+            const filenameFor = (panel, pick, index) => {
+                const videoName = panel.file.files[0].name.replace(/\.[^.]+$/, "");
+                return `${videoName}_${panel.resultEmotion}_${String(index + 1).padStart(2, "0")}_${pick.time.toFixed(1)}s.png`;
+            };
+
+            const renderResults = (panel) => {
+                panel.results.innerHTML = "";
+                panel.empty.hidden = panel.picks.length > 0;
+                panel.picks.forEach((pick, index) => {
                     const card = document.createElement("article");
                     card.className = "card";
                     card.innerHTML = `
                         <div class="rank">${index + 1}位</div>
-                        <img src="${pick.imageUrl}" alt="${selectedEmotion} frame ${index + 1}">
+                        <img src="${pick.imageUrl}" alt="${panel.resultEmotion} frame ${index + 1}">
                         <div class="meta">
                             <strong>total ${pick.totalScore.toFixed(3)} / ${formatTime(pick.time)}</strong>
-                            <span>${selectedEmotion} ${pick.expressionScore.toFixed(3)} · stable ${pick.stabilityScore.toFixed(3)}</span>
+                            <span>${panel.resultEmotion} ${pick.expressionScore.toFixed(3)} · stable ${pick.stabilityScore.toFixed(3)}</span>
                             <span>front ${pick.quality.frontalScore.toFixed(3)} · detect ${pick.quality.detectionScore.toFixed(3)}</span>
                             <button type="button">download</button>
                         </div>
                     `;
-                    card.querySelector("button").addEventListener("click", () => downloadDataUrl(pick.imageUrl, filename));
-                    results.appendChild(card);
+                    card.querySelector("button").addEventListener("click", () =>
+                        downloadDataUrl(pick.imageUrl, filenameFor(panel, pick, index)));
+                    panel.results.appendChild(card);
                 });
             };
 
-            const analyzeVideo = async () => {
-                if (!video.src || !Number.isFinite(video.duration)) return;
-                const runToken = ++token;
-                analyze.disabled = true;
-                downloadAll.disabled = true;
-                results.innerHTML = "";
-                empty.hidden = false;
-                empty.textContent = "解析中です。";
-                frames = [];
-                picks = [];
+            const clearPanel = (panel, text = "解析結果はここに表示されます。") => {
+                panel.picks = [];
+                panel.results.innerHTML = "";
+                panel.empty.hidden = false;
+                panel.empty.textContent = text;
+            };
 
-                await models;
-                if (runToken !== token) return;
-                video.pause();
-                const currentTime = video.currentTime;
-                await seek(0);
+            const updateControls = () => {
+                addPanelButton.disabled = busy;
+                analyzeAllButton.disabled = busy || !modelsReady || !supportsVideoFrameCallback
+                    || panels.some((panel) => !panel.file.files[0]);
+                panels.forEach((panel) => {
+                    [panel.file, panel.emotion, panel.count, panel.minScore, panel.remove].forEach((control) => control.disabled = busy);
+                    panel.download.disabled = busy || !panel.picks.length;
+                });
+            };
+
+            const downloadPanel = (panel) => {
+                panel.download.disabled = true;
+                panel.picks.forEach((pick, index) => {
+                    setTimeout(() => downloadDataUrl(pick.imageUrl, filenameFor(panel, pick, index)), index * 180);
+                });
+                setTimeout(updateControls, Math.max(300, panel.picks.length * 180));
+            };
+
+            const addPanel = () => {
+                const element = panelTemplate.content.firstElementChild.cloneNode(true);
+                const panel = {
+                    element,
+                    file: element.querySelector(".file"),
+                    emotion: element.querySelector(".emotion"),
+                    count: element.querySelector(".count"),
+                    minScore: element.querySelector(".minScore"),
+                    remove: element.querySelector(".removePanel"),
+                    message: element.querySelector(".message"),
+                    progress: element.querySelector("progress"),
+                    download: element.querySelector(".downloadAll"),
+                    results: element.querySelector(".results"),
+                    empty: element.querySelector(".empty"),
+                    picks: []
+                };
+                panel.file.addEventListener("change", () => {
+                    clearPanel(panel);
+                    setPanelStatus(panel, panel.file.files[0]?.name || "動画を選択してください。");
+                    updateControls();
+                });
+                panel.remove.addEventListener("click", () => {
+                    panels.splice(panels.indexOf(panel), 1);
+                    element.remove();
+                    if (!panels.length) addPanel();
+                    updateControls();
+                });
+                panel.download.addEventListener("click", () => downloadPanel(panel));
+                panels.push(panel);
+                panelList.append(element);
+                updateControls();
+            };
+
+            const analyzePanel = async (panel, panelIndex) => {
+                clearPanel(panel, "解析中です。");
+                panel.resultEmotion = panel.emotion.value;
+                const frames = [];
                 let analyzedFrames = 0;
+                const url = await loadVideo(panel.file.files[0]);
 
-                while (true) {
-                    if (runToken !== token) return;
-                    const metadata = await nextVideoFrame();
-                    if (runToken !== token) return;
-                    if (!metadata) break;
-                    const time = metadata.mediaTime;
-                    analyzedFrames += 1;
-                    setStatus(`解析中 ${analyzedFrames} frames / ${formatTime(time)}`, time, video.duration);
-                    const detection = await faceapi
-                        .detectSingleFace(video, detectorOptions)
-                        .withFaceLandmarks(true)
-                        .withFaceExpressions();
-                    if (detection) {
-                        frames.push({
-                            time,
-                            expressions: EMOTIONS.reduce((memo, key) => ({ ...memo, [key]: detection.expressions[key] || 0 }), {}),
-                            quality: qualityFrom(detection)
-                        });
+                try {
+                    await seek(0);
+                    while (true) {
+                        const metadata = await nextVideoFrame();
+                        if (!metadata) break;
+                        const time = metadata.mediaTime;
+                        analyzedFrames += 1;
+                        status.textContent = `パネル ${panelIndex + 1}/${panels.length} を解析中… ${formatTime(time)}`;
+                        setPanelStatus(panel, `解析中 ${analyzedFrames} frames / ${formatTime(time)}`, time, video.duration);
+                        const detection = await faceapi
+                            .detectSingleFace(video, detectorOptions)
+                            .withFaceLandmarks(true)
+                            .withFaceExpressions();
+                        if (detection) {
+                            frames.push({
+                                time,
+                                expressions: Object.fromEntries(EMOTIONS.map((key) => [key, detection.expressions[key] || 0])),
+                                quality: qualityFrom(detection)
+                            });
+                        }
+                        if (video.ended) break;
                     }
-                    if (video.ended) break;
+
+                    panel.picks = await pickFrames(panel, frames);
+                    renderResults(panel);
+                    panel.empty.textContent = panel.picks.length
+                        ? ""
+                        : "条件に合うフレームがありませんでした。min scoreを下げるか、別の表情を選んでください。";
+                    setPanelStatus(panel, `${analyzedFrames} frames analyzed / ${panel.picks.length} images`);
+                } finally {
+                    unloadVideo(url);
                 }
-
-                const targetCount = clamp(Math.round(Number(count.value) || 8), 1, 24);
-                picks = await pickFrames(emotion.value, targetCount, clamp(Number(minScore.value) || 0, 0, 1), runToken);
-                await seek(currentTime);
-                if (runToken !== token) return;
-
-                renderResults();
-                empty.textContent = picks.length
-                    ? ""
-                    : "条件に合うフレームがありませんでした。min scoreを下げるか、別の表情を選んでください。";
-                setStatus(`${analyzedFrames} frames analyzed / ${picks.length} images`, 0, 0);
-                analyze.disabled = false;
             };
 
-            file.addEventListener("change", () => {
-                if (!file.files[0]) return;
-                token += 1;
-                cancelFrameWait?.();
-                video.pause();
-                if (objectUrl) URL.revokeObjectURL(objectUrl);
-                objectUrl = URL.createObjectURL(file.files[0]);
-                video.src = objectUrl;
-                frames = [];
-                picks = [];
-                results.innerHTML = "";
-                empty.hidden = false;
-                empty.textContent = "動画を読み込みました。analyzeを押してください。";
-                setStatus(supportsVideoFrameCallback
-                    ? file.files[0].name
-                    : "このブラウザはフレーム単位の解析に対応していません", 0, 0);
-                analyze.disabled = !supportsVideoFrameCallback;
-                downloadAll.disabled = true;
+            addPanelButton.addEventListener("click", addPanel);
+            analyzeAllButton.addEventListener("click", async () => {
+                if (busy) return;
+                busy = true;
+                updateControls();
+                try {
+                    for (let index = 0; index < panels.length; index++) {
+                        try {
+                            await analyzePanel(panels[index], index);
+                        } catch (error) {
+                            setPanelStatus(panels[index], `解析できませんでした: ${error.message}`);
+                            throw error;
+                        }
+                    }
+                    status.textContent = `${panels.length}パネルの解析が完了しました。`;
+                } catch (error) {
+                    console.error(error);
+                    status.textContent = `解析できませんでした: ${error.message}`;
+                } finally {
+                    busy = false;
+                    updateControls();
+                }
             });
 
-            analyze.addEventListener("click", analyzeVideo);
-            downloadAll.addEventListener("click", async () => {
-                const selectedEmotion = emotion.value;
-                downloadAll.disabled = true;
-                picks.forEach((pick, index) => {
-                    const filename = `${selectedEmotion}_${String(index + 1).padStart(2, "0")}_${pick.time.toFixed(1)}s.png`;
-                    setTimeout(() => downloadDataUrl(pick.imageUrl, filename), index * 180);
-                });
-                setTimeout(() => {
-                    downloadAll.disabled = picks.length === 0;
-                }, Math.max(300, picks.length * 180));
-            });
+            addPanel();
 
             try {
                 await models;
-                setStatus(supportsVideoFrameCallback
-                    ? "動画を選択してください"
-                    : "このブラウザはフレーム単位の解析に対応していません", 0, 0);
+                modelsReady = true;
+                status.textContent = supportsVideoFrameCallback
+                    ? "すべてのパネルに動画を設定してください。"
+                    : "このブラウザはフレーム単位の解析に対応していません。";
             } catch (error) {
                 console.error(error);
-                setStatus("モデルの読み込みに失敗しました", 0, 0);
+                status.textContent = "モデルの読み込みに失敗しました。";
             }
+            updateControls();
         });
     </script>
 </body>
