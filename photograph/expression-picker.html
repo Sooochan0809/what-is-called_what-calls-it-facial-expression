@@ -50,7 +50,7 @@
 
         .controls {
             display: grid;
-            grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(120px, 160px));
+            grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(120px, 160px));
             gap: 10px;
             align-items: end;
         }
@@ -227,11 +227,7 @@
                 </label>
                 <label>
                     images
-                    <input id="count" type="number" min="1" max="24" step="1" value="8">
-                </label>
-                <label>
-                    interval sec
-                    <input id="interval" type="number" min="0.2" max="10" step="0.1" value="0.5">
+                    <input id="count" type="number" min="1" max="24" step="1" value="5">
                 </label>
                 <label>
                     min score
@@ -255,16 +251,18 @@
             const $ = (id) => document.getElementById(id);
             const MODEL_URL = "../modules/faceAPI/models";
             const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
-            const [file, video, emotion, count, interval, minScore, analyze, progress, message, results, empty, downloadAll] =
-                ["file", "video", "emotion", "count", "interval", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll"].map($);
+            const [file, video, emotion, count, minScore, analyze, progress, message, results, empty, downloadAll] =
+                ["file", "video", "emotion", "count", "minScore", "analyze", "progress", "message", "results", "empty", "downloadAll"].map($);
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
             const frameCanvas = document.createElement("canvas");
             const frameCtx = frameCanvas.getContext("2d");
+            const supportsVideoFrameCallback = typeof video.requestVideoFrameCallback === "function";
 
             let objectUrl = "";
             let frames = [];
             let picks = [];
             let token = 0;
+            let cancelFrameWait = () => {};
 
             const models = Promise.all([
                 faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
@@ -300,6 +298,29 @@
                 }
                 video.addEventListener("seeked", () => requestAnimationFrame(resolve), { once: true });
                 video.currentTime = target;
+            });
+
+            const nextVideoFrame = () => new Promise((resolve, reject) => {
+                let callbackId = 0;
+                let settled = false;
+                const finish = (metadata, error) => {
+                    if (settled) return;
+                    settled = true;
+                    if (callbackId) video.cancelVideoFrameCallback(callbackId);
+                    video.removeEventListener("ended", onEnded);
+                    cancelFrameWait = () => {};
+                    error ? reject(error) : resolve(metadata);
+                };
+                const onEnded = () => finish(null);
+
+                cancelFrameWait = () => finish(null);
+                video.addEventListener("ended", onEnded, { once: true });
+                callbackId = video.requestVideoFrameCallback((_now, metadata) => {
+                    callbackId = 0;
+                    video.pause();
+                    finish(metadata);
+                });
+                video.play().catch((error) => finish(null, error));
             });
 
             const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -360,7 +381,7 @@
                     .filter((frame) => frame.expressionScore >= minEmotionScore)
                     .sort((a, b) => b.totalScore - a.totalScore);
 
-                const minGap = Math.max(0.8, Number(interval.value) * 1.8);
+                const minGap = 0.8;
                 const selected = [];
                 for (const frame of candidates) {
                     if (selected.length >= targetCount) break;
@@ -429,14 +450,17 @@
                 if (runToken !== token) return;
                 video.pause();
                 const currentTime = video.currentTime;
-                const step = clamp(Number(interval.value) || 0.5, 0.2, 10);
-                const total = Math.max(1, Math.ceil(video.duration / step));
+                await seek(0);
+                let analyzedFrames = 0;
 
-                for (let i = 0; i < total; i++) {
+                while (true) {
                     if (runToken !== token) return;
-                    const time = Math.min(i * step, Math.max(0, video.duration - 0.04));
-                    setStatus(`解析中 ${i + 1}/${total}`, i + 1, total);
-                    await seek(time);
+                    const metadata = await nextVideoFrame();
+                    if (runToken !== token) return;
+                    if (!metadata) break;
+                    const time = metadata.mediaTime;
+                    analyzedFrames += 1;
+                    setStatus(`解析中 ${analyzedFrames} frames / ${formatTime(time)}`, time, video.duration);
                     const detection = await faceapi
                         .detectSingleFace(video, detectorOptions)
                         .withFaceLandmarks(true)
@@ -448,6 +472,7 @@
                             quality: qualityFrom(detection)
                         });
                     }
+                    if (video.ended) break;
                 }
 
                 const targetCount = clamp(Math.round(Number(count.value) || 8), 1, 24);
@@ -459,13 +484,15 @@
                 empty.textContent = picks.length
                     ? ""
                     : "条件に合うフレームがありませんでした。min scoreを下げるか、別の表情を選んでください。";
-                setStatus(`${frames.length} frames analyzed / ${picks.length} images`, 0, 0);
+                setStatus(`${analyzedFrames} frames analyzed / ${picks.length} images`, 0, 0);
                 analyze.disabled = false;
             };
 
             file.addEventListener("change", () => {
                 if (!file.files[0]) return;
                 token += 1;
+                cancelFrameWait();
+                video.pause();
                 if (objectUrl) URL.revokeObjectURL(objectUrl);
                 objectUrl = URL.createObjectURL(file.files[0]);
                 video.src = objectUrl;
@@ -474,8 +501,10 @@
                 results.innerHTML = "";
                 empty.hidden = false;
                 empty.textContent = "動画を読み込みました。analyzeを押してください。";
-                setStatus(file.files[0].name, 0, 0);
-                analyze.disabled = false;
+                setStatus(supportsVideoFrameCallback
+                    ? file.files[0].name
+                    : "このブラウザはフレーム単位の解析に対応していません", 0, 0);
+                analyze.disabled = !supportsVideoFrameCallback;
                 downloadAll.disabled = true;
             });
 
@@ -494,7 +523,9 @@
 
             try {
                 await models;
-                setStatus("動画を選択してください", 0, 0);
+                setStatus(supportsVideoFrameCallback
+                    ? "動画を選択してください"
+                    : "このブラウザはフレーム単位の解析に対応していません", 0, 0);
             } catch (error) {
                 console.error(error);
                 setStatus("モデルの読み込みに失敗しました", 0, 0);
