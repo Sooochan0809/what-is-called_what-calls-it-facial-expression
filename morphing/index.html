@@ -1524,33 +1524,7 @@
                 .filter((item) => item.weight > 0);
             const ctx = prepareCanvas(morphCanvas, MORPH_WIDTH, MORPH_HEIGHT);
 
-            if (morphLayers.length === 0 || activeMorphLayers.length === 0) {
-                const fallbackImage = layers[0]?.image;
-                if (fallbackImage) {
-                    const { sx, sy, sw, sh } = getCenteredCropRect(
-                        fallbackImage.naturalWidth,
-                        fallbackImage.naturalHeight,
-                        MORPH_RATIO,
-                    );
-                    ctx.drawImage(
-                        fallbackImage,
-                        sx,
-                        sy,
-                        sw,
-                        sh,
-                        0,
-                        0,
-                        MORPH_WIDTH,
-                        MORPH_HEIGHT,
-                    );
-                }
-                return;
-            }
-
-            if (activeMorphLayers.length === 1) {
-                ctx.drawImage(activeMorphLayers[0].layer.morph.canvas, 0, 0);
-                return;
-            }
+            if (morphLayers.length === 0 || activeMorphLayers.length === 0) return;
 
             const blendedPoints = blendPoints(activeMorphLayers);
             const triangles = Delaunator.from(blendedPoints).triangles;
