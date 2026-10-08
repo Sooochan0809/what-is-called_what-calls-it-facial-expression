@@ -279,10 +279,6 @@
             place-items: center;
         }
 
-        .addLayerSlot[hidden] {
-            display: none;
-        }
-
         .layers {
             display: grid;
             align-content: start;
@@ -476,7 +472,7 @@
                     <button class="cropShowButton" id="cropShowButton" type="button">表示</button>
                 </div>
                 <div class="footerMain">
-                    <span class="status" id="status">0 / 7</span>
+                    <span class="status" id="status">0</span>
                     <button class="textButton" id="clearButton" type="button" disabled>クリア</button>
                 </div>
             </div>
@@ -485,7 +481,6 @@
     <script type="module">
         import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
 
-        const MAX_IMAGES = 7;
         const DEFAULT_OUTPUT_FPS = 60;
         const MORPH_WIDTH = 600;
         const MORPH_HEIGHT = 800;
@@ -526,7 +521,6 @@
         const monoToggleButton = document.getElementById("monoToggleButton");
         const layerList = document.getElementById("layerList");
         const layersContainer = document.getElementById("layers");
-        const addLayerSlot = document.querySelector(".addLayerSlot");
 
         let layers = [];
         let draggedId = null;
@@ -731,13 +725,7 @@
             const mediaFiles = Array.from(fileList).filter((file) =>
                 file.type.startsWith("image/"),
             );
-            const slots = MAX_IMAGES - layers.length;
-
-            if (mediaFiles.length > slots) {
-                alert(`画像は合計${MAX_IMAGES}点まで追加できます。`);
-            }
-
-            const selectedFiles = mediaFiles.slice(0, slots);
+            const selectedFiles = mediaFiles;
 
             if (selectedFiles.length === 0) {
                 render();
@@ -1727,10 +1715,8 @@
 
         function renderStatus() {
             updateCropInputLimits();
-            status.textContent = `${layers.length} / ${MAX_IMAGES}`;
+            status.textContent = String(layers.length);
             clearButton.disabled = layers.length === 0;
-            fileInput.disabled = layers.length >= MAX_IMAGES;
-            addLayerSlot.hidden = layers.length >= MAX_IMAGES;
             syncToggleButton(monoToggleButton, monochromeEnabled);
         }
 
