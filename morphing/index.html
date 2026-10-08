@@ -160,6 +160,25 @@
             display: none;
         }
 
+        .sequenceSpeedControl {
+            display: grid;
+            grid-template-columns: auto 48px auto;
+            gap: 5px;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.92);
+            font-size: 0.72rem;
+        }
+
+        .sequenceSpeedControl input {
+            width: 48px;
+            height: 26px;
+            padding: 0 4px;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+        }
+
         .stage.is-cropping {
             cursor: crosshair;
         }
@@ -448,6 +467,14 @@
                             aria-pressed="false">トリミング</button>
                         <button class="stageToggleButton monoToggleButton" id="monoToggleButton" type="button"
                             aria-pressed="true">モノクロ</button>
+                        <button class="stageToggleButton sequenceToggleButton is-off" id="sequenceToggleButton"
+                            type="button" aria-pressed="false" disabled>自動切替</button>
+                        <label class="sequenceSpeedControl">
+                            <span>切替</span>
+                            <input id="sequenceSpeedInput" type="number" min="0.1" step="0.1" value="3"
+                                inputmode="decimal" aria-label="画像を切り替える秒数">
+                            <span>秒</span>
+                        </label>
                     </div>
                 </div>
             </section>
@@ -486,6 +513,8 @@
         const MORPH_HEIGHT = 800;
         const MORPH_RATIO = MORPH_WIDTH / MORPH_HEIGHT;
         const TRIANGLE_OVERDRAW_PX = 0.75;
+        const DEFAULT_SEQUENCE_DURATION = 3000;
+        console.assert(DEFAULT_SEQUENCE_DURATION > 0);
         const MEDIAPIPE_VERSION = "1.1.0";
         const MEDIAPIPE_TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
         const FACE_MODEL_URL =
@@ -519,6 +548,8 @@
         const cropHeightInput = document.getElementById("cropHeightInput");
         const cropShowButton = document.getElementById("cropShowButton");
         const monoToggleButton = document.getElementById("monoToggleButton");
+        const sequenceToggleButton = document.getElementById("sequenceToggleButton");
+        const sequenceSpeedInput = document.getElementById("sequenceSpeedInput");
         const layerList = document.getElementById("layerList");
         const layersContainer = document.getElementById("layers");
 
@@ -527,6 +558,12 @@
         let faceLandmarkerPromise = null;
         let monochromeEnabled = true;
         let runtimeActive = true;
+        let sequenceEnabled = false;
+        let sequenceFrameId = null;
+        let sequenceStartedAt = 0;
+        let sequenceFromIndex = 0;
+        let sequenceProgress = 0;
+        let sequenceDuration = DEFAULT_SEQUENCE_DURATION;
         let cropEnabled = false;
         let cropDrag = null;
         let activeCropRect = null;
@@ -745,6 +782,7 @@
         }
 
         function setMorphWeight(id, value) {
+            stopMorphSequence();
             layers = layers.map((layer) => {
                 if (layer.id !== id) return layer;
                 return { ...layer, morphWeight: Number(value) };
@@ -753,8 +791,80 @@
             renderLayerOutputs();
         }
 
+        function resetMorphSequence() {
+            sequenceStartedAt = 0;
+            sequenceFromIndex = 0;
+            sequenceProgress = 0;
+        }
+
+        function stopMorphSequence() {
+            sequenceEnabled = false;
+            if (sequenceFrameId) cancelAnimationFrame(sequenceFrameId);
+            sequenceFrameId = null;
+            resetMorphSequence();
+            renderStatus();
+        }
+
+        function setSequenceWeights(progress) {
+            const morphLayers = getMorphLayers();
+            if (morphLayers.length < 2) return;
+            const fromLayer = morphLayers[sequenceFromIndex % morphLayers.length];
+            const toLayer = morphLayers[(sequenceFromIndex + 1) % morphLayers.length];
+
+            layers = layers.map((layer) => ({
+                ...layer,
+                morphWeight:
+                    layer.id === fromLayer.id
+                        ? (1 - progress) * 100
+                        : layer.id === toLayer.id
+                            ? progress * 100
+                            : 0,
+            }));
+            renderStage();
+            renderLayerOutputs();
+        }
+
+        function tickMorphSequence(timestamp) {
+            const morphLayers = getMorphLayers();
+            if (!runtimeActive || !sequenceEnabled || morphLayers.length < 2) {
+                sequenceFrameId = null;
+                return;
+            }
+            if (!sequenceStartedAt) sequenceStartedAt = timestamp;
+
+            sequenceProgress = Math.min(
+                1,
+                (timestamp - sequenceStartedAt) / sequenceDuration,
+            );
+            setSequenceWeights(sequenceProgress);
+
+            if (sequenceProgress >= 1) {
+                sequenceFromIndex = (sequenceFromIndex + 1) % morphLayers.length;
+                sequenceStartedAt = timestamp;
+                sequenceProgress = 0;
+            }
+            sequenceFrameId = requestAnimationFrame(tickMorphSequence);
+        }
+
+        function ensureMorphSequenceLoop() {
+            if (sequenceFrameId || !sequenceEnabled || getMorphLayers().length < 2) {
+                return;
+            }
+            sequenceFrameId = requestAnimationFrame(tickMorphSequence);
+        }
+
+        function startMorphSequence() {
+            if (getMorphLayers().length < 2) return;
+            sequenceEnabled = true;
+            resetMorphSequence();
+            setSequenceWeights(0);
+            renderStatus();
+            ensureMorphSequenceLoop();
+        }
+
         function removeLayer(id) {
             layers = layers.filter((layer) => layer.id !== id);
+            resetMorphSequence();
             render();
         }
 
@@ -769,6 +879,7 @@
             const [draggedLayer] = next.splice(draggedIndex, 1);
             next.splice(targetIndex, 0, draggedLayer);
             layers = next;
+            resetMorphSequence();
             render();
         }
 
@@ -1148,8 +1259,11 @@
         }
 
         function stopRuntimeLoops() {
+            if (sequenceFrameId) cancelAnimationFrame(sequenceFrameId);
             if (cropPopupFrameId) clearTimeout(cropPopupFrameId);
+            sequenceFrameId = null;
             cropPopupFrameId = null;
+            sequenceStartedAt = 0;
             resetOutputFpsStats();
         }
 
@@ -1165,6 +1279,7 @@
 
             resetOutputFpsStats();
             renderStage();
+            ensureMorphSequenceLoop();
             if (cropPopup && !cropPopup.closed && cropPopupCanvas && activeCropRect) {
                 ensureCropPopupLoop();
             }
@@ -1718,6 +1833,8 @@
             status.textContent = String(layers.length);
             clearButton.disabled = layers.length === 0;
             syncToggleButton(monoToggleButton, monochromeEnabled);
+            sequenceToggleButton.disabled = getMorphLayers().length < 2;
+            syncToggleButton(sequenceToggleButton, sequenceEnabled);
         }
 
         function render() {
@@ -1725,6 +1842,7 @@
             renderLayerList();
             renderLayerOutputs();
             renderStatus();
+            ensureMorphSequenceLoop();
         }
 
         fileInput.addEventListener("change", async (event) => {
@@ -1733,6 +1851,7 @@
         });
 
         clearButton.addEventListener("click", () => {
+            stopMorphSequence();
             layers = [];
             render();
         });
@@ -1740,6 +1859,27 @@
         monoToggleButton.addEventListener("click", () => {
             monochromeEnabled = !monochromeEnabled;
             render();
+        });
+
+        sequenceToggleButton.addEventListener("click", () => {
+            if (sequenceEnabled) {
+                stopMorphSequence();
+            } else {
+                startMorphSequence();
+            }
+        });
+
+        sequenceSpeedInput.addEventListener("input", () => {
+            const seconds = Number(sequenceSpeedInput.value);
+            if (!Number.isFinite(seconds) || seconds < 0.1) return;
+            sequenceDuration = seconds * 1000;
+            if (sequenceStartedAt) {
+                sequenceStartedAt = performance.now() - sequenceProgress * sequenceDuration;
+            }
+        });
+
+        sequenceSpeedInput.addEventListener("change", () => {
+            sequenceSpeedInput.value = String(sequenceDuration / 1000);
         });
 
         cropToggleButton.addEventListener("click", () => {
