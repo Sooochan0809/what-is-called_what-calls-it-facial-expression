@@ -1019,7 +1019,7 @@
             scoreBar.classList.toggle("tutorialFocusItem", step.target === "scoreBar");
             frameGuide.classList.toggle("tutorialFocus", step.target === "frameGuide");
             situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
-            tutorialText.textContent = step.text;
+            tutorialText.textContent = step.text.replace("{seconds}", Math.ceil(rotationIntervalMs / 1000));
             positionTutorialCard(step.target);
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
             if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
