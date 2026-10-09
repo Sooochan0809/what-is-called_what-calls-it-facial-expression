@@ -471,9 +471,15 @@
                             type="button" aria-pressed="false" disabled>自動切替</button>
                         <label class="sequenceSpeedControl">
                             <span>切替</span>
-                            <input id="sequenceSpeedInput" type="number" min="0.1" step="0.1" value="3"
+                            <input id="sequenceSpeedInput" type="number" min="0.1" step="0.1" value="30"
                                 inputmode="decimal" aria-label="画像を切り替える秒数">
                             <span>秒</span>
+                        </label>
+                        <label class="sequenceSpeedControl">
+                            <span>折返し</span>
+                            <input id="sequencePeakInput" type="number" min="50" max="100" step="1" value="100"
+                                inputmode="numeric" aria-label="自動切替で折り返す割合">
+                            <span>%</span>
                         </label>
                     </div>
                 </div>
@@ -550,6 +556,7 @@
         const monoToggleButton = document.getElementById("monoToggleButton");
         const sequenceToggleButton = document.getElementById("sequenceToggleButton");
         const sequenceSpeedInput = document.getElementById("sequenceSpeedInput");
+        const sequencePeakInput = document.getElementById("sequencePeakInput");
         const layerList = document.getElementById("layerList");
         const layersContainer = document.getElementById("layers");
 
@@ -564,6 +571,7 @@
         let sequenceFromIndex = 0;
         let sequenceProgress = 0;
         let sequenceDuration = DEFAULT_SEQUENCE_DURATION;
+        let sequencePeak = 1;
         let cropEnabled = false;
         let cropDrag = null;
         let activeCropRect = null;
@@ -808,17 +816,26 @@
         function setSequenceWeights(progress) {
             const morphLayers = getMorphLayers();
             if (morphLayers.length < 2) return;
-            const fromLayer = morphLayers[sequenceFromIndex % morphLayers.length];
-            const toLayer = morphLayers[(sequenceFromIndex + 1) % morphLayers.length];
+            const count = morphLayers.length;
+            const fromLayer = morphLayers[sequenceFromIndex % count];
+            const toLayer = morphLayers[(sequenceFromIndex + 1) % count];
+            const previousLayer = morphLayers[(sequenceFromIndex - 1 + count) % count];
+            const remainder = 1 - sequencePeak;
+            const startWeights = new Map([
+                [fromLayer.id, sequencePeak],
+                [previousLayer.id, remainder],
+            ]);
+            const endWeights = new Map([
+                [toLayer.id, sequencePeak],
+                [fromLayer.id, remainder],
+            ]);
 
             layers = layers.map((layer) => ({
                 ...layer,
-                morphWeight:
-                    layer.id === fromLayer.id
-                        ? (1 - progress) * 100
-                        : layer.id === toLayer.id
-                            ? progress * 100
-                            : 0,
+                morphWeight: (
+                    (startWeights.get(layer.id) || 0) * (1 - progress)
+                    + (endWeights.get(layer.id) || 0) * progress
+                ) * 100,
             }));
             renderStage();
             renderLayerOutputs();
@@ -1880,6 +1897,17 @@
 
         sequenceSpeedInput.addEventListener("change", () => {
             sequenceSpeedInput.value = String(sequenceDuration / 1000);
+        });
+
+        sequencePeakInput.addEventListener("input", () => {
+            const percent = Number(sequencePeakInput.value);
+            if (!Number.isFinite(percent) || percent < 50 || percent > 100) return;
+            sequencePeak = percent / 100;
+            if (sequenceEnabled) setSequenceWeights(sequenceProgress);
+        });
+
+        sequencePeakInput.addEventListener("change", () => {
+            sequencePeakInput.value = String(sequencePeak * 100);
         });
 
         cropToggleButton.addEventListener("click", () => {
