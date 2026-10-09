@@ -24,6 +24,7 @@
             --color-note-accent: #b85f16;
             --color-score-track: #e7ecf1;
             --tutorial-card-gap: 24px;
+            --tutorial-emotion-panel-gap: 8px;
             --tutorial-card-max-width: 580px;
             --color-positive: #27c28a;
             --color-warning: #ef8b39;
@@ -846,7 +847,7 @@
             );
         }
 
-        function positionCard(card, anchor, insideAnchor = false) {
+        function positionCard(card, anchor, insideAnchor = false, placeAboveAnchor = false) {
             const containerRect = photographScene.getBoundingClientRect();
             if (insideAnchor) {
                 card.style.top = `${(containerRect.height - card.offsetHeight) / 2}px`;
@@ -855,8 +856,11 @@
             }
             const anchorRect = anchor.getBoundingClientRect();
             const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-card-gap"));
+            const emotionPanelGap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-emotion-panel-gap"));
             const left = anchorRect.left - containerRect.left + (anchorRect.width - card.offsetWidth) / 2;
-            card.style.top = `${anchorRect.bottom - containerRect.top + gap}px`;
+            card.style.top = `${placeAboveAnchor
+                ? anchorRect.top - containerRect.top - card.offsetHeight - emotionPanelGap
+                : anchorRect.bottom - containerRect.top + gap}px`;
             card.style.left = `${Math.min(Math.max(24, left), containerRect.width - card.offsetWidth - 24)}px`;
         }
 
@@ -1041,7 +1045,7 @@
             frameGuide.classList.toggle("tutorialFocus", step.target === "frameGuide");
             situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
             tutorialText.textContent = step.text;
-            positionCard(tutorialCard, cardAnchor, step.target === "frameGuide");
+            positionCard(tutorialCard, cardAnchor, step.target === "frameGuide", focusPanel);
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
             if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
             if (step.target !== "frameGuide") tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);

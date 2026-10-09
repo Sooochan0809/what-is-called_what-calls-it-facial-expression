@@ -17,12 +17,12 @@
       {
         "target": "frameGuide",
         "text": "顔の位置を円の中にぴったり収まるように調整してください",
-        "durationMs": 2000
+        "durationMs": 3000
       },
       {
         "target": "scoreBar",
         "text": "あなたの表情の適切さを装置が判定して、最高の瞬間を撮影してくれます。",
-        "durationMs": 8000
+        "durationMs": 10000
       },
       {
         "target": "situationTimer",
@@ -32,7 +32,7 @@
       {
         "target": "timeoutShutter",
         "text": "時間内に撮影されなかった場合でも、最後に3、2、1のカウントダウンで撮影されます。",
-        "durationMs": 6000
+        "durationMs": 8000
       },
       {
         "target": "scoreText",
