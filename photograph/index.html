@@ -327,10 +327,6 @@
             box-shadow: 0 0 0 8px var(--color-warning-glow);
         }
 
-        .facePositionAlert {
-            z-index: 3;
-        }
-
         .blink {
             position: absolute;
             inset: 0;
@@ -696,7 +692,6 @@
             <span id="captureProgressFill" class="captureProgressFill"></span>
         </div>
         <div class="frameGuide" aria-hidden="true"></div>
-        <div id="facePositionAlert" class="tutorialCard facePositionAlert" role="status" hidden></div>
         <div id="blink" class="blink" aria-hidden="true" hidden></div>
         <section id="partIntro" class="partIntro" aria-live="polite" hidden>
             <div class="partIntroCard">
@@ -754,7 +749,6 @@
         const scoreBar = $("scoreBar");
         const emotionPanel = document.querySelector(".emotionPanel");
         const frameGuide = document.querySelector(".frameGuide");
-        const facePositionAlert = $("facePositionAlert");
         const situationTimer = $("situationTimer");
         const situationCountdown = $("situationCountdown");
         const tutorialOverlay = $("tutorialOverlay");
@@ -790,8 +784,6 @@
         let rotationClockTimer = 0;
         let rotationStartedAt = 0;
         let situationJudgmentPending = false;
-        let facePositionPaused = false;
-        let facePositionRemainingMs = 0;
         let faceGuideMinWidthRatio = 0.85;
         let partIntroTimer = 0;
         let partIntroDurationMs = 3000;
@@ -873,46 +865,18 @@
             return box.width / (guideRect.width * scaleX) >= faceGuideMinWidthRatio;
         }
 
-        function resetFacePosition() {
-            facePositionPaused = false;
-            facePositionAlert.hidden = true;
-            frameGuide.classList.remove("is-face-too-small");
-        }
-
-        function setFacePositionPaused(paused) {
-            if (facePositionPaused === paused) return;
-            facePositionPaused = paused;
-            facePositionAlert.hidden = !paused;
-            if (paused) positionCard(facePositionAlert, frameGuide, true);
-            frameGuide.classList.toggle("is-face-too-small", paused);
-            if (paused) {
-                facePositionRemainingMs = Math.max(0, rotationIntervalMs - (performance.now() - rotationStartedAt));
-                stopSituationRotation();
-                stopScoreAnimation();
-            } else {
-                startSituationRotation(facePositionRemainingMs);
-                renderScore();
-            }
-        }
-
         function updateFacePosition(box) {
             if (!tutorialOverlay.hidden && tutorialOverlay.dataset.target === "frameGuide") {
+                if (tutorialTimer) return;
                 const ready = faceIsLargeEnough(box);
                 frameGuide.classList.toggle("is-face-too-small", !ready);
-                if (ready && !tutorialTimer) {
+                if (ready) {
                     tutorialTimer = setTimeout(
                         () => showTutorialStep(tutorialStepIndex + 1),
                         tutorialSteps[tutorialStepIndex].durationMs
                     );
-                } else if (!ready) {
-                    clearTimeout(tutorialTimer);
-                    tutorialTimer = 0;
                 }
-                return;
             }
-            const active = !photographScene.hidden && partIntro.hidden && tutorialOverlay.hidden && !captureInProgress;
-            if (!active || (!rotationTimer && !facePositionPaused)) return;
-            setFacePositionPaused(!faceIsLargeEnough(box));
         }
 
         function stopScoreAnimation() {
@@ -929,7 +893,7 @@
 
         function stepScore() {
             scoreStepTimer = 0;
-            if (facePositionPaused || !tutorialOverlay.hidden || !partIntro.hidden) return;
+            if (!tutorialOverlay.hidden || !partIntro.hidden) return;
             if (displayedSegmentCount === targetSegmentCount) return;
             displayedSegmentCount += Math.sign(targetSegmentCount - displayedSegmentCount);
             const displayedScore = paintScore(displayedSegmentCount);
@@ -939,7 +903,7 @@
         }
 
         function renderScore() {
-            if (photographScene.hidden || captureInProgress || situationJudgmentPending || facePositionPaused || !tutorialOverlay.hidden || !partIntro.hidden) return;
+            if (photographScene.hidden || captureInProgress || situationJudgmentPending || !tutorialOverlay.hidden || !partIntro.hidden) return;
             const emotions = situations[situationIndex]?.emotions || [];
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
@@ -961,7 +925,6 @@
             clearTimeout(partIntroTimer);
             stopSituationRotation();
             stopScoreAnimation();
-            resetFacePosition();
             situationJudgmentPending = true;
             situationIndex = (index + situations.length) % situations.length;
             scoreText.textContent = situations[situationIndex].text;
@@ -1105,7 +1068,6 @@
             clearTimeout(partIntroTimer);
             stopSituationRotation();
             stopScoreAnimation();
-            resetFacePosition();
             stopRecordingBuffer();
             partIntro.hidden = true;
             photographScene.hidden = true;
@@ -1156,8 +1118,6 @@
                 || typeof text !== "string" || !(Number(durationMs) > 0)
             )) throw new Error("チュートリアル設定が不正です");
             tutorialSteps = tutorialSteps.map((step) => ({ ...step, durationMs: Number(step.durationMs) }));
-            facePositionAlert.textContent = tutorialSteps.find(({ target }) => target === "frameGuide")?.text
-                || "顔が円に合う大きさになるよう、カメラまでの距離を調整してください。";
             faceGuideMinWidthRatio = Number(config.faceGuideMinWidthRatio ?? 0.85);
             if (!(faceGuideMinWidthRatio >= 0 && faceGuideMinWidthRatio <= 1)) throw new Error("顔サイズ判定の設定が不正です");
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
@@ -1686,7 +1646,7 @@
         }
 
         async function playShutter() {
-            if (facePositionPaused || !tutorialOverlay.hidden || !blink.hidden || captureInProgress || !partIntro.hidden) return;
+            if (!tutorialOverlay.hidden || !blink.hidden || captureInProgress || !partIntro.hidden) return;
             captureInProgress = true;
             updateSituationTimer();
             stopSituationRotation();
