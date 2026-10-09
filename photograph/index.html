@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Photograph</title>
+    <title>表情と呼ばれるモノver2.0</title>
     <script defer src="../modules/faceAPI/face-api.min.js"></script>
     <style>
         :root {
@@ -840,28 +840,27 @@
         function setScoreText(text, parts) {
             const characters = [...text];
             const middle = Math.ceil(characters.length / 2);
-            const [left, right] = parts || [characters.slice(0, middle).join(""), characters.slice(middle).join("")];
-            scoreText.replaceChildren(
-                textElement("span", "", left),
-                textElement("span", "", right)
-            );
+            const displayedParts = parts || [characters.slice(0, middle).join(""), characters.slice(middle).join("")];
+            scoreText.replaceChildren(...displayedParts.map((part) => textElement("span", "", part)));
         }
 
-        function positionCard(card, anchor, insideAnchor = false, placeAboveAnchor = false) {
+        function positionTutorialCard(target) {
             const containerRect = photographScene.getBoundingClientRect();
-            if (insideAnchor) {
-                card.style.top = `${(containerRect.height - card.offsetHeight) / 2}px`;
-                card.style.left = `${(containerRect.width - card.offsetWidth) / 2}px`;
+            if (target === "frameGuide") {
+                tutorialCard.style.top = `${(containerRect.height - tutorialCard.offsetHeight) / 2}px`;
+                tutorialCard.style.left = `${(containerRect.width - tutorialCard.offsetWidth) / 2}px`;
                 return;
             }
+            const placeAbove = target === "scoreText" || target === "scoreBar";
+            const anchor = placeAbove ? emotionPanel : situationTimer;
             const anchorRect = anchor.getBoundingClientRect();
-            const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-card-gap"));
-            const emotionPanelGap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tutorial-emotion-panel-gap"));
-            const left = anchorRect.left - containerRect.left + (anchorRect.width - card.offsetWidth) / 2;
-            card.style.top = `${placeAboveAnchor
-                ? anchorRect.top - containerRect.top - card.offsetHeight - emotionPanelGap
+            const gapProperty = placeAbove ? "--tutorial-emotion-panel-gap" : "--tutorial-card-gap";
+            const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(gapProperty));
+            const left = anchorRect.left - containerRect.left + (anchorRect.width - tutorialCard.offsetWidth) / 2;
+            tutorialCard.style.top = `${placeAbove
+                ? anchorRect.top - containerRect.top - tutorialCard.offsetHeight - gap
                 : anchorRect.bottom - containerRect.top + gap}px`;
-            card.style.left = `${Math.min(Math.max(24, left), containerRect.width - card.offsetWidth - 24)}px`;
+            tutorialCard.style.left = `${Math.min(Math.max(24, left), containerRect.width - tutorialCard.offsetWidth - 24)}px`;
         }
 
         function stopSituationRotation() {
@@ -1038,14 +1037,13 @@
             }
             tutorialOverlay.dataset.target = step.target;
             const focusPanel = step.target === "scoreText" || step.target === "scoreBar";
-            const cardAnchor = focusPanel ? emotionPanel : step.target === "frameGuide" ? frameGuide : situationTimer;
             emotionPanel.classList.toggle("tutorialLayer", focusPanel);
             scoreText.classList.toggle("tutorialFocusItem", step.target === "scoreText");
             scoreBar.classList.toggle("tutorialFocusItem", step.target === "scoreBar");
             frameGuide.classList.toggle("tutorialFocus", step.target === "frameGuide");
             situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
             tutorialText.textContent = step.text;
-            positionCard(tutorialCard, cardAnchor, step.target === "frameGuide", focusPanel);
+            positionTutorialCard(step.target);
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
             if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
             if (step.target !== "frameGuide") tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);
