@@ -373,15 +373,28 @@
         }
 
         #scoreText {
-            display: block;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            column-gap: var(--score-text-center-gap, 0px);
             min-width: 0;
-            overflow: hidden;
             font-size: 1.6rem;
             font-weight: 400;
             line-height: 1.4;
-            text-align: center;
-            text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        #scoreText span {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #scoreText span:first-child {
+            text-align: right;
+        }
+
+        #scoreText span:last-child {
+            text-align: left;
         }
 
         .scoreBar {
@@ -522,7 +535,7 @@
 
         .partIntroCard {
             box-sizing: border-box;
-            width: min(680px, 100%);
+            width: min(700px, 100%);
             display: grid;
             gap: 10px;
             padding: 32px 40px;
@@ -694,7 +707,7 @@
             </div>
         </section>
         <header class="emotionPanel" aria-label="感情推定">
-            <strong id="scoreText">読込中</strong>
+            <strong id="scoreText"><span>読</span><span>込中</span></strong>
             <div id="scoreBar" class="scoreBar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
                 aria-valuenow="0"></div>
         </header>
@@ -823,6 +836,16 @@
             return element;
         }
 
+        function setScoreText(text, parts) {
+            const characters = [...text];
+            const middle = Math.ceil(characters.length / 2);
+            const [left, right] = parts || [characters.slice(0, middle).join(""), characters.slice(middle).join("")];
+            scoreText.replaceChildren(
+                textElement("span", "", left),
+                textElement("span", "", right)
+            );
+        }
+
         function positionCard(card, anchor, insideAnchor = false) {
             const containerRect = photographScene.getBoundingClientRect();
             if (insideAnchor) {
@@ -917,7 +940,8 @@
             situationJudgmentPending = true;
             situationIndex = (index + situations.length) % situations.length;
             const tutorialIntro = situationIndex === 0 && !tutorialShown;
-        scoreText.textContent = tutorialIntro ? "　　　" : situations[situationIndex].text;
+            const situation = situations[situationIndex];
+            setScoreText(tutorialIntro ? "　　　" : situation.text, tutorialIntro ? null : situation.scoreTextParts);
             partIntroLabel.hidden = tutorialIntro;
             partIntroLabel.textContent = `part${situationIndex + 1}`;
             partIntroText.textContent = tutorialIntro ? "チュートリアル" : situations[situationIndex].text;
@@ -1004,7 +1028,10 @@
                 return;
             }
             const step = tutorialSteps[index];
-        if (step.target === "scoreText") scoreText.textContent = situations[situationIndex].text;
+            if (step.target === "scoreText") {
+                const situation = situations[situationIndex];
+                setScoreText(situation.text, situation.scoreTextParts);
+            }
             tutorialOverlay.dataset.target = step.target;
             const focusPanel = step.target === "scoreText" || step.target === "scoreBar";
             const cardAnchor = focusPanel ? emotionPanel : step.target === "frameGuide" ? frameGuide : situationTimer;
@@ -1085,7 +1112,10 @@
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const config = await response.json();
             if (!Array.isArray(config.situations) || !config.situations.length || config.situations.some(
-                ({ text, emotions, judgmentDelayMs = 0 }) => typeof text !== "string" || !Array.isArray(emotions) || !emotions.length
+                ({ text, scoreTextParts, emotions, judgmentDelayMs = 0 }) => typeof text !== "string"
+                    || (scoreTextParts != null && (!Array.isArray(scoreTextParts) || scoreTextParts.length !== 2
+                        || scoreTextParts.some((part) => typeof part !== "string")))
+                    || !Array.isArray(emotions) || !emotions.length
                     || !(Number(judgmentDelayMs) >= 0)
             )) throw new Error("状況文の設定が不正です");
             const copy = config.copy;
@@ -1111,6 +1141,7 @@
             tutorialSteps = tutorialSteps.map((step) => ({ ...step, durationMs: Number(step.durationMs) }));
             faceGuideMinWidthRatio = Number(config.faceGuideMinWidthRatio ?? 0.85);
             if (!(faceGuideMinWidthRatio >= 0 && faceGuideMinWidthRatio <= 1)) throw new Error("顔サイズ判定の設定が不正です");
+            scoreText.style.setProperty("--score-text-center-gap", `${Math.max(0, Number(config.scoreTextCenterGapPx) || 0)}px`);
             scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
             const shutter = config.shutter || {};
             shutterScoreThreshold = Math.min(100, Math.max(0, Number(shutter.scoreThreshold ?? 80)));
@@ -1619,7 +1650,7 @@
             try {
                 await configurationReady;
             } catch (error) {
-                scoreText.textContent = "設定を読み込めません";
+                setScoreText("設定を読み込めません");
                 console.error("photograph/config.json を読み込めませんでした。", error);
                 return;
             }
@@ -1631,7 +1662,7 @@
                 ]);
                 detectEmotion(new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }));
             } catch (error) {
-                scoreText.textContent = "モデルを読み込めません";
+                setScoreText("モデルを読み込めません");
                 console.error("FaceAPIモデルを読み込めませんでした。", error);
             }
         }
