@@ -42,7 +42,6 @@
     ]
   },
   "faceGuideMinWidthRatio": 0.80,
-  "scoreTextCenterGapPx": 120,
   "scoreSegmentCount": 10,
   "scoreStepIntervalMs": 80,
   "shutter": {
@@ -62,10 +61,6 @@
   "situations": [
     {
       "text": "ずっと欲しかったプレゼントをもらった！",
-      "scoreTextParts": [
-        "ずっと欲しかった",
-        "プレゼントをもらった！"
-      ],
       "emotions": [
         "happy",
         "surprised"
@@ -73,10 +68,6 @@
     },
     {
       "text": "楽しみだった旅行が中止に...",
-      "scoreTextParts": [
-        "楽しみだった",
-        "旅行が中止に..."
-      ],
       "judgmentDelayMs": 2000,
       "emotions": [
         "sad",
@@ -86,10 +77,6 @@
     },
     {
       "text": "列に横入りされた！",
-      "scoreTextParts": [
-        "列に横入り",
-        "された！"
-      ],
       "emotions": [
         "angry",
         "fearful"
@@ -104,10 +91,6 @@
     },
     {
       "text": "突然、刃物を持った男が襲いかかってきた",
-      "scoreTextParts": [
-        "突然、刃物を持った",
-        "男が襲いかかってきた"
-      ],
       "emotions": [
         "fearful",
         "disgusted"
@@ -115,10 +98,6 @@
     },
     {
       "text": "犬のフンを踏んでしまった...",
-      "scoreTextParts": [
-        "犬のフンを",
-        "踏んでしまった..."
-      ],
       "emotions": [
         "disgusted",
         "fearful",
