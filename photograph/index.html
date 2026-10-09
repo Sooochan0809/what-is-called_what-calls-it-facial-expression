@@ -10,34 +10,23 @@
         :root {
             --font-sans: "ヒラギノ明朝 ProN W6", "HiraMinProN-W6", "HG明朝E", "ＭＳ Ｐ明朝", "MS PMincho", "MS 明朝", serif;
             --color-page: #f7f8fa;
-            --color-on-dark: #fff;
+            --color-white: #fff;
             --color-shutter: #000;
+            --color-ink: #17202a;
+            --color-backdrop-base: #111821;
             --color-status: #1b2026e0;
-            --color-status-text: #f4f7fb;
             --color-control: #343a40;
-            --color-panel: #ffffff66;
-            --color-timer: #ffffffe6;
-            --color-overlay: #f7f8fa94;
-            --color-overlay-card: #ffffffd1;
             --color-overlay-border: #d9dee5d1;
             --color-muted: #68727e;
-            --color-backdrop: #1118217a;
-            --color-dialog-shadow: #17202a3d;
             --color-note-border: #ead8bd;
             --color-note-background: #fffaf3;
             --color-note-text: #3f4650;
             --color-note-accent: #b85f16;
-            --color-panel-text: #17202a;
             --color-score-track: #e7ecf1;
-            --color-progress-track: #17202a1f;
-            --color-tutorial-backdrop: #11182138;
-            --color-tutorial-focus: #27c28a;
             --tutorial-card-gap: 24px;
             --tutorial-card-max-width: 580px;
             --color-positive: #27c28a;
-            --color-positive-glow: #27c28a24;
             --color-warning: #ef8b39;
-            --color-warning-glow: #ef8b3924;
             --color-negative: #dd4d5d;
         }
 
@@ -47,7 +36,7 @@
             display: grid;
             place-items: center;
             background: var(--color-page);
-            color: var(--color-panel-text);
+            color: var(--color-ink);
             font-family: var(--font-sans);
         }
 
@@ -105,7 +94,7 @@
         }
 
         .finalScoreHeader {
-            border-bottom: 2px solid var(--color-panel-text);
+            border-bottom: 2px solid var(--color-ink);
             padding: 0 0 10px;
             color: var(--color-muted);
             font-size: 0.9rem;
@@ -162,9 +151,9 @@
             min-height: 44px;
             border: 1px solid var(--color-overlay-border);
             border-radius: 6px;
-            background: var(--color-panel-text);
+            background: var(--color-ink);
             padding: 0 18px;
-            color: var(--color-on-dark);
+            color: var(--color-white);
             font: inherit;
             font-size: 0.98rem;
             cursor: pointer;
@@ -174,15 +163,15 @@
             width: min(640px, calc(100% - 40px));
             border: 1px solid var(--color-overlay-border);
             border-radius: 16px;
-            background: var(--color-on-dark);
+            background: var(--color-white);
             padding: 0;
-            color: var(--color-panel-text);
-            box-shadow: 0 24px 72px var(--color-dialog-shadow);
+            color: var(--color-ink);
+            box-shadow: 0 24px 72px color-mix(in srgb, var(--color-ink) 24%, transparent);
             transform: translateY(88px);
         }
 
         .consentDialog::backdrop {
-            background: var(--color-backdrop);
+            background: color-mix(in srgb, var(--color-backdrop-base) 48%, transparent);
             backdrop-filter: blur(3px);
         }
 
@@ -246,17 +235,17 @@
             min-height: 54px;
             border: 1px solid var(--color-overlay-border);
             border-radius: 8px;
-            background: var(--color-on-dark);
-            color: var(--color-panel-text);
+            background: var(--color-white);
+            color: var(--color-ink);
             font: inherit;
             font-size: 1rem;
             cursor: pointer;
         }
 
         .consentButton--accept {
-            border-color: var(--color-panel-text);
-            background: var(--color-panel-text);
-            color: var(--color-on-dark);
+            border-color: var(--color-ink);
+            background: var(--color-ink);
+            color: var(--color-white);
         }
 
         main {
@@ -295,7 +284,7 @@
             bottom: 0;
             z-index: 5;
             height: 8px;
-            background: var(--color-progress-track);
+            background: color-mix(in srgb, var(--color-ink) 12.2%, transparent);
         }
 
         .captureProgress[hidden] {
@@ -324,7 +313,7 @@
 
         .frameGuide.is-face-too-small {
             border-color: var(--color-warning);
-            box-shadow: 0 0 0 8px var(--color-warning-glow);
+            box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-warning) 14.1%, transparent);
         }
 
         .blink {
@@ -344,7 +333,7 @@
             padding: 16px 20px;
             border-radius: 12px;
             background: var(--color-status);
-            color: var(--color-status-text);
+            color: var(--color-page);
             font-size: clamp(14px, 2vw, 20px);
             white-space: nowrap;
             display: grid;
@@ -377,8 +366,8 @@
             gap: 8px;
             padding: 8px;
             border-radius: 6px;
-            background: var(--color-panel);
-            color: var(--color-panel-text);
+            background: color-mix(in srgb, var(--color-white) 40%, transparent);
+            color: var(--color-ink);
             opacity: 0.88;
             pointer-events: none;
         }
@@ -425,8 +414,8 @@
             padding: 8px 14px;
             border: 1px solid var(--color-score-track);
             border-radius: 999px;
-            background: var(--color-timer);
-            color: var(--color-panel-text);
+            background: color-mix(in srgb, var(--color-white) 90.2%, transparent);
+            color: var(--color-ink);
             font-size: 1.1rem;
             font-variant-numeric: tabular-nums;
             font-weight: 600;
@@ -446,7 +435,7 @@
             z-index: 5;
             display: grid;
             place-items: center;
-            color: var(--color-on-dark);
+            color: var(--color-white);
             font-size: clamp(7rem, 24vw, 14rem);
             font-variant-numeric: tabular-nums;
             font-weight: 600;
@@ -470,7 +459,7 @@
             display: grid;
             place-items: center;
             padding: 24px;
-            background: var(--color-overlay);
+            background: color-mix(in srgb, var(--color-page) 58%, transparent);
             backdrop-filter: blur(10px);
         }
 
@@ -482,7 +471,7 @@
             position: absolute;
             inset: 0;
             z-index: 7;
-            background: var(--color-tutorial-backdrop);
+            background: color-mix(in srgb, var(--color-backdrop-base) 22%, transparent);
             pointer-events: none;
         }
 
@@ -497,12 +486,12 @@
             left: 0;
             width: max-content;
             max-width: min(var(--tutorial-card-max-width), calc(100% - 48px));
-            border-left: 6px solid var(--color-tutorial-focus);
+            border-left: 6px solid var(--color-positive);
             border-radius: 8px;
-            background: var(--color-overlay-card);
+            background: color-mix(in srgb, var(--color-white) 82%, transparent);
             padding: 24px 28px;
-            box-shadow: 0 12px 36px var(--color-dialog-shadow);
-            color: var(--color-panel-text);
+            box-shadow: 0 12px 36px color-mix(in srgb, var(--color-ink) 24%, transparent);
+            color: var(--color-ink);
             font-size: clamp(1rem, 2.5vw, 1.35rem);
             line-height: 1.8;
         }
@@ -518,7 +507,7 @@
         }
 
         .tutorialFocus {
-            box-shadow: 0 0 0 8px var(--color-positive-glow);
+            box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-positive) 14.1%, transparent);
         }
 
         .frameGuide.tutorialFocus {
@@ -527,7 +516,7 @@
 
         .tutorialFocus,
         .tutorialFocusItem {
-            outline: 4px solid var(--color-tutorial-focus);
+            outline: 4px solid var(--color-positive);
             outline-offset: 6px;
         }
 
@@ -539,7 +528,7 @@
             padding: 32px 40px;
             border: 1px solid var(--color-overlay-border);
             border-radius: 6px;
-            background: var(--color-overlay-card);
+            background: color-mix(in srgb, var(--color-white) 82%, transparent);
             text-align: center;
         }
 
@@ -554,7 +543,7 @@
 
         #partIntroText {
             margin: 0;
-            color: var(--color-panel-text);
+            color: var(--color-ink);
             font-size: clamp(1.6rem, 4vw, 3rem);
             line-height: 1.2;
         }
