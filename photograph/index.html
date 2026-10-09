@@ -916,9 +916,11 @@
             stopScoreAnimation();
             situationJudgmentPending = true;
             situationIndex = (index + situations.length) % situations.length;
-            scoreText.textContent = situations[situationIndex].text;
-            partIntroLabel.textContent = `Scene${situationIndex + 1}`;
-            partIntroText.textContent = situations[situationIndex].text;
+            const tutorialIntro = situationIndex === 0 && !tutorialShown;
+        scoreText.textContent = tutorialIntro ? "　　　" : situations[situationIndex].text;
+            partIntroLabel.hidden = tutorialIntro;
+            partIntroLabel.textContent = `part${situationIndex + 1}`;
+            partIntroText.textContent = tutorialIntro ? "チュートリアル" : situations[situationIndex].text;
             partIntro.hidden = false;
             guideAudio.pause();
             replayAudio(guideAudio);
@@ -927,7 +929,7 @@
             partIntroTimer = setTimeout(() => {
                 guideAudio.pause();
                 partIntro.hidden = true;
-                if (situationIndex === 0 && !tutorialShown) showTutorial();
+                if (tutorialIntro) showTutorial();
                 else partIntroTimer = setTimeout(startSituationJudgment, situations[situationIndex].judgmentDelayMs);
             }, partIntroDurationMs);
         }
@@ -1002,6 +1004,7 @@
                 return;
             }
             const step = tutorialSteps[index];
+        if (step.target === "scoreText") scoreText.textContent = situations[situationIndex].text;
             tutorialOverlay.dataset.target = step.target;
             const focusPanel = step.target === "scoreText" || step.target === "scoreBar";
             const cardAnchor = focusPanel ? emotionPanel : step.target === "frameGuide" ? frameGuide : situationTimer;
