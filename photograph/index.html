@@ -580,7 +580,7 @@
 
         @media (max-width: 1120px) {
             .emotionPanel {
-                top: 188px;
+                top: 224px;
                 left: 16px;
                 right: 16px;
                 gap: 12px;
@@ -596,7 +596,7 @@
             }
 
             .situationTimer {
-                top: 298px;
+                top: 334px;
                 right: 24px;
                 padding: 12px 20px;
                 font-size: 1.75rem;
@@ -750,7 +750,9 @@
         const blink = $("blink");
         const guideAudio = new Audio("./sound/guide.mp3");
         const shutterAudio = new Audio("./sound/shutter.mp3");
+        const tutorialChimeAudio = new Audio("./sound/announce.wav");
         guideAudio.preload = "auto";
+        tutorialChimeAudio.preload = "auto";
         const emotionCanvas = document.createElement("canvas");
         const emotionContext = emotionCanvas.getContext("2d");
         const MODEL_URL = "../modules/faceAPI/models";
@@ -1025,6 +1027,7 @@
             situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
             tutorialText.textContent = step.text.replace("{seconds}", Math.ceil(rotationIntervalMs / 1000));
             positionTutorialCard(step.target);
+            if (step.target !== "frameGuide") replayAudio(tutorialChimeAudio);
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
             if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
             if (step.target !== "frameGuide") tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);
