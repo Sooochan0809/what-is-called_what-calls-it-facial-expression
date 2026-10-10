@@ -1002,7 +1002,11 @@
 
         function showTutorialStep(index = 0) {
             clearTimeout(tutorialTimer);
+            clearTimeout(tutorialEffectTimer);
             tutorialTimer = 0;
+            tutorialEffectTimer = 0;
+            situationCountdown.hidden = true;
+            if (tutorialOverlay.dataset.target === "scoreBar") paintScore(0);
             tutorialStepIndex = index;
             if (index >= tutorialSteps.length) {
                 stopTutorial();
@@ -1011,7 +1015,7 @@
                 return;
             }
             const step = tutorialSteps[index];
-            if (step.target === "scoreText") scoreText.textContent = situations[situationIndex].text;
+            scoreText.textContent = step.target === "scoreText" ? situations[situationIndex].text : "　　　";
             tutorialOverlay.dataset.target = step.target;
             const focusPanel = step.target === "scoreText" || step.target === "scoreBar";
             emotionPanel.classList.toggle("tutorialLayer", focusPanel);
@@ -1762,9 +1766,14 @@
                 status.hidden = !status.hidden;
                 return;
             }
-            if (!situations.length || !tutorialOverlay.hidden || captureInProgress || event.target.matches("input, select, textarea, button")) return;
             const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
-            if (!step) return;
+            if (!step || event.target.matches("input, select, textarea, button")) return;
+            if (!tutorialOverlay.hidden) {
+                event.preventDefault();
+                showTutorialStep(Math.max(0, tutorialStepIndex + step));
+                return;
+            }
+            if (!situations.length || captureInProgress) return;
             event.preventDefault();
             if (step > 0 && situationIndex === situations.length - 1) showResults();
             else showSituation(situationIndex + step);
