@@ -156,6 +156,10 @@
             background: #7d858f;
         }
 
+        .recordingButton:not(.is-off) {
+            background: #c9343c;
+        }
+
         .stageToggleButton[hidden] {
             display: none;
         }
@@ -169,6 +173,10 @@
             border-radius: 8px;
             background: rgba(255, 255, 255, 0.92);
             font-size: 0.72rem;
+        }
+
+        .sequenceSpeedControl[hidden] {
+            display: none;
         }
 
         .sequenceSpeedControl input {
@@ -469,18 +477,20 @@
                             aria-pressed="true">モノクロ</button>
                         <button class="stageToggleButton sequenceToggleButton is-off" id="sequenceToggleButton"
                             type="button" aria-pressed="false" disabled>自動切替</button>
-                        <label class="sequenceSpeedControl">
+                        <label class="sequenceSpeedControl" hidden>
                             <span>切替</span>
-                            <input id="sequenceSpeedInput" type="number" min="0.1" step="0.1" value="30"
+                            <input id="sequenceSpeedInput" type="number" min="0.1" step="0.1" value="15"
                                 inputmode="decimal" aria-label="画像を切り替える秒数">
                             <span>秒</span>
                         </label>
-                        <label class="sequenceSpeedControl">
+                        <label class="sequenceSpeedControl" hidden>
                             <span>折返し</span>
                             <input id="sequencePeakInput" type="number" min="50" max="100" step="1" value="100"
                                 inputmode="numeric" aria-label="自動切替で折り返す割合">
                             <span>%</span>
                         </label>
+                        <button class="stageToggleButton recordingButton is-off" id="recordingButton" type="button"
+                            aria-pressed="false" disabled>録画</button>
                     </div>
                 </div>
             </section>
@@ -513,14 +523,13 @@
     </div>
     <script type="module">
         import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
+        import { ArrayBufferTarget, Muxer } from "https://cdn.jsdelivr.net/npm/webm-muxer@5.1.4/+esm";
 
         const DEFAULT_OUTPUT_FPS = 60;
         const MORPH_WIDTH = 600;
         const MORPH_HEIGHT = 800;
         const MORPH_RATIO = MORPH_WIDTH / MORPH_HEIGHT;
         const TRIANGLE_OVERDRAW_PX = 0.75;
-        const DEFAULT_SEQUENCE_DURATION = 3000;
-        console.assert(DEFAULT_SEQUENCE_DURATION > 0);
         const MEDIAPIPE_VERSION = "1.1.0";
         const MEDIAPIPE_TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
         const FACE_MODEL_URL =
@@ -531,7 +540,9 @@
         const DISPLAY_SOURCE_ID = DISPLAY_PARAMS.get("sourceId");
         const DISPLAY_CANVAS_ID = DISPLAY_PARAMS.get("canvasId")?.trim() || null;
         const IS_EMBEDDED = DISPLAY_PARAMS.get("embedded") === "1";
-        const requestedOutputFps = Number(DISPLAY_PARAMS.get("outputFps"));
+        const requestedOutputFps = DISPLAY_PARAMS.has("outputFps")
+            ? Number(DISPLAY_PARAMS.get("outputFps"))
+            : Number.NaN;
         const OUTPUT_FPS = Number.isFinite(requestedOutputFps)
             ? Math.min(60, Math.max(1, requestedOutputFps))
             : DEFAULT_OUTPUT_FPS;
@@ -554,9 +565,11 @@
         const cropHeightInput = document.getElementById("cropHeightInput");
         const cropShowButton = document.getElementById("cropShowButton");
         const monoToggleButton = document.getElementById("monoToggleButton");
+        const recordingButton = document.getElementById("recordingButton");
         const sequenceToggleButton = document.getElementById("sequenceToggleButton");
         const sequenceSpeedInput = document.getElementById("sequenceSpeedInput");
         const sequencePeakInput = document.getElementById("sequencePeakInput");
+        const sequenceSettings = document.querySelectorAll(".sequenceSpeedControl");
         const layerList = document.getElementById("layerList");
         const layersContainer = document.getElementById("layers");
 
@@ -570,8 +583,21 @@
         let sequenceStartedAt = 0;
         let sequenceFromIndex = 0;
         let sequenceProgress = 0;
-        let sequenceDuration = DEFAULT_SEQUENCE_DURATION;
-        let sequencePeak = 1;
+        let sequenceDuration = Number(sequenceSpeedInput.value) * 1000;
+        let sequencePeak = Number(sequencePeakInput.value) / 100;
+        const recordingCanvas = document.createElement("canvas");
+        let recordingActive = false;
+        let recordingStopping = false;
+        let recordingEncoder = null;
+        let recordingMuxer = null;
+        let recordingTarget = null;
+        let recordingTimerId = null;
+        let recordingRenderer = null;
+        let recordingLayerData = new Map();
+        let recordingFrameCount = 0;
+        let recordingStartedAt = 0;
+        let recordingSequenceStartIndex = 0;
+        let recordingSequenceStartProgress = 0;
         let cropEnabled = false;
         let cropDrag = null;
         let activeCropRect = null;
@@ -838,7 +864,7 @@
                 ) * 100,
             }));
             renderStage();
-            renderLayerOutputs();
+            if (!isRecording()) renderLayerOutputs();
         }
 
         function tickMorphSequence(timestamp) {
@@ -881,6 +907,7 @@
 
         function removeLayer(id) {
             layers = layers.filter((layer) => layer.id !== id);
+            if (getMorphLayers().length === 0) stopRecording();
             resetMorphSequence();
             render();
         }
@@ -934,8 +961,8 @@
             });
         }
 
-        function clipTriangle(ctx, tri) {
-            const expandedTri = getExpandedTriangle(tri);
+        function clipTriangle(ctx, tri, expandPx = TRIANGLE_OVERDRAW_PX) {
+            const expandedTri = getExpandedTriangle(tri, expandPx);
             ctx.beginPath();
             ctx.moveTo(expandedTri[0][0], expandedTri[0][1]);
             ctx.lineTo(expandedTri[1][0], expandedTri[1][1]);
@@ -944,7 +971,7 @@
             ctx.clip();
         }
 
-        function drawTriangleImage(ctx, image, srcTri, dstTri) {
+        function drawTriangleImage(ctx, image, srcTri, dstTri, expandPx) {
             const [sx0, sy0] = srcTri[0];
             const [sx1, sy1] = srcTri[1];
             const [sx2, sy2] = srcTri[2];
@@ -970,7 +997,7 @@
                 denom;
 
             ctx.save();
-            clipTriangle(ctx, dstTri);
+            clipTriangle(ctx, dstTri, expandPx);
             ctx.setTransform(a, b, c, d, e, f);
             ctx.drawImage(image, 0, 0);
             ctx.restore();
@@ -998,9 +1025,14 @@
         }
 
         function prepareCanvas(targetCanvas, width, height) {
-            targetCanvas.width = width;
-            targetCanvas.height = height;
+            if (targetCanvas.width !== width || targetCanvas.height !== height) {
+                targetCanvas.width = width;
+                targetCanvas.height = height;
+            }
             const ctx = targetCanvas.getContext("2d");
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalAlpha = 1;
+            ctx.filter = "none";
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = "high";
             ctx.clearRect(0, 0, width, height);
@@ -1014,6 +1046,325 @@
         function syncToggleButton(button, enabled) {
             button.classList.toggle("is-off", !enabled);
             button.setAttribute("aria-pressed", String(enabled));
+        }
+
+        function isRecording() {
+            return recordingActive;
+        }
+
+        function getRecordingSize(morphLayers) {
+            const source = morphLayers.reduce((largest, layer) =>
+                layer.width * layer.height > largest.width * largest.height
+                    ? layer
+                    : largest,
+            );
+            return { width: source.width, height: source.height };
+        }
+
+        function createRecordingLayerData(layer, width, height, gl) {
+            const outputCrop = getCenteredCropRect(layer.width, layer.height, width / height);
+            const analysisCrop = getCenteredCropRect(layer.width, layer.height, MORPH_RATIO);
+            const sourcePoints = [];
+            const points = layer.morph.points.slice(0, -4).map(([x, y]) => {
+                const sourceX = analysisCrop.sx + x * analysisCrop.sw / MORPH_WIDTH;
+                const sourceY = analysisCrop.sy + y * analysisCrop.sh / MORPH_HEIGHT;
+                sourcePoints.push(sourceX / layer.width, sourceY / layer.height);
+                return [
+                    (sourceX - outputCrop.sx) * width / outputCrop.sw,
+                    (sourceY - outputCrop.sy) * height / outputCrop.sh,
+                ];
+            });
+            points.push([0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]);
+            sourcePoints.push(
+                outputCrop.sx / layer.width,
+                outputCrop.sy / layer.height,
+                (outputCrop.sx + outputCrop.sw) / layer.width,
+                outputCrop.sy / layer.height,
+                (outputCrop.sx + outputCrop.sw) / layer.width,
+                (outputCrop.sy + outputCrop.sh) / layer.height,
+                outputCrop.sx / layer.width,
+                (outputCrop.sy + outputCrop.sh) / layer.height,
+            );
+
+            const texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                layer.image,
+            );
+
+            return { points, sourcePoints: new Float32Array(sourcePoints), texture };
+        }
+
+        function createRecordingRenderer() {
+            const gl = recordingCanvas.getContext("webgl", {
+                alpha: false,
+                antialias: true,
+                preserveDrawingBuffer: true,
+            });
+            if (!gl) throw new Error("WebGL is unavailable.");
+
+            const compileShader = (type, source) => {
+                const shader = gl.createShader(type);
+                gl.shaderSource(shader, source);
+                gl.compileShader(shader);
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    throw new Error(gl.getShaderInfoLog(shader));
+                }
+                return shader;
+            };
+            const program = gl.createProgram();
+            gl.attachShader(program, compileShader(gl.VERTEX_SHADER, `
+                attribute vec2 aPosition;
+                attribute vec2 aTexCoord;
+                uniform vec2 uResolution;
+                varying vec2 vTexCoord;
+                void main() {
+                    vec2 clip = aPosition / uResolution * 2.0 - 1.0;
+                    gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+                    vTexCoord = aTexCoord;
+                }
+            `));
+            gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, `
+                precision highp float;
+                uniform sampler2D uTexture;
+                uniform float uWeight;
+                uniform float uMonochrome;
+                varying vec2 vTexCoord;
+                void main() {
+                    vec4 color = texture2D(uTexture, vTexCoord);
+                    float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+                    color.rgb = mix(color.rgb, vec3(gray), uMonochrome);
+                    gl_FragColor = vec4(color.rgb * color.a * uWeight, color.a * uWeight);
+                }
+            `));
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                throw new Error(gl.getProgramInfoLog(program));
+            }
+
+            return {
+                gl,
+                program,
+                positionBuffer: gl.createBuffer(),
+                texCoordBuffer: gl.createBuffer(),
+                indexBuffer: gl.createBuffer(),
+                positionLocation: gl.getAttribLocation(program, "aPosition"),
+                texCoordLocation: gl.getAttribLocation(program, "aTexCoord"),
+                resolutionLocation: gl.getUniformLocation(program, "uResolution"),
+                textureLocation: gl.getUniformLocation(program, "uTexture"),
+                weightLocation: gl.getUniformLocation(program, "uWeight"),
+                monochromeLocation: gl.getUniformLocation(program, "uMonochrome"),
+            };
+        }
+
+        function renderRecordingFrame() {
+            const renderer = recordingRenderer;
+            if (!renderer) return;
+            const { gl } = renderer;
+            const morphLayers = getMorphLayers();
+            const normalizedWeights = getNormalizedMorphWeights(morphLayers);
+            const activeLayers = morphLayers
+                .map((layer) => ({
+                    data: recordingLayerData.get(layer.id),
+                    weight: normalizedWeights.get(layer.id) || 0,
+                }))
+                .filter((item) => item.data && item.weight > 0);
+            if (activeLayers.length === 0) return;
+
+            const pointCount = activeLayers[0].data.points.length;
+            const blendedPoints = Array.from({ length: pointCount }, (_, pointIndex) =>
+                activeLayers.reduce((sum, item) => [
+                    sum[0] + item.data.points[pointIndex][0] * item.weight,
+                    sum[1] + item.data.points[pointIndex][1] * item.weight,
+                ], [0, 0]),
+            );
+            const positions = new Float32Array(blendedPoints.flat());
+            const triangles = new Uint16Array(Delaunator.from(blendedPoints).triangles);
+
+            gl.viewport(0, 0, recordingCanvas.width, recordingCanvas.height);
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.useProgram(renderer.program);
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.ONE, gl.ONE);
+            gl.uniform2f(
+                renderer.resolutionLocation,
+                recordingCanvas.width,
+                recordingCanvas.height,
+            );
+            gl.uniform1i(renderer.textureLocation, 0);
+            gl.uniform1f(renderer.monochromeLocation, monochromeEnabled ? 1 : 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, renderer.positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(renderer.positionLocation);
+            gl.vertexAttribPointer(renderer.positionLocation, 2, gl.FLOAT, false, 0, 0);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, renderer.indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, triangles, gl.DYNAMIC_DRAW);
+
+            activeLayers.forEach((item) => {
+                gl.bindBuffer(gl.ARRAY_BUFFER, renderer.texCoordBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, item.data.sourcePoints, gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(renderer.texCoordLocation);
+                gl.vertexAttribPointer(renderer.texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, item.data.texture);
+                gl.uniform1f(renderer.weightLocation, item.weight);
+                gl.drawElements(gl.TRIANGLES, triangles.length, gl.UNSIGNED_SHORT, 0);
+            });
+            gl.flush();
+        }
+
+        function encodeRecordingFrame(frameIndex) {
+            if (sequenceEnabled) {
+                const morphLayerCount = getMorphLayers().length;
+                const totalProgress = recordingSequenceStartProgress
+                    + frameIndex * 1000 / OUTPUT_FPS / sequenceDuration;
+                sequenceFromIndex = (
+                    recordingSequenceStartIndex + Math.floor(totalProgress)
+                ) % morphLayerCount;
+                sequenceProgress = totalProgress % 1;
+                setSequenceWeights(sequenceProgress);
+            }
+
+            renderRecordingFrame();
+            const timestamp = Math.round(frameIndex * 1_000_000 / OUTPUT_FPS);
+            const frame = new VideoFrame(recordingCanvas, {
+                timestamp,
+                duration: Math.round(1_000_000 / OUTPUT_FPS),
+            });
+            recordingEncoder.encode(frame, { keyFrame: frameIndex % 120 === 0 });
+            frame.close();
+            recordingFrameCount += 1;
+        }
+
+        function encodeRecordingFramesThrough(targetFrameCount) {
+            while (recordingFrameCount < targetFrameCount) {
+                encodeRecordingFrame(recordingFrameCount);
+            }
+            renderLayerOutputs();
+        }
+
+        function drawRecordingFrames() {
+            if (!isRecording()) return;
+            const elapsed = performance.now() - recordingStartedAt;
+            encodeRecordingFramesThrough(Math.max(1, Math.floor(elapsed * OUTPUT_FPS / 1000) + 1));
+            recordingTimerId = setTimeout(drawRecordingFrames, 1000 / OUTPUT_FPS);
+        }
+
+        function saveRecording(blob) {
+            if (blob.size === 0) return;
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `morphing-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        async function startRecording() {
+            if (getMorphLayers().length === 0 || isRecording() || recordingStopping) return;
+            if (!window.VideoEncoder || !window.VideoFrame) {
+                alert("このブラウザは録画に対応していません。");
+                return;
+            }
+
+            const morphLayers = getMorphLayers();
+            const recordingSize = getRecordingSize(morphLayers);
+            const encoderConfig = {
+                codec: "vp8",
+                width: recordingSize.width,
+                height: recordingSize.height,
+                bitrate: 30_000_000,
+                framerate: OUTPUT_FPS,
+                latencyMode: "realtime",
+            };
+            const encoderSupport = await VideoEncoder.isConfigSupported(encoderConfig);
+            if (!encoderSupport.supported) {
+                alert("このブラウザでは1080×1920のWebM録画を利用できません。");
+                return;
+            }
+
+            recordingCanvas.width = recordingSize.width;
+            recordingCanvas.height = recordingSize.height;
+            recordingRenderer ||= createRecordingRenderer();
+            recordingLayerData = new Map(
+                morphLayers.map((layer) => [
+                    layer.id,
+                    createRecordingLayerData(
+                        layer,
+                        recordingSize.width,
+                        recordingSize.height,
+                        recordingRenderer.gl,
+                    ),
+                ]),
+            );
+            recordingTarget = new ArrayBufferTarget();
+            recordingMuxer = new Muxer({
+                target: recordingTarget,
+                video: {
+                    codec: "V_VP8",
+                    width: recordingSize.width,
+                    height: recordingSize.height,
+                    frameRate: OUTPUT_FPS,
+                },
+            });
+            recordingEncoder = new VideoEncoder({
+                output: (chunk, metadata) => recordingMuxer.addVideoChunk(chunk, metadata),
+                error: (error) => console.error("Recording encoder failed.", error),
+            });
+            recordingEncoder.configure(encoderConfig);
+            recordingCanvas.className = "morphCanvas";
+            morphCanvas.hidden = true;
+            morphCanvas.after(recordingCanvas);
+            if (sequenceFrameId) cancelAnimationFrame(sequenceFrameId);
+            sequenceFrameId = null;
+            recordingSequenceStartIndex = sequenceFromIndex;
+            recordingSequenceStartProgress = sequenceProgress;
+            recordingActive = true;
+            recordingFrameCount = 0;
+            recordingStartedAt = performance.now();
+            drawRecordingFrames();
+            renderStatus();
+        }
+
+        async function stopRecording() {
+            if (!isRecording() || recordingStopping) return;
+            recordingStopping = true;
+            renderStatus();
+            if (recordingTimerId) clearTimeout(recordingTimerId);
+            recordingTimerId = null;
+            const elapsed = performance.now() - recordingStartedAt;
+            encodeRecordingFramesThrough(Math.max(1, Math.ceil(elapsed * OUTPUT_FPS / 1000)));
+            await recordingEncoder.flush();
+            recordingEncoder.close();
+            recordingMuxer.finalize();
+            saveRecording(new Blob([recordingTarget.buffer], { type: "video/webm" }));
+            recordingActive = false;
+            recordingStopping = false;
+            recordingEncoder = null;
+            recordingMuxer = null;
+            recordingTarget = null;
+            recordingLayerData.forEach((data) =>
+                recordingRenderer.gl.deleteTexture(data.texture),
+            );
+            recordingLayerData.clear();
+            recordingCanvas.remove();
+            morphCanvas.hidden = false;
+            renderStage();
+            ensureMorphSequenceLoop();
+            renderStatus();
         }
 
         function getStagePoint(event) {
@@ -1617,8 +1968,14 @@
             sourcePoints,
             destinationPoints,
             triangles,
+            width = MORPH_WIDTH,
+            height = MORPH_HEIGHT,
         ) {
-            const ctx = prepareCanvas(targetCanvas, MORPH_WIDTH, MORPH_HEIGHT);
+            const ctx = prepareCanvas(targetCanvas, width, height);
+            const expandPx = TRIANGLE_OVERDRAW_PX * Math.max(
+                width / MORPH_WIDTH,
+                height / MORPH_HEIGHT,
+            );
 
             for (let i = 0; i < triangles.length; i += 3) {
                 const i0 = triangles[i];
@@ -1629,6 +1986,7 @@
                     image,
                     [sourcePoints[i0], sourcePoints[i1], sourcePoints[i2]],
                     [destinationPoints[i0], destinationPoints[i1], destinationPoints[i2]],
+                    expandPx,
                 );
             }
         }
@@ -1669,6 +2027,7 @@
 
         function renderStage() {
             morphCanvas.classList.toggle("is-monochrome", monochromeEnabled);
+            if (isRecording()) return;
             renderMorphStage();
         }
 
@@ -1850,8 +2209,14 @@
             status.textContent = String(layers.length);
             clearButton.disabled = layers.length === 0;
             syncToggleButton(monoToggleButton, monochromeEnabled);
+            recordingButton.disabled = getMorphLayers().length === 0 || recordingStopping;
+            recordingButton.textContent = isRecording() ? "録画停止" : "録画";
+            syncToggleButton(recordingButton, isRecording());
             sequenceToggleButton.disabled = getMorphLayers().length < 2;
             syncToggleButton(sequenceToggleButton, sequenceEnabled);
+            sequenceSettings.forEach((control) => {
+                control.hidden = !sequenceEnabled;
+            });
         }
 
         function render() {
@@ -1869,6 +2234,7 @@
 
         clearButton.addEventListener("click", () => {
             stopMorphSequence();
+            stopRecording();
             layers = [];
             render();
         });
@@ -1876,6 +2242,14 @@
         monoToggleButton.addEventListener("click", () => {
             monochromeEnabled = !monochromeEnabled;
             render();
+        });
+
+        recordingButton.addEventListener("click", () => {
+            if (isRecording()) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
         });
 
         sequenceToggleButton.addEventListener("click", () => {
