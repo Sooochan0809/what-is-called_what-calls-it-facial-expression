@@ -11,9 +11,7 @@
             font-family: "Yu Gothic Medium", "Yu Gothic", sans-serif;
             margin: 0;
             color: #222;
-        }
-
-        main {
+            line-height: 1.5;
             min-height: 100svh;
             box-sizing: border-box;
             display: grid;
@@ -24,7 +22,6 @@
         h1 {
             margin: 0 0 1.5rem;
             font-size: clamp(1.4rem, 3vw, 2rem);
-            line-height: 1.5;
         }
 
         h1 span {
@@ -41,7 +38,6 @@
 
         li {
             margin: 0.65rem 0;
-            line-height: 1.5;
         }
 
         li li {
@@ -56,40 +52,38 @@
 
 <body>
     <main>
-        <div>
-            <h1>
-                表情と呼ばれる／呼ぶモノ
-                <span lang="en">What Is Called / What Calls It “Facial Expression”</span>
-            </h1>
-            <nav aria-label="ページ一覧">
-                <ul>
-                    <li>
-                        <a>表情と呼ぶモノ ver.2.0</a>
-                        <ul>
-                            <li><a href="morphing/index.html">モーフィング</a></li>
-                        </ul>
-                    </li>
-                    <li>
-                        <a href="photograph/index.html">表情と呼ばれるモノ ver.2.0</a>
-                        <ul>
-                            <li><a href="photograph/expression-picker.html">表情フレーム検出</a></li>
-                            <li><a href="photograph/expression-split_v2.html">切り分けver2.0</a></li>
-                            <li><a href="photograph/expression-split_v1.html">切り分けver1.0</a></li>
-                        </ul>
-                    </li>
-                    <li><a href="layering/index.html">表情と呼ぶモノ ver.1.0</a></li>
-                    <li><a href="training/index.html">表情と呼ばれるモノ ver.1.0</a></li>
-                    <li>
-                        <a>ツール（汎用）</a>
-                        <ul>
-                            <li><a href="tools/webm-to-mov.html">webm → mov変換</a></li>
-                            <li><a href="tools/rotate-controller.html">回転調整（webm・png）</a></li>
-                            <li><a href="tools/webm-cutter.html">トリミング（webm）</a></li>
-                        </ul>
-                    </li>
-                </ul>
-            </nav>
-        </div>
+        <h1>
+            表情と呼ばれる／呼ぶモノ
+            <span lang="en">What Is Called / What Calls It “Facial Expression”</span>
+        </h1>
+        <nav aria-label="ページ一覧">
+            <ul>
+                <li>
+                    表情と呼ぶモノ ver.2.0
+                    <ul>
+                        <li><a href="morphing/index.html">モーフィング</a></li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="photograph/index.html">表情と呼ばれるモノ ver.2.0</a>
+                    <ul>
+                        <li><a href="photograph/expression-picker.html">表情フレーム検出</a></li>
+                        <li><a href="photograph/expression-split_v2.html">切り分けver2.0</a></li>
+                        <li><a href="photograph/expression-split_v1.html">切り分けver1.0</a></li>
+                    </ul>
+                </li>
+                <li><a href="layering/index.html">表情と呼ぶモノ ver.1.0</a></li>
+                <li><a href="training/index.html">表情と呼ばれるモノ ver.1.0</a></li>
+                <li>
+                    ツール（汎用）
+                    <ul>
+                        <li><a href="tools/webm-to-mov.html">webm → mov変換</a></li>
+                        <li><a href="tools/rotate-controller.html">回転調整（webm・png）</a></li>
+                        <li><a href="tools/webm-cutter.html">トリミング（webm）</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
     </main>
 </body>
 
