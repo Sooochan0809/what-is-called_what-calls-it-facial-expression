@@ -20,6 +20,7 @@
             min-height: 100vh;
             display: grid;
             place-items: center;
+            align-items: start;
             background: #111;
             color: #eee;
         }
@@ -34,7 +35,6 @@
             font-size: clamp(28px, 7vw, 48px);
         }
 
-        .lead,
         #status {
             color: #aaa;
         }
@@ -170,8 +170,6 @@
 <body>
     <main>
         <h1>WebM Cutter</h1>
-        <p class="lead">必要な部分だけ、画質を変えずに切り出します。</p>
-
         <label class="drop" id="drop">
             <strong>WebMファイルを選択</strong>
             <span>または、ここにドラッグ＆ドロップ</span>
