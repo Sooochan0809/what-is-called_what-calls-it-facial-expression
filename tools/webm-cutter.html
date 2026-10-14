@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>トリミング（webm）</title>
+    <title>トリミング（webm・mov）</title>
     <style>
         :root {
             color-scheme: dark;
@@ -162,11 +162,11 @@
 
 <body>
     <main>
-        <h1>トリミング（webm）</h1>
+        <h1>トリミング（webm・mov）</h1>
         <label class="drop" id="drop">
-            <strong>WebMファイルを選択</strong>
+            <strong>WebM・MOVファイルを選択</strong>
             <span>または、ここにドラッグ＆ドロップ</span>
-            <input id="file" type="file" accept="video/webm,.webm">
+            <input id="file" type="file" accept="video/webm,video/quicktime,.webm,.mov">
         </label>
 
         <section id="editor" hidden>
@@ -198,7 +198,8 @@
         const $ = id => document.getElementById(id);
         const [fileInput, drop, editor, video, startRange, endRange, start, end, cut, status, progress, download] =
             ['file', 'drop', 'editor', 'video', 'startRange', 'endRange', 'start', 'end', 'cut', 'status', 'progress', 'download'].map($);
-        let file, sourceUrl, outputUrl, ffmpeg;
+        const mimeTypes = { webm: 'video/webm', mov: 'video/quicktime' };
+        let file, format, sourceUrl, outputUrl, ffmpeg;
 
         const toBlobURL = async (url, type) => URL.createObjectURL(new Blob([await (await fetch(url)).blob()], { type }));
 
@@ -214,11 +215,14 @@
         };
 
         const openFile = selected => {
-            if (!selected || !(selected.type === 'video/webm' || selected.name.toLowerCase().endsWith('.webm'))) {
-                status.textContent = 'WebMファイルを選択してください。';
+            const extension = selected?.name.match(/\.(webm|mov)$/i)?.[1].toLowerCase();
+            const nextFormat = extension || Object.keys(mimeTypes).find(key => mimeTypes[key] === selected?.type);
+            if (!nextFormat) {
+                status.textContent = 'WebMまたはMOVファイルを選択してください。';
                 return;
             }
             file = selected;
+            format = nextFormat;
             if (sourceUrl) URL.revokeObjectURL(sourceUrl);
             if (outputUrl) URL.revokeObjectURL(outputUrl);
             sourceUrl = URL.createObjectURL(file);
@@ -251,6 +255,7 @@
             syncTimes();
             const from = Number(start.value), length = Number(end.value) - from;
             if (!file || length <= 0) return;
+            const inputName = `input.${format}`, outputName = `output.${format}`;
             cut.disabled = true;
             progress.hidden = false;
             progress.value = 0;
@@ -269,22 +274,22 @@
                     });
                 }
                 status.textContent = '切り出し中…';
-                await ffmpeg.writeFile('input.webm', new Uint8Array(await file.arrayBuffer()));
-                const exitCode = await ffmpeg.exec(['-ss', String(from), '-i', 'input.webm', '-t', String(length), '-map', '0', '-c', 'copy', '-avoid_negative_ts', 'make_zero', 'output.webm']);
+                await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
+                const exitCode = await ffmpeg.exec(['-ss', String(from), '-i', inputName, '-t', String(length), '-map', '0', '-c', 'copy', '-avoid_negative_ts', 'make_zero', outputName]);
                 if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
-                const data = await ffmpeg.readFile('output.webm');
+                const data = await ffmpeg.readFile(outputName);
                 if (outputUrl) URL.revokeObjectURL(outputUrl);
-                outputUrl = URL.createObjectURL(new Blob([data], { type: 'video/webm' }));
+                outputUrl = URL.createObjectURL(new Blob([data], { type: mimeTypes[format] }));
                 download.href = outputUrl;
-                download.download = file.name.replace(/\.webm$/i, '') + '-cut.webm';
+                download.download = file.name.replace(/\.(webm|mov)$/i, '') + `-cut.${format}`;
                 download.hidden = false;
                 progress.value = 1;
                 status.textContent = '完了しました。';
             } catch (error) {
                 console.error(error);
-                status.textContent = '切り出しに失敗しました。別のWebMでお試しください。';
+                status.textContent = '切り出しに失敗しました。別のファイルでお試しください。';
             } finally {
-                if (ffmpeg) for (const name of ['input.webm', 'output.webm']) try { await ffmpeg.deleteFile(name); } catch { }
+                if (ffmpeg) for (const name of [inputName, outputName]) try { await ffmpeg.deleteFile(name); } catch { }
                 cut.disabled = false;
             }
         });

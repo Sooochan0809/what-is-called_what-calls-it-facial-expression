@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表情変化検出</title>
+    <script defer src="../modules/faceAPI/face-api.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, sans-serif;
+            --accent: #4f8cff;
+            --panel: color-mix(in srgb, Canvas 92%, CanvasText);
+            --border: color-mix(in srgb, CanvasText 22%, transparent);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: Canvas;
+            color: CanvasText;
+        }
+
+        main {
+            width: min(1100px, 100%);
+            margin: auto;
+            padding: 28px 20px 48px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: clamp(1.6rem, 4vw, 2.4rem);
+        }
+
+        .lead {
+            margin: 0 0 22px;
+            opacity: .72;
+        }
+
+        .toolbar,
+        .controls,
+        .status {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 12px;
+        }
+
+        .toolbar label,
+        .fileName {
+            flex: 1 1 300px;
+        }
+
+        .fileName {
+            align-self: center;
+            overflow-wrap: anywhere;
+        }
+
+        .panel {
+            display: grid;
+            gap: 16px;
+            margin-top: 18px;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+        }
+
+        input,
+        button {
+            min-height: 42px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            font: inherit;
+        }
+
+        input {
+            width: 100%;
+            padding: 9px 13px;
+        }
+
+        button,
+        .download {
+            padding: 9px 13px;
+            border-radius: 7px;
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: .45;
+        }
+
+        output {
+            display: block;
+            min-height: 1.5em;
+            margin: 16px 0;
+        }
+
+        .status {
+            min-height: 22px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .analysisVideo {
+            position: fixed;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        progress {
+            width: 160px;
+            height: 8px;
+            accent-color: var(--accent);
+        }
+
+        .results {
+            display: grid;
+            gap: 14px;
+        }
+
+        .results:empty {
+            display: none;
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--panel);
+        }
+
+        .clip {
+            width: 100%;
+            max-height: 520px;
+            display: block;
+            background: #000;
+        }
+
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 14px;
+            padding: 11px;
+            font-size: 14px;
+        }
+
+        .meta strong {
+            margin-right: auto;
+            font-size: 16px;
+        }
+
+        .meta button,
+        .meta .download {
+            min-height: 32px;
+        }
+
+        .empty {
+            padding: 18px;
+            border: 1px dashed var(--border);
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .note {
+            font-size: 13px;
+            opacity: .68;
+        }
+
+        @media (max-width: 680px) {
+
+            .toolbar label,
+            .toolbar button,
+            .controls label,
+            .controls button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>表情変化検出</h1>
+        <p class="lead">顔ランドマークと感情推定の変化から、表情がふっと動く映像区間を抽出します。</p>
+        <div class="toolbar">
+            <label>
+                videos
+                <input id="files" type="file" accept="video/webm,video/*" multiple>
+            </label>
+            <button id="analyzeAll" type="button" disabled>すべて解析</button>
+        </div>
+        <output id="status">モデルを読み込んでいます。</output>
+        <div id="panelList"></div>
+        <video id="analysisVideo" class="analysisVideo" muted playsinline aria-hidden="true"></video>
+    </main>
+
+    <template id="panelTemplate">
+        <section class="panel">
+            <div class="controls">
+                <strong class="fileName"></strong>
+                <label>
+                    candidates
+                    <input class="count" type="number" min="1" max="12" step="1" value="5">
+                </label>
+                <label>
+                    sensitivity
+                    <input class="sensitivity" type="number" min="0.5" max="8" step="0.1" value="2">
+                </label>
+            </div>
+            <div class="status">
+                <span class="message">待機中</span>
+                <progress value="0" max="1" hidden></progress>
+            </div>
+            <div class="results"></div>
+            <div class="empty">解析結果はここに表示されます。</div>
+            <div class="note">頭部運動が大きい候補は除外します。ピークの前0.35秒・後0.65秒を再エンコードせず切り出すため、キーフレーム位置により開始時刻が少しずれる場合があります。</div>
+        </section>
+    </template>
+
+    <script>
+        window.addEventListener("load", async () => {
+            const $ = (id) => document.getElementById(id);
+            const MODEL_URL = "../modules/faceAPI/models";
+            const EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
+            const [video, files, panelList, panelTemplate, analyzeAllButton, status] =
+                ["analysisVideo", "files", "panelList", "panelTemplate", "analyzeAll", "status"].map($);
+            const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
+            const supportsVideoFrameCallback = typeof video.requestVideoFrameCallback === "function";
+            const panels = [];
+            let busy = false;
+            let modelsReady = false;
+            let cancelFrameWait;
+            let ffmpeg;
+            let ffmpegProgress;
+
+            const models = Promise.all([
+                faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+                faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+            ]);
+
+            const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+            const mean = (values) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+            const median = (values) => {
+                const sorted = [...values].sort((a, b) => a - b);
+                const middle = Math.floor(sorted.length / 2);
+                return sorted.length % 2 ? sorted[middle] : mean(sorted.slice(middle - 1, middle + 1));
+            };
+            const rmsDifference = (a, b) => Math.sqrt(mean(a.map((value, index) => (value - b[index]) ** 2)));
+            const formatTime = (seconds) => {
+                const min = Math.floor(seconds / 60);
+                const sec = (seconds - min * 60).toFixed(2).padStart(5, "0");
+                return `${min}:${sec}`;
+            };
+
+            const centerOf = (points) => ({
+                x: mean(points.map((point) => point.x)),
+                y: mean(points.map((point) => point.y))
+            });
+
+            const faceBasis = (positions) => {
+                const leftEye = centerOf([positions[36], positions[39]]);
+                const rightEye = centerOf([positions[42], positions[45]]);
+                const nose = positions[30];
+                return { leftEye, rightEye, nose };
+            };
+
+            const normalizeLandmarks = (positions) => {
+                const { leftEye, rightEye, nose } = faceBasis(positions);
+                const eyeX = rightEye.x - leftEye.x;
+                const eyeY = rightEye.y - leftEye.y;
+                const noseX = nose.x - leftEye.x;
+                const noseY = nose.y - leftEye.y;
+                const determinant = eyeX * noseY - eyeY * noseX;
+                if (Math.abs(determinant) > 1) {
+                    return positions.flatMap((point) => {
+                        const x = point.x - leftEye.x;
+                        const y = point.y - leftEye.y;
+                        return [
+                            (x * noseY - y * noseX) / determinant - .5,
+                            (eyeX * y - eyeY * x) / determinant
+                        ];
+                    });
+                }
+
+                const origin = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
+                const scale = Math.max(1, Math.hypot(eyeX, eyeY));
+                const angle = Math.atan2(eyeY, eyeX);
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                return positions.flatMap((point) => {
+                    const x = point.x - origin.x;
+                    const y = point.y - origin.y;
+                    return [(x * cos + y * sin) / scale, (-x * sin + y * cos) / scale];
+                });
+            };
+
+            const headPose = (positions) => {
+                const { leftEye, rightEye, nose } = faceBasis(positions);
+                const origin = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
+                const dx = rightEye.x - leftEye.x;
+                const dy = rightEye.y - leftEye.y;
+                const scale = Math.max(1, Math.hypot(dx, dy));
+                const angle = Math.atan2(dy, dx);
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const noseX = nose.x - origin.x;
+                const noseY = nose.y - origin.y;
+                return [
+                    (noseX * cos + noseY * sin) / scale,
+                    (-noseX * sin + noseY * cos) / scale,
+                    angle,
+                    Math.log(scale)
+                ];
+            };
+
+            const robustScores = (values) => {
+                const center = median(values);
+                const mad = median(values.map((value) => Math.abs(value - center)));
+                const scale = Math.max(1e-6, mad * 1.4826, center * .08, Math.max(...values) * .01);
+                return values.map((value) => clamp((value - center) / scale, 0, 8));
+            };
+
+            const calculateChanges = (frames) => {
+                let previous;
+                let smoothedLandmarks;
+                let smoothedEmotions;
+                let smoothedPose;
+                let previousLandmarkSpeed = 0;
+                let previousEmotionSpeed = 0;
+                let previousPoseSpeed = 0;
+
+                const changes = frames.map((frame) => {
+                    const reset = !previous || frame.time - previous.time > .25;
+                    if (reset) {
+                        smoothedLandmarks = frame.landmarks;
+                        smoothedEmotions = frame.emotions;
+                        smoothedPose = frame.pose;
+                        previous = frame;
+                        return { ...frame, valid: false, landmarkSpeed: 0, emotionSpeed: 0, poseSpeed: 0, landmarkAcceleration: 0, emotionAcceleration: 0, poseAcceleration: 0 };
+                    }
+
+                    const dt = frame.time - previous.time;
+                    const alpha = 1 - Math.exp(-dt / .09);
+                    const nextLandmarks = frame.landmarks.map((value, index) =>
+                        smoothedLandmarks[index] + alpha * (value - smoothedLandmarks[index]));
+                    const nextEmotions = frame.emotions.map((value, index) =>
+                        smoothedEmotions[index] + alpha * (value - smoothedEmotions[index]));
+                    const nextPose = frame.pose.map((value, index) =>
+                        smoothedPose[index] + alpha * (value - smoothedPose[index]));
+                    const landmarkSpeed = rmsDifference(nextLandmarks, smoothedLandmarks) / dt;
+                    const emotionSpeed = rmsDifference(nextEmotions, smoothedEmotions) / dt;
+                    const poseSpeed = rmsDifference(nextPose, smoothedPose) / dt;
+                    const landmarkAcceleration = Math.max(0, landmarkSpeed - previousLandmarkSpeed) / dt;
+                    const emotionAcceleration = Math.max(0, emotionSpeed - previousEmotionSpeed) / dt;
+                    const poseAcceleration = Math.max(0, poseSpeed - previousPoseSpeed) / dt;
+                    smoothedLandmarks = nextLandmarks;
+                    smoothedEmotions = nextEmotions;
+                    smoothedPose = nextPose;
+                    previousLandmarkSpeed = landmarkSpeed;
+                    previousEmotionSpeed = emotionSpeed;
+                    previousPoseSpeed = poseSpeed;
+                    previous = frame;
+                    return { ...frame, valid: true, landmarkSpeed, emotionSpeed, poseSpeed, landmarkAcceleration, emotionAcceleration, poseAcceleration };
+                });
+
+                const valid = changes.filter((frame) => frame.valid);
+                if (!valid.length) return [];
+                const landmarkSpeedScores = robustScores(valid.map((frame) => frame.landmarkSpeed));
+                const emotionSpeedScores = robustScores(valid.map((frame) => frame.emotionSpeed));
+                const landmarkAccelerationScores = robustScores(valid.map((frame) => frame.landmarkAcceleration));
+                const emotionAccelerationScores = robustScores(valid.map((frame) => frame.emotionAcceleration));
+                const poseSpeedScores = robustScores(valid.map((frame) => frame.poseSpeed));
+                const poseAccelerationScores = robustScores(valid.map((frame) => frame.poseAcceleration));
+
+                return valid.map((frame, index) => {
+                    const landmarkBurst = landmarkSpeedScores[index] * .72 + landmarkAccelerationScores[index] * .28;
+                    const emotionBurst = emotionSpeedScores[index] * .72 + emotionAccelerationScores[index] * .28;
+                    const poseBurst = poseSpeedScores[index] * .72 + poseAccelerationScores[index] * .28;
+                    const expressionScore = (landmarkBurst + emotionBurst) / 2 + Math.min(landmarkBurst, emotionBurst) * .25;
+                    const score = Math.max(0, expressionScore - poseBurst * .15);
+                    return { ...frame, landmarkBurst, emotionBurst, poseBurst, score };
+                });
+            };
+
+            const pickChanges = (frames, targetCount, sensitivity) => {
+                const changes = calculateChanges(frames);
+                const lastTime = changes.at(-1)?.time || 0;
+                const peaks = changes.filter((frame, index) => {
+                    if (frame.time < .2 || frame.time > lastTime - .2
+                        || frame.score < sensitivity
+                        || frame.poseSpeed > .5
+                        || Math.min(frame.landmarkBurst, frame.emotionBurst) < sensitivity * .15) return false;
+                    const nearby = changes.filter((other) => Math.abs(other.time - frame.time) <= .12);
+                    return nearby.every((other) => other === frame || other.score <= frame.score);
+                }).sort((a, b) => b.score - a.score);
+
+                const selected = [];
+                for (const peak of peaks) {
+                    if (selected.length >= targetCount) break;
+                    if (selected.every((item) => Math.abs(item.time - peak.time) >= 1)) selected.push(peak);
+                }
+                return selected;
+            };
+
+            const testFace = Array.from({ length: 68 }, (_, index) => ({ x: index % 10, y: Math.floor(index / 10) }));
+            Object.assign(testFace[36], { x: 0, y: 0 });
+            Object.assign(testFace[39], { x: 2, y: 0 });
+            Object.assign(testFace[42], { x: 8, y: 0 });
+            Object.assign(testFace[45], { x: 10, y: 0 });
+            Object.assign(testFace[30], { x: 5, y: 5 });
+            const movedTestFace = testFace.map(({ x, y }) => ({ x: 1.2 * x + .3 * y + 4, y: -.2 * x + .9 * y + 7 }));
+            console.assert(rmsDifference(normalizeLandmarks(testFace), normalizeLandmarks(movedTestFace)) < 1e-10,
+                "head movement normalization is invalid");
+            console.assert(pickChanges([], 5, 2).length === 0, "empty video must not produce candidates");
+
+            const setPanelStatus = (panel, text, current = 0, total = 0) => {
+                const hasProgress = Number.isFinite(total) && total > 0;
+                panel.message.textContent = text;
+                panel.progress.hidden = !hasProgress;
+                panel.progress.max = hasProgress ? total : 1;
+                panel.progress.value = hasProgress && Number.isFinite(current)
+                    ? clamp(current, 0, total)
+                    : 0;
+            };
+
+            const seek = (time) => new Promise((resolve) => {
+                const duration = Number.isFinite(video.duration) ? video.duration : 0;
+                const target = clamp(time, 0, Math.max(0, duration - .04));
+                if (Math.abs(video.currentTime - target) < .002 && video.readyState >= 2) {
+                    requestAnimationFrame(resolve);
+                    return;
+                }
+                video.addEventListener("seeked", () => requestAnimationFrame(resolve), { once: true });
+                video.currentTime = target;
+            });
+
+            const nextVideoFrame = () => new Promise((resolve, reject) => {
+                const finish = (metadata, error) => {
+                    video.cancelVideoFrameCallback(callbackId);
+                    cancelFrameWait = null;
+                    error ? reject(error) : resolve(metadata);
+                };
+                cancelFrameWait = () => finish(null);
+                const callbackId = video.requestVideoFrameCallback((_now, metadata) => {
+                    video.pause();
+                    finish(metadata);
+                });
+                video.play().catch((error) => finish(null, error));
+            });
+            video.addEventListener("ended", () => cancelFrameWait?.());
+
+            const loadVideo = (file) => {
+                const url = URL.createObjectURL(file);
+                return new Promise((resolve, reject) => {
+                    const cleanup = () => {
+                        video.removeEventListener("loadedmetadata", loaded);
+                        video.removeEventListener("error", failed);
+                    };
+                    const loaded = () => { cleanup(); resolve(url); };
+                    const failed = () => {
+                        cleanup();
+                        video.removeAttribute("src");
+                        video.load();
+                        URL.revokeObjectURL(url);
+                        reject(new Error(`${file.name}を読み込めませんでした`));
+                    };
+                    video.addEventListener("loadedmetadata", loaded);
+                    video.addEventListener("error", failed);
+                    video.src = url;
+                    video.load();
+                });
+            };
+
+            const unloadVideo = (url) => {
+                video.pause();
+                cancelFrameWait?.();
+                video.removeAttribute("src");
+                video.load();
+                URL.revokeObjectURL(url);
+            };
+
+            const toBlobUrl = async (url, type) =>
+                URL.createObjectURL(new Blob([await (await fetch(url)).blob()], { type }));
+
+            const loadFfmpeg = async (panel) => {
+                if (ffmpeg) return;
+                setPanelStatus(panel, "映像切り出しエンジンを読み込んでいます…");
+                const engine = new FFmpegWASM.FFmpeg();
+                engine.on("progress", ({ progress }) => ffmpegProgress?.(clamp(progress, 0, 1)));
+                const core = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
+                const worker = "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/worker.js";
+                await engine.load({
+                    classWorkerURL: URL.createObjectURL(new Blob([`import '${worker}'`], { type: "text/javascript" })),
+                    coreURL: await toBlobUrl(`${core}/ffmpeg-core.js`, "text/javascript"),
+                    wasmURL: await toBlobUrl(`${core}/ffmpeg-core.wasm`, "application/wasm")
+                });
+                ffmpeg = engine;
+            };
+
+            const cutCandidates = async (panel, candidates) => {
+                if (!candidates.length) return [];
+                await loadFfmpeg(panel);
+                const inputName = "expression-input.webm";
+                const clips = [];
+                await ffmpeg.writeFile(inputName, new Uint8Array(await panel.file.arrayBuffer()));
+                try {
+                    for (let index = 0; index < candidates.length; index++) {
+                        const candidate = candidates[index];
+                        const start = clamp(candidate.time - .35, 0, video.duration);
+                        const end = clamp(candidate.time + .65, start, video.duration);
+                        const outputName = `expression-output-${index}.webm`;
+                        setPanelStatus(panel, `候補映像を書き出しています ${index + 1}/${candidates.length}`, index, candidates.length);
+                        ffmpegProgress = (ratio) => panel.progress.value = index + ratio;
+                        const exitCode = await ffmpeg.exec([
+                            "-ss", String(start), "-i", inputName,
+                            "-t", String(end - start), "-map", "0", "-c", "copy",
+                            "-avoid_negative_ts", "make_zero", outputName
+                        ]);
+                        if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
+                        const data = await ffmpeg.readFile(outputName);
+                        const clipUrl = URL.createObjectURL(new Blob([data], { type: "video/webm" }));
+                        clips.push({ ...candidate, start, end, clipUrl });
+                        await ffmpeg.deleteFile(outputName);
+                    }
+                    return clips;
+                } catch (error) {
+                    clips.forEach((clip) => URL.revokeObjectURL(clip.clipUrl));
+                    throw error;
+                } finally {
+                    ffmpegProgress = null;
+                    try { await ffmpeg.deleteFile(inputName); } catch { }
+                }
+            };
+
+            const renderResults = (panel) => {
+                panel.results.replaceChildren();
+                panel.empty.hidden = panel.picks.length > 0;
+                panel.picks.forEach((pick, index) => {
+                    const card = document.createElement("article");
+                    card.className = "card";
+                    const clip = document.createElement("video");
+                    clip.className = "clip";
+                    clip.src = pick.clipUrl;
+                    clip.controls = true;
+                    clip.playsInline = true;
+                    clip.preload = "metadata";
+                    const meta = document.createElement("div");
+                    meta.className = "meta";
+                    meta.innerHTML = `
+                        <strong>${index + 1}位 · score ${pick.score.toFixed(2)} · ${formatTime(pick.time)}</strong>
+                        <span>${formatTime(pick.start)}–${formatTime(pick.end)}</span>
+                        <span>landmark ${pick.landmarkBurst.toFixed(2)}</span>
+                        <span>emotion ${pick.emotionBurst.toFixed(2)}</span>
+                        <span>head ${pick.poseBurst.toFixed(2)} · ${pick.poseSpeed.toFixed(2)}/s</span>
+                    `;
+                    const download = document.createElement("a");
+                    const base = panel.file.name.replace(/\.[^.]+$/, "");
+                    download.className = "download";
+                    download.href = pick.clipUrl;
+                    download.download = `${base}_change_${String(index + 1).padStart(2, "0")}_${pick.time.toFixed(2)}s.webm`;
+                    download.textContent = "download";
+                    meta.append(download);
+                    card.append(clip, meta);
+                    panel.results.append(card);
+                });
+            };
+
+            const clearPanel = (panel, text = "解析結果はここに表示されます。") => {
+                panel.picks.forEach((pick) => URL.revokeObjectURL(pick.clipUrl));
+                panel.picks = [];
+                panel.results.replaceChildren();
+                panel.empty.hidden = false;
+                panel.empty.textContent = text;
+            };
+
+            const updateControls = () => {
+                files.disabled = busy;
+                analyzeAllButton.disabled = busy || !modelsReady || !supportsVideoFrameCallback || !panels.length;
+                panels.forEach((panel) => {
+                    panel.count.disabled = busy;
+                    panel.sensitivity.disabled = busy;
+                });
+            };
+
+            const addPanel = (file) => {
+                const element = panelTemplate.content.firstElementChild.cloneNode(true);
+                const panel = {
+                    element,
+                    file,
+                    count: element.querySelector(".count"),
+                    sensitivity: element.querySelector(".sensitivity"),
+                    message: element.querySelector(".message"),
+                    progress: element.querySelector("progress"),
+                    results: element.querySelector(".results"),
+                    empty: element.querySelector(".empty"),
+                    picks: []
+                };
+                element.querySelector(".fileName").textContent = file.name;
+                panels.push(panel);
+                panelList.append(element);
+            };
+
+            files.addEventListener("change", () => {
+                panels.flatMap((panel) => panel.picks).forEach((pick) => URL.revokeObjectURL(pick.clipUrl));
+                panels.splice(0);
+                panelList.replaceChildren();
+                [...files.files].forEach(addPanel);
+                status.textContent = panels.length ? `${panels.length}件の動画を選択しました。` : "動画を選択してください。";
+                updateControls();
+            });
+
+            const analyzePanel = async (panel, panelIndex) => {
+                clearPanel(panel, "解析中です。");
+                const frames = [];
+                let analyzedFrames = 0;
+                const url = await loadVideo(panel.file);
+
+                try {
+                    await seek(0);
+                    while (true) {
+                        const metadata = await nextVideoFrame();
+                        if (!metadata) break;
+                        const time = metadata.mediaTime;
+                        analyzedFrames += 1;
+                        status.textContent = `動画 ${panelIndex + 1}/${panels.length} を解析中… ${formatTime(time)}`;
+                        setPanelStatus(panel, `解析中 ${analyzedFrames} frames / ${formatTime(time)}`, time, video.duration);
+                        const detection = await faceapi
+                            .detectSingleFace(video, detectorOptions)
+                            .withFaceLandmarks(true)
+                            .withFaceExpressions();
+                        if (detection) {
+                            frames.push({
+                                time,
+                                landmarks: normalizeLandmarks(detection.landmarks.positions),
+                                emotions: EMOTIONS.map((name) => detection.expressions[name] || 0),
+                                pose: headPose(detection.landmarks.positions)
+                            });
+                        }
+                        if (video.ended) break;
+                    }
+
+                    const targetCount = clamp(Math.round(Number(panel.count.value) || 5), 1, 12);
+                    const sensitivity = clamp(Number(panel.sensitivity.value) || 2, .5, 8);
+                    const candidates = pickChanges(frames, targetCount, sensitivity);
+                    panel.picks = await cutCandidates(panel, candidates);
+                    renderResults(panel);
+                    panel.empty.textContent = panel.picks.length
+                        ? ""
+                        : "条件に合う変化がありませんでした。sensitivityを下げて再解析してください。";
+                    setPanelStatus(panel, `${analyzedFrames} frames analyzed / ${panel.picks.length} candidates`);
+                } finally {
+                    unloadVideo(url);
+                }
+            };
+
+            analyzeAllButton.addEventListener("click", async () => {
+                if (busy) return;
+                busy = true;
+                updateControls();
+                try {
+                    for (let index = 0; index < panels.length; index++) await analyzePanel(panels[index], index);
+                    status.textContent = `${panels.length}件の解析が完了しました。`;
+                } catch (error) {
+                    console.error(error);
+                    status.textContent = `解析できませんでした: ${error.message}`;
+                } finally {
+                    busy = false;
+                    updateControls();
+                }
+            });
+
+            try {
+                await models;
+                modelsReady = true;
+                status.textContent = supportsVideoFrameCallback
+                    ? "動画を選択してください。"
+                    : "このブラウザはフレーム単位の解析に対応していません。";
+            } catch (error) {
+                console.error(error);
+                status.textContent = "モデルの読み込みに失敗しました。";
+            }
+            updateControls();
+        });
+    </script>
+</body>
+
+</html>
