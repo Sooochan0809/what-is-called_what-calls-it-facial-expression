@@ -17,7 +17,6 @@
 
         body {
             margin: 0;
-            display: grid;
             background: #111;
             color: #eee;
         }
@@ -78,10 +77,6 @@
         button:disabled {
             opacity: .45;
             cursor: wait;
-        }
-
-        #editor[hidden] {
-            display: none;
         }
 
         video {
@@ -183,12 +178,12 @@
                 </div>
                 <div class="times">
                     <label>開始（秒）<input id="start" type="number" min="0" step="0.01" value="0"></label>
-                    <button id="setStart" type="button">現在位置</button>
+                    <button id="setStart">現在位置</button>
                     <label>終了（秒）<input id="end" type="number" min="0" step="0.01" value="0"></label>
-                    <button id="setEnd" type="button">現在位置</button>
+                    <button id="setEnd">現在位置</button>
                 </div>
                 <div class="actions">
-                    <button id="cut" type="button">無劣化で切り出す</button>
+                    <button id="cut">切り出す</button>
                     <a id="download" class="download" hidden>ダウンロード</a>
                     <span id="status" role="status" aria-live="polite"></span>
                 </div>
@@ -207,7 +202,7 @@
 
         const toBlobURL = async (url, type) => URL.createObjectURL(new Blob([await (await fetch(url)).blob()], { type }));
 
-        const clampTimes = changed => {
+        const syncTimes = changed => {
             const duration = video.duration || 0;
             let from = Math.max(0, Math.min(Number(start.value) || 0, duration));
             let to = Math.max(0, Math.min(Number(end.value) || 0, duration));
@@ -244,15 +239,16 @@
             start.value = startRange.value = '0.00';
             end.value = endRange.value = duration.toFixed(2);
         });
-        startRange.addEventListener('input', () => { start.value = startRange.value; clampTimes('start'); video.currentTime = Number(start.value); });
-        endRange.addEventListener('input', () => { end.value = endRange.value; clampTimes('end'); video.currentTime = Number(end.value); });
-        start.addEventListener('change', () => clampTimes('start'));
-        end.addEventListener('change', () => clampTimes('end'));
-        $('setStart').addEventListener('click', () => { start.value = video.currentTime; clampTimes('start'); });
-        $('setEnd').addEventListener('click', () => { end.value = video.currentTime; clampTimes('end'); });
+
+        startRange.addEventListener('input', () => { start.value = startRange.value; syncTimes('start'); video.currentTime = Number(start.value); });
+        endRange.addEventListener('input', () => { end.value = endRange.value; syncTimes('end'); video.currentTime = Number(end.value); });
+        start.addEventListener('change', () => syncTimes('start'));
+        end.addEventListener('change', () => syncTimes('end'));
+        $('setStart').addEventListener('click', () => { start.value = video.currentTime; syncTimes('start'); });
+        $('setEnd').addEventListener('click', () => { end.value = video.currentTime; syncTimes('end'); });
 
         cut.addEventListener('click', async () => {
-            clampTimes();
+            syncTimes();
             const from = Number(start.value), length = Number(end.value) - from;
             if (!file || length <= 0) return;
             cut.disabled = true;
@@ -278,7 +274,7 @@
                 if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
                 const data = await ffmpeg.readFile('output.webm');
                 if (outputUrl) URL.revokeObjectURL(outputUrl);
-                outputUrl = URL.createObjectURL(new Blob([data.buffer], { type: 'video/webm' }));
+                outputUrl = URL.createObjectURL(new Blob([data], { type: 'video/webm' }));
                 download.href = outputUrl;
                 download.download = file.name.replace(/\.webm$/i, '') + '-cut.webm';
                 download.hidden = false;
