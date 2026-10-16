@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>感情フレーム除去</title>
+    <script defer src="../modules/faceAPI/face-api.min.js"></script>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, sans-serif;
+            --accent: #4f8cff;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+        }
+
+        main {
+            width: min(900px, 100%);
+            margin: auto;
+            padding: 28px 20px 48px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+        }
+
+        p {
+            margin: 0 0 20px;
+            opacity: .72;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 12px;
+        }
+
+        label {
+            display: grid;
+            flex: 1 1 240px;
+            gap: 6px;
+        }
+
+        input,
+        select,
+        button,
+        a {
+            min-height: 42px;
+            padding: 9px 13px;
+            border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
+            border-radius: 7px;
+            font: inherit;
+        }
+
+        button,
+        a {
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: .45;
+        }
+
+        output {
+            display: block;
+            min-height: 1.5em;
+            margin: 18px 0 8px;
+        }
+
+        progress {
+            width: 100%;
+            height: 9px;
+            accent-color: var(--accent);
+        }
+
+        #speedControl {
+            max-width: 240px;
+            margin-top: 18px;
+        }
+
+        video.preview {
+            display: block;
+            width: 100%;
+            max-height: 70vh;
+            margin-top: 20px;
+            background: #000;
+        }
+
+        #download[hidden],
+        #speedControl[hidden],
+        video.preview[hidden],
+        progress[hidden] {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>感情フレーム除去</h1>
+        <p>各フレームの顔を解析し、neutral 以外の感情スコアがしきい値以上のフレームを削除して1080pで出力します。</p>
+        <div class="controls">
+            <label>動画
+                <input id="file" type="file" accept="video/webm,video/*">
+            </label>
+            <label>除去しきい値（0〜1）
+                <input id="threshold" type="number" min="0" max="1" step="0.05" value="0.8">
+            </label>
+            <button id="run" type="button" disabled>全フレームを解析</button>
+            <a id="download" hidden>結果を保存</a>
+        </div>
+        <output id="status">モデルを読み込んでいます…</output>
+        <progress id="progress" value="0" max="1" hidden></progress>
+        <label id="speedControl" hidden>プレビュー再生速度
+            <select id="playbackRate">
+                <option value="0.1">0.1倍</option>
+                <option value="0.25">0.25倍</option>
+                <option value="0.5">0.5倍</option>
+                <option value="1" selected>1倍</option>
+                <option value="1.5">1.5倍</option>
+                <option value="2">2倍</option>
+            </select>
+        </label>
+        <video id="preview" class="preview" controls playsinline hidden></video>
+    </main>
+
+    <script type="module">
+        import { ALL_FORMATS, BlobSource, BufferTarget, CanvasSink, CanvasSource, Input, Output, Quality, WebMOutputFormat }
+            from "https://cdn.jsdelivr.net/npm/mediabunny@1.61.0/dist/bundles/mediabunny.min.mjs";
+
+        window.addEventListener("load", async () => {
+            const $ = (id) => document.getElementById(id);
+            const fileInput = $("file");
+            const thresholdInput = $("threshold");
+            const runButton = $("run");
+            const download = $("download");
+            const status = $("status");
+            const progress = $("progress");
+            const speedControl = $("speedControl");
+            const playbackRate = $("playbackRate");
+            const preview = $("preview");
+            const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: .35 });
+            let modelsReady = false;
+            let busy = false;
+            let resultUrl = "";
+
+            const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+            const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
+            function setBusy(value) {
+                busy = value;
+                fileInput.disabled = value;
+                thresholdInput.disabled = value;
+                runButton.disabled = value || !modelsReady || !fileInput.files.length;
+            }
+
+            function clearResult() {
+                if (resultUrl) URL.revokeObjectURL(resultUrl);
+                resultUrl = "";
+                preview.pause();
+                preview.removeAttribute("src");
+                preview.hidden = true;
+                speedControl.hidden = true;
+                download.hidden = true;
+            }
+
+            function showResult(blob, name) {
+                clearResult();
+                resultUrl = URL.createObjectURL(blob);
+                preview.src = resultUrl;
+                preview.playbackRate = Number(playbackRate.value);
+                preview.hidden = false;
+                speedControl.hidden = false;
+                download.href = resultUrl;
+                download.download = `${name.replace(/\.[^.]+$/, "")}_neutral-only.webm`;
+                download.hidden = false;
+            }
+
+            playbackRate.addEventListener("change", () => {
+                preview.playbackRate = Number(playbackRate.value);
+            });
+
+            async function render(file, removedFrames, fps) {
+                if (!removedFrames.length) return file;
+                const removed = new Set(removedFrames);
+                const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+                const track = await input.getPrimaryVideoTrack();
+                if (!track || !await track.canDecode()) throw new Error("この動画をデコードできません");
+                const sourceWidth = await track.getDisplayWidth();
+                const sourceHeight = await track.getDisplayHeight();
+                const scale = Math.min(1, 1080 / Math.min(sourceWidth, sourceHeight));
+                const width = Math.round(sourceWidth * scale / 2) * 2;
+                const height = Math.round(sourceHeight * scale / 2) * 2;
+                const target = new BufferTarget();
+                const output = new Output({ format: new WebMOutputFormat(), target });
+                const outputCanvas = document.createElement("canvas");
+                outputCanvas.width = width;
+                outputCanvas.height = height;
+                const outputContext = outputCanvas.getContext("2d");
+                const videoSource = new CanvasSource(outputCanvas, {
+                    codec: "vp9",
+                    quality: new Quality("high"),
+                });
+                output.addVideoTrack(videoSource);
+                await output.start();
+
+                let frameIndex = 0;
+                let outputIndex = 0;
+                const addFrame = async (source) => {
+                    outputContext.drawImage(source, 0, 0, width, height);
+                    await videoSource.add(outputIndex / fps, 1 / fps, {
+                        keyFrame: outputIndex % Math.max(1, Math.round(fps * 2)) === 0,
+                    });
+                    outputIndex += 1;
+                };
+
+                try {
+                    const sink = new CanvasSink(track, { width, height, fit: "fill", poolSize: 2 });
+                    for await (const frame of sink.canvases()) {
+                        if (removed.has(frameIndex++)) continue;
+                        await addFrame(frame.canvas);
+                        progress.value = frameIndex;
+                    }
+                    await output.finalize();
+                    return new Blob([target.buffer], { type: "video/webm" });
+                } catch (error) {
+                    await output.cancel();
+                    throw error;
+                } finally {
+                    input.dispose();
+                    outputCanvas.width = 1;
+                    outputCanvas.height = 1;
+                }
+            }
+
+            async function analyze(file, threshold) {
+                const removedFrames = [];
+                const times = [];
+                const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+                const duration = await input.computeDuration();
+                const track = await input.getPrimaryVideoTrack();
+                if (!track || !await track.canDecode()) throw new Error("この動画をデコードできません");
+                progress.hidden = false;
+                progress.max = duration || 1;
+                try {
+                    const sink = new CanvasSink(track, { width: 320, poolSize: 1 });
+                    for await (const frame of sink.canvases()) {
+                        const index = times.length;
+                        times.push(frame.timestamp);
+                        const detection = await faceapi.detectSingleFace(frame.canvas, detectorOptions).withFaceExpressions();
+                        const expressions = detection?.expressions;
+                        const nonNeutral = expressions
+                            ? Math.max(...Object.entries(expressions).filter(([name]) => name !== "neutral").map(([, value]) => value))
+                            : 0;
+                        if (nonNeutral >= threshold) removedFrames.push(index);
+                        progress.value = frame.timestamp;
+                        status.textContent = `解析中: ${index + 1} frames / ${formatTime(frame.timestamp)} · 除去 ${removedFrames.length}`;
+                    }
+
+                    if (!times.length) throw new Error("解析できるフレームがありませんでした");
+                    if (removedFrames.length === times.length) throw new Error("全フレームが除去対象です。しきい値を上げてください");
+                    const elapsed = times.at(-1) - times[0];
+                    const fps = elapsed > 0 ? Math.round((times.length - 1) / elapsed) : 30;
+                    progress.max = times.length;
+                    progress.value = 0;
+                    status.textContent = `${times.length} frames 解析完了。1080pで書き出し中…`;
+                    const result = await render(file, removedFrames, fps);
+                    showResult(result, file.name);
+                    status.textContent = `${times.length} frames 中 ${removedFrames.length} frames を除去しました。`;
+                } finally {
+                    input.dispose();
+                    progress.hidden = true;
+                }
+            }
+
+            fileInput.addEventListener("change", () => {
+                clearResult();
+                status.textContent = fileInput.files.length ? `${fileInput.files[0].name} を解析できます。` : "動画を選択してください。";
+                setBusy(false);
+            });
+
+            runButton.addEventListener("click", async () => {
+                if (busy || !fileInput.files.length) return;
+                clearResult();
+                setBusy(true);
+                try {
+                    await analyze(fileInput.files[0], clamp(Number(thresholdInput.value) || 0, 0, 1));
+                } catch (error) {
+                    console.error(error);
+                    status.textContent = `処理できませんでした: ${error?.message || String(error)}`;
+                } finally {
+                    setBusy(false);
+                }
+            });
+
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri("../modules/faceAPI/models"),
+                    faceapi.nets.faceExpressionNet.loadFromUri("../modules/faceAPI/models")
+                ]);
+                modelsReady = true;
+                status.textContent = "動画を選択してください。";
+            } catch (error) {
+                console.error(error);
+                status.textContent = `準備できませんでした: ${error.message}`;
+            }
+            setBusy(false);
+        });
+    </script>
+</body>
+
+</html>

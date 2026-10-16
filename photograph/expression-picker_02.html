@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>表情変化検出</title>
     <script defer src="../modules/faceAPI/face-api.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
+    <script defer src="../modules/ffmpeg/ffmpeg.js"></script>
     <style>
         :root {
             color-scheme: light dark;
@@ -242,11 +242,10 @@
             const [video, files, panelList, panelTemplate, analyzeAllButton, status] =
                 ["analysisVideo", "files", "panelList", "panelTemplate", "analyzeAll", "status"].map($);
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
-            const supportsVideoFrameCallback = typeof video.requestVideoFrameCallback === "function";
+            const SAMPLE_RATE = 30;
             const panels = [];
             let busy = false;
             let modelsReady = false;
-            let cancelFrameWait;
             let ffmpeg;
             let ffmpegProgress;
 
@@ -331,6 +330,20 @@
                 ];
             };
 
+            const landmarkClearance = (positions, width, height) => Math.min(...positions.flatMap((point) => [
+                point.x,
+                point.y,
+                width - point.x,
+                height - point.y
+            ])) / Math.min(width, height);
+
+            const faceIsVisible = (detection) => {
+                const width = Math.max(1, video.videoWidth);
+                const height = Math.max(1, video.videoHeight);
+                return detection.detection.score >= .5
+                    && landmarkClearance(detection.landmarks.positions, width, height) >= .02;
+            };
+
             const robustScores = (values) => {
                 const center = median(values);
                 const mad = median(values.map((value) => Math.abs(value - center)));
@@ -343,9 +356,6 @@
                 let smoothedLandmarks;
                 let smoothedEmotions;
                 let smoothedPose;
-                let previousLandmarkSpeed = 0;
-                let previousEmotionSpeed = 0;
-                let previousPoseSpeed = 0;
 
                 const changes = frames.map((frame) => {
                     const reset = !previous || frame.time - previous.time > .25;
@@ -354,11 +364,11 @@
                         smoothedEmotions = frame.emotions;
                         smoothedPose = frame.pose;
                         previous = frame;
-                        return { ...frame, valid: false, landmarkSpeed: 0, emotionSpeed: 0, poseSpeed: 0, landmarkAcceleration: 0, emotionAcceleration: 0, poseAcceleration: 0 };
+                        return { ...frame, valid: false, landmarkSpeed: 0, emotionSpeed: 0, poseSpeed: 0 };
                     }
 
                     const dt = frame.time - previous.time;
-                    const alpha = 1 - Math.exp(-dt / .09);
+                    const alpha = 1 - Math.exp(-dt / .04);
                     const nextLandmarks = frame.landmarks.map((value, index) =>
                         smoothedLandmarks[index] + alpha * (value - smoothedLandmarks[index]));
                     const nextEmotions = frame.emotions.map((value, index) =>
@@ -368,50 +378,66 @@
                     const landmarkSpeed = rmsDifference(nextLandmarks, smoothedLandmarks) / dt;
                     const emotionSpeed = rmsDifference(nextEmotions, smoothedEmotions) / dt;
                     const poseSpeed = rmsDifference(nextPose, smoothedPose) / dt;
-                    const landmarkAcceleration = Math.max(0, landmarkSpeed - previousLandmarkSpeed) / dt;
-                    const emotionAcceleration = Math.max(0, emotionSpeed - previousEmotionSpeed) / dt;
-                    const poseAcceleration = Math.max(0, poseSpeed - previousPoseSpeed) / dt;
                     smoothedLandmarks = nextLandmarks;
                     smoothedEmotions = nextEmotions;
                     smoothedPose = nextPose;
-                    previousLandmarkSpeed = landmarkSpeed;
-                    previousEmotionSpeed = emotionSpeed;
-                    previousPoseSpeed = poseSpeed;
                     previous = frame;
-                    return { ...frame, valid: true, landmarkSpeed, emotionSpeed, poseSpeed, landmarkAcceleration, emotionAcceleration, poseAcceleration };
+                    return { ...frame, valid: true, landmarkSpeed, emotionSpeed, poseSpeed };
                 });
 
                 const valid = changes.filter((frame) => frame.valid);
                 if (!valid.length) return [];
                 const landmarkSpeedScores = robustScores(valid.map((frame) => frame.landmarkSpeed));
                 const emotionSpeedScores = robustScores(valid.map((frame) => frame.emotionSpeed));
-                const landmarkAccelerationScores = robustScores(valid.map((frame) => frame.landmarkAcceleration));
-                const emotionAccelerationScores = robustScores(valid.map((frame) => frame.emotionAcceleration));
                 const poseSpeedScores = robustScores(valid.map((frame) => frame.poseSpeed));
-                const poseAccelerationScores = robustScores(valid.map((frame) => frame.poseAcceleration));
 
-                return valid.map((frame, index) => {
-                    const landmarkBurst = landmarkSpeedScores[index] * .72 + landmarkAccelerationScores[index] * .28;
-                    const emotionBurst = emotionSpeedScores[index] * .72 + emotionAccelerationScores[index] * .28;
-                    const poseBurst = poseSpeedScores[index] * .72 + poseAccelerationScores[index] * .28;
-                    const expressionScore = (landmarkBurst + emotionBurst) / 2 + Math.min(landmarkBurst, emotionBurst) * .25;
-                    const score = Math.max(0, expressionScore - poseBurst * .15);
-                    return { ...frame, landmarkBurst, emotionBurst, poseBurst, score };
+                const scored = valid.map((frame, index) => {
+                    const landmarkSlope = landmarkSpeedScores[index];
+                    const emotionSlope = emotionSpeedScores[index];
+                    const headSlope = poseSpeedScores[index];
+                    const expressionScore = emotionSlope + Math.min(landmarkSlope, emotionSlope) * .25;
+                    const disagreement = Math.abs(landmarkSlope - emotionSlope);
+                    const strength = Math.max(0, expressionScore - disagreement * .5 - headSlope * .75);
+                    return { ...frame, landmarkSlope, emotionSlope, headSlope, strength };
+                });
+                return scored.map((frame) => {
+                    const context = scored.filter((other) => {
+                        const distance = Math.abs(other.time - frame.time);
+                        return distance >= .08 && distance <= .35;
+                    }).map((other) => other.strength);
+                    const score = frame.strength / Math.max(.25, mean(context));
+                    return { ...frame, score };
                 });
             };
 
-            const pickChanges = (frames, targetCount, sensitivity) => {
+            const pickChanges = (frames, observations, targetCount, sensitivity) => {
                 const changes = calculateChanges(frames);
                 const lastTime = changes.at(-1)?.time || 0;
-                const peaks = changes.filter((frame, index) => {
-                    if (frame.time < .2 || frame.time > lastTime - .2
-                        || frame.score < sensitivity
-                        || frame.poseSpeed > .5
-                        || Math.min(frame.landmarkBurst, frame.emotionBurst) < sensitivity * .15) return false;
+                const evaluated = changes.map((frame) => {
+                    const window = observations.filter(({ time }) =>
+                        time >= frame.time - .35 && time <= frame.time + .65);
+                    const motionWindow = changes.filter((other) =>
+                        other.time >= frame.time - .35 && other.time <= frame.time + .65);
+                    const settled = changes.filter((other) =>
+                        other.time >= frame.time + .1 && other.time <= frame.time + .5);
+                    const faceCoverage = mean(window.map(({ faceVisible }) => faceVisible ? 1 : 0));
+                    const headMotion = mean(motionWindow.map((other) => other.poseSpeed));
+                    const maxHeadMotion = Math.max(...motionWindow.map((other) => other.poseSpeed));
+                    const expressionCertainty = mean(settled.map((other) => Math.max(...other.emotions)));
+                    const prominence = frame.score;
+                    const score = prominence * (1 - expressionCertainty);
+                    return { ...frame, faceCoverage, headMotion, maxHeadMotion,
+                        expressionCertainty, prominence, score };
+                });
+                const peaks = evaluated.filter((frame) => {
+                    if (frame.time < .12 || frame.time > lastTime - .2
+                        || frame.strength < sensitivity
+                        || frame.maxHeadMotion > .5
+                        || frame.faceCoverage < .8
+                        || Math.min(frame.landmarkSlope, frame.emotionSlope) < sensitivity * .75) return false;
                     const nearby = changes.filter((other) => Math.abs(other.time - frame.time) <= .12);
-                    return nearby.every((other) => other === frame || other.score <= frame.score);
+                    return nearby.every((other) => other.strength <= frame.strength);
                 }).sort((a, b) => b.score - a.score);
-
                 const selected = [];
                 for (const peak of peaks) {
                     if (selected.length >= targetCount) break;
@@ -429,7 +455,9 @@
             const movedTestFace = testFace.map(({ x, y }) => ({ x: 1.2 * x + .3 * y + 4, y: -.2 * x + .9 * y + 7 }));
             console.assert(rmsDifference(normalizeLandmarks(testFace), normalizeLandmarks(movedTestFace)) < 1e-10,
                 "head movement normalization is invalid");
-            console.assert(pickChanges([], 5, 2).length === 0, "empty video must not produce candidates");
+            console.assert(landmarkClearance([{ x: 10, y: 20 }, { x: 90, y: 80 }], 100, 100) === .1,
+                "landmark visibility calculation is invalid");
+            console.assert(pickChanges([], [], 5, 2).length === 0, "empty video must not produce candidates");
 
             const setPanelStatus = (panel, text, current = 0, total = 0) => {
                 const hasProgress = Number.isFinite(total) && total > 0;
@@ -452,21 +480,6 @@
                 video.currentTime = target;
             });
 
-            const nextVideoFrame = () => new Promise((resolve, reject) => {
-                const finish = (metadata, error) => {
-                    video.cancelVideoFrameCallback(callbackId);
-                    cancelFrameWait = null;
-                    error ? reject(error) : resolve(metadata);
-                };
-                cancelFrameWait = () => finish(null);
-                const callbackId = video.requestVideoFrameCallback((_now, metadata) => {
-                    video.pause();
-                    finish(metadata);
-                });
-                video.play().catch((error) => finish(null, error));
-            });
-            video.addEventListener("ended", () => cancelFrameWait?.());
-
             const loadVideo = (file) => {
                 const url = URL.createObjectURL(file);
                 return new Promise((resolve, reject) => {
@@ -480,7 +493,7 @@
                         video.removeAttribute("src");
                         video.load();
                         URL.revokeObjectURL(url);
-                        reject(new Error(`${file.name}を読み込めませんでした`));
+                        reject(new Error(`${file.name || "動画"}を読み込めませんでした`));
                     };
                     video.addEventListener("loadedmetadata", loaded);
                     video.addEventListener("error", failed);
@@ -491,31 +504,53 @@
 
             const unloadVideo = (url) => {
                 video.pause();
-                cancelFrameWait?.();
                 video.removeAttribute("src");
                 video.load();
                 URL.revokeObjectURL(url);
             };
-
-            const toBlobUrl = async (url, type) =>
-                URL.createObjectURL(new Blob([await (await fetch(url)).blob()], { type }));
 
             const loadFfmpeg = async (panel) => {
                 if (ffmpeg) return;
                 setPanelStatus(panel, "映像切り出しエンジンを読み込んでいます…");
                 const engine = new FFmpegWASM.FFmpeg();
                 engine.on("progress", ({ progress }) => ffmpegProgress?.(clamp(progress, 0, 1)));
-                const core = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
-                const worker = "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/worker.js";
                 await engine.load({
-                    classWorkerURL: URL.createObjectURL(new Blob([`import '${worker}'`], { type: "text/javascript" })),
-                    coreURL: await toBlobUrl(`${core}/ffmpeg-core.js`, "text/javascript"),
-                    wasmURL: await toBlobUrl(`${core}/ffmpeg-core.wasm`, "application/wasm")
+                    coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
+                    wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href
                 });
                 ffmpeg = engine;
             };
 
-            const cutCandidates = async (panel, candidates) => {
+            const loadAnalysisVideo = async (panel) => {
+                let url = await loadVideo(panel.file);
+                if (Number.isFinite(video.duration)) return { url, duration: video.duration };
+                unloadVideo(url);
+
+                await loadFfmpeg(panel);
+                const inputName = "analysis-source.webm";
+                const outputName = "analysis-remux.webm";
+                setPanelStatus(panel, "動画の索引を修復しています…");
+                await ffmpeg.writeFile(inputName, new Uint8Array(await panel.file.arrayBuffer()));
+                try {
+                    const exitCode = await ffmpeg.exec([
+                        "-fflags", "+genpts", "-i", inputName,
+                        "-map", "0:v:0", "-c", "copy", outputName
+                    ]);
+                    if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
+                    const data = await ffmpeg.readFile(outputName);
+                    url = await loadVideo(new Blob([data], { type: "video/webm" }));
+                    if (!Number.isFinite(video.duration)) {
+                        unloadVideo(url);
+                        throw new Error("動画の長さを取得できませんでした");
+                    }
+                    return { url, duration: video.duration };
+                } finally {
+                    try { await ffmpeg.deleteFile(inputName); } catch { }
+                    try { await ffmpeg.deleteFile(outputName); } catch { }
+                }
+            };
+
+            const cutCandidates = async (panel, candidates, duration) => {
                 if (!candidates.length) return [];
                 await loadFfmpeg(panel);
                 const inputName = "expression-input.webm";
@@ -524,8 +559,8 @@
                 try {
                     for (let index = 0; index < candidates.length; index++) {
                         const candidate = candidates[index];
-                        const start = clamp(candidate.time - .35, 0, video.duration);
-                        const end = clamp(candidate.time + .65, start, video.duration);
+                        const start = clamp(candidate.time - .35, 0, duration);
+                        const end = clamp(candidate.time + .65, start, duration);
                         const outputName = `expression-output-${index}.webm`;
                         setPanelStatus(panel, `候補映像を書き出しています ${index + 1}/${candidates.length}`, index, candidates.length);
                         ffmpegProgress = (ratio) => panel.progress.value = index + ratio;
@@ -567,9 +602,12 @@
                     meta.innerHTML = `
                         <strong>${index + 1}位 · score ${pick.score.toFixed(2)} · ${formatTime(pick.time)}</strong>
                         <span>${formatTime(pick.start)}–${formatTime(pick.end)}</span>
-                        <span>landmark ${pick.landmarkBurst.toFixed(2)}</span>
-                        <span>emotion ${pick.emotionBurst.toFixed(2)}</span>
-                        <span>head ${pick.poseBurst.toFixed(2)} · ${pick.poseSpeed.toFixed(2)}/s</span>
+                        <span>prominence ${pick.prominence.toFixed(2)} · expression certainty ${(pick.expressionCertainty * 100).toFixed(0)}%</span>
+                        <span>strength ${pick.strength.toFixed(2)}</span>
+                        <span>landmark slope ${pick.landmarkSlope.toFixed(2)}</span>
+                        <span>emotion slope ${pick.emotionSlope.toFixed(2)}</span>
+                        <span>head window ${pick.headMotion.toFixed(2)}/s avg · ${pick.maxHeadMotion.toFixed(2)}/s max</span>
+                        <span>face ${(pick.faceCoverage * 100).toFixed(0)}%</span>
                     `;
                     const download = document.createElement("a");
                     const base = panel.file.name.replace(/\.[^.]+$/, "");
@@ -593,7 +631,7 @@
 
             const updateControls = () => {
                 files.disabled = busy;
-                analyzeAllButton.disabled = busy || !modelsReady || !supportsVideoFrameCallback || !panels.length;
+                analyzeAllButton.disabled = busy || !modelsReady || !panels.length;
                 panels.forEach((panel) => {
                     panel.count.disabled = busy;
                     panel.sensitivity.disabled = busy;
@@ -630,18 +668,15 @@
             const analyzePanel = async (panel, panelIndex) => {
                 clearPanel(panel, "解析中です。");
                 const frames = [];
+                const observations = [];
                 let analyzedFrames = 0;
-                const url = await loadVideo(panel.file);
+                const { url, duration } = await loadAnalysisVideo(panel);
 
                 try {
-                    await seek(0);
-                    while (true) {
-                        const metadata = await nextVideoFrame();
-                        if (!metadata) break;
-                        const time = metadata.mediaTime;
+                    const analyzeFrame = async (time) => {
                         analyzedFrames += 1;
                         status.textContent = `動画 ${panelIndex + 1}/${panels.length} を解析中… ${formatTime(time)}`;
-                        setPanelStatus(panel, `解析中 ${analyzedFrames} frames / ${formatTime(time)}`, time, video.duration);
+                        setPanelStatus(panel, `解析中 ${analyzedFrames} frames / ${formatTime(time)}`, time, duration);
                         const detection = await faceapi
                             .detectSingleFace(video, detectorOptions)
                             .withFaceLandmarks(true)
@@ -654,13 +689,20 @@
                                 pose: headPose(detection.landmarks.positions)
                             });
                         }
-                        if (video.ended) break;
+                        observations.push({ time, faceVisible: Boolean(detection && faceIsVisible(detection)) });
+                    };
+
+                    const sampleCount = Math.floor(Math.max(0, duration - .04) * SAMPLE_RATE) + 1;
+                    for (let index = 0; index < sampleCount; index++) {
+                        const time = index / SAMPLE_RATE;
+                        await seek(time);
+                        await analyzeFrame(time);
                     }
 
                     const targetCount = clamp(Math.round(Number(panel.count.value) || 5), 1, 12);
                     const sensitivity = clamp(Number(panel.sensitivity.value) || 2, .5, 8);
-                    const candidates = pickChanges(frames, targetCount, sensitivity);
-                    panel.picks = await cutCandidates(panel, candidates);
+                    const candidates = pickChanges(frames, observations, targetCount, sensitivity);
+                    panel.picks = await cutCandidates(panel, candidates, duration);
                     renderResults(panel);
                     panel.empty.textContent = panel.picks.length
                         ? ""
@@ -690,9 +732,7 @@
             try {
                 await models;
                 modelsReady = true;
-                status.textContent = supportsVideoFrameCallback
-                    ? "動画を選択してください。"
-                    : "このブラウザはフレーム単位の解析に対応していません。";
+                status.textContent = "動画を選択してください。";
             } catch (error) {
                 console.error(error);
                 status.textContent = "モデルの読み込みに失敗しました。";

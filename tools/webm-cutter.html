@@ -193,15 +193,13 @@
         </section>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
+    <script src="../modules/ffmpeg/ffmpeg.js"></script>
     <script>
         const $ = id => document.getElementById(id);
         const [fileInput, drop, editor, video, startRange, endRange, start, end, cut, status, progress, download] =
             ['file', 'drop', 'editor', 'video', 'startRange', 'endRange', 'start', 'end', 'cut', 'status', 'progress', 'download'].map($);
         const mimeTypes = { webm: 'video/webm', mov: 'video/quicktime' };
         let file, format, sourceUrl, outputUrl, ffmpeg;
-
-        const toBlobURL = async (url, type) => URL.createObjectURL(new Blob([await (await fetch(url)).blob()], { type }));
 
         const syncTimes = changed => {
             const duration = video.duration || 0;
@@ -265,12 +263,9 @@
                     status.textContent = '処理エンジンを読み込み中…';
                     ffmpeg = new FFmpegWASM.FFmpeg();
                     ffmpeg.on('progress', ({ progress: ratio }) => progress.value = Math.max(0, Math.min(ratio, 1)));
-                    const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
-                    const worker = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/worker.js';
                     await ffmpeg.load({
-                        classWorkerURL: URL.createObjectURL(new Blob([`import '${worker}'`], { type: 'text/javascript' })),
-                        coreURL: await toBlobURL(`${core}/ffmpeg-core.js`, 'text/javascript'),
-                        wasmURL: await toBlobURL(`${core}/ffmpeg-core.wasm`, 'application/wasm')
+                        coreURL: new URL('../modules/ffmpeg/ffmpeg-core.js', location.href).href,
+                        wasmURL: new URL('../modules/ffmpeg/ffmpeg-core.wasm', location.href).href
                     });
                 }
                 status.textContent = '切り出し中…';
