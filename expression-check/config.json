@@ -49,8 +49,6 @@
     "messageDurationMs": 3000
   },
   "recording": {
-    "secondsBefore": 2,
-    "secondsAfter": 5,
     "rotationDegrees": 270,
     "videoBitsPerSecond": 50000000
   },

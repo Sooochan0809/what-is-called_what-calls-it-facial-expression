@@ -662,9 +662,11 @@
     <main id="photographScene" hidden>
         <video id="video" autoplay muted playsinline></video>
         <div class="frameGuide" aria-hidden="true"></div>
-        <section id="judgmentMessage" class="judgmentMessage" role="status" aria-live="polite" aria-atomic="true" hidden>
+        <section id="judgmentMessage" class="judgmentMessage" role="status" aria-live="polite" aria-atomic="true"
+            hidden>
             <div class="judgmentCard">
-                <h2 class="judgmentTitle"><span id="judgmentTitlePrefix"></span><span id="judgmentResult" class="judgmentResult"></span></h2>
+                <h2 class="judgmentTitle"><span id="judgmentTitlePrefix"></span><span id="judgmentResult"
+                        class="judgmentResult"></span></h2>
                 <p id="judgmentText" class="judgmentText"></p>
             </div>
         </section>
@@ -744,7 +746,6 @@
         const MODEL_URL = "../modules/faceAPI/models";
         const COPY_FIELDS = ["introTitle", "introText", "consentQuestion"];
         const RECORDING_MIME_TYPES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
-        const WEBM_CLUSTER_LOOKBACK_MS = 2000;
         const WEBM_KEYFRAME_INTERVAL_MS = 1000;
         const JUDGMENT_HOLD_MS = 1000;
         const cameraModes = [
@@ -785,20 +786,21 @@
         let judgmentDetectedMessage = "";
         let judgmentNotDetectedMessage = "";
         let judgmentHoldTimer = 0;
-        let recordingBeforeMs = 2000;
-        let recordingAfterMs = 3000;
         let recordingRotationDegrees = 270;
         let recordingVideoBitsPerSecond = 50_000_000;
         let recording = null;
+        let clearEvents = [];
         let captureInProgress = false;
         let recordingEnabled = false;
         let configurationReady;
 
         const tutorialFilledSegments = (frame, peak) => peak - Math.abs(peak - frame);
+        const elapsedSeconds = (now, startedAt) => Number(((now - startedAt) / 1000).toFixed(3));
         console.assert(
             [0, 5, 10, 5, 0].every((value, index) => value === tutorialFilledSegments(index * 5, 10)),
             "チュートリアルのスコア推移が不正です"
         );
+        console.assert(elapsedSeconds(2500, 1000) === 1.5, "クリア時刻の計算が不正です");
 
         function replayAudio(audio) {
             audio.currentTime = 0;
@@ -1031,11 +1033,10 @@
             else showSituation(situationIndex + 1);
         }
 
-        function showResults() {
+        async function showResults() {
             clearTimeout(partIntroTimer);
             stopSituationRotation();
             stopScoreAnimation();
-            stopRecordingBuffer();
             partIntro.hidden = true;
             photographScene.hidden = true;
             finalScene.hidden = false;
@@ -1052,6 +1053,13 @@
                 );
                 return row;
             }));
+            if (recordingEnabled) {
+                try {
+                    await saveExperienceRecording();
+                } catch (error) {
+                    console.error("体験の録画を保存できませんでした。", error);
+                }
+            }
             clearTimeout(resultTimer);
             resultTimer = setTimeout(() => window.location.reload(), resultDurationMs);
         }
@@ -1100,8 +1108,6 @@
             judgmentScoreThreshold = Math.min(100, Math.max(0, Number(judgment.scoreThreshold ?? 80)));
             judgmentMessageDurationMs = Math.max(0, Number(judgment.messageDurationMs ?? 2000) || 0);
             const recordingConfig = config.recording || {};
-            recordingBeforeMs = Math.max(0, Number(recordingConfig.secondsBefore ?? 2) || 0) * 1000;
-            recordingAfterMs = Math.max(0, Number(recordingConfig.secondsAfter ?? 3) || 0) * 1000;
             recordingRotationDegrees = Number(recordingConfig.rotationDegrees ?? 270);
             if (![0, 90, 180, 270].includes(recordingRotationDegrees)) throw new Error("録画の回転角度は0、90、180、270のいずれかにしてください");
             recordingVideoBitsPerSecond = Math.max(1, Number(recordingConfig.videoBitsPerSecond) || 50_000_000);
@@ -1109,199 +1115,6 @@
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
             scoreSegments = [...scoreBar.children];
-        }
-
-        const findWebmCluster = (bytes) => {
-            for (let index = 0; index <= bytes.length - 4; index += 1) {
-                if (bytes[index] === 0x1f && bytes[index + 1] === 0x43 && bytes[index + 2] === 0xb6 && bytes[index + 3] === 0x75) return index;
-            }
-            return -1;
-        };
-
-        const findWebmHeader = (bytes) => {
-            for (let index = 0; index <= bytes.length - 4; index += 1) {
-                if (bytes[index] === 0x1a && bytes[index + 1] === 0x45 && bytes[index + 2] === 0xdf && bytes[index + 3] === 0xa3) return index;
-            }
-            return -1;
-        };
-
-        const webmVintLength = (byte) => {
-            for (let length = 1, mask = 0x80; length <= 8; length += 1, mask >>= 1) {
-                if (byte & mask) return length;
-            }
-            return 0;
-        };
-
-        function normalizeWebmTimecodes(bytes) {
-            let firstTimecode;
-            for (let cluster = findWebmCluster(bytes); cluster >= 0;) {
-                const nextOffset = findWebmCluster(bytes.subarray(cluster + 4));
-                const nextCluster = nextOffset < 0 ? bytes.length : cluster + 4 + nextOffset;
-                const sizeLength = webmVintLength(bytes[cluster + 4]);
-                const limit = Math.min(nextCluster, cluster + 4 + sizeLength + 64);
-                for (let index = cluster + 4 + sizeLength; index < limit - 2; index += 1) {
-                    if (bytes[index] !== 0xe7) continue;
-                    const valueLength = bytes[index + 1] & 0x7f;
-                    const valueAt = index + 2;
-                    if (!valueLength || valueLength > 4 || valueAt + valueLength > limit) break;
-                    let value = 0;
-                    for (let offset = 0; offset < valueLength; offset += 1) value = value * 256 + bytes[valueAt + offset];
-                    firstTimecode ??= value;
-                    value -= firstTimecode;
-                    for (let offset = valueLength - 1; offset >= 0; offset -= 1) {
-                        bytes[valueAt + offset] = value & 0xff;
-                        value = Math.floor(value / 256);
-                    }
-                    break;
-                }
-                if (nextOffset < 0) break;
-                cluster = nextCluster;
-            }
-            return { bytes, firstTimecode };
-        }
-
-        const webmTimecodeCheck = normalizeWebmTimecodes(Uint8Array.of(
-            0x1f, 0x43, 0xb6, 0x75, 0x84, 0xe7, 0x82, 0x03, 0xe8,
-            0x1f, 0x43, 0xb6, 0x75, 0x84, 0xe7, 0x82, 0x04, 0x4c
-        ));
-        console.assert(
-            findWebmHeader(Uint8Array.of(0, 0x1a, 0x45, 0xdf, 0xa3)) === 1
-            && webmTimecodeCheck.firstTimecode === 1000
-            && webmTimecodeCheck.bytes[7] === 0 && webmTimecodeCheck.bytes[8] === 0 && webmTimecodeCheck.bytes[17] === 100,
-            "WebMデータを正規化できません"
-        );
-
-        async function createWebmClip(blobs, header, type) {
-            const bytes = new Uint8Array(await new Blob(blobs).arrayBuffer());
-            const clusterAt = findWebmCluster(bytes);
-            if (!header || clusterAt < 0) throw new Error("WebMデータを作成できませんでした");
-            const normalized = normalizeWebmTimecodes(bytes.slice(clusterAt));
-            if (!Number.isFinite(normalized.firstTimecode)) throw new Error("WebMの開始時刻を取得できませんでした");
-            const clip = new Blob([header, normalized.bytes], { type });
-            if (findWebmHeader(new Uint8Array(await clip.slice(0, 4).arrayBuffer())) !== 0) {
-                throw new Error("WebMヘッダーを作成できませんでした");
-            }
-            return { blob: clip, firstTimecodeMs: normalized.firstTimecode };
-        }
-
-        const overlapsCaptureWindow = ({ startAt, endAt }, capture) =>
-            startAt <= capture.endAt && endAt >= capture.startAt - WEBM_CLUSTER_LOOKBACK_MS;
-
-        console.assert(
-            overlapsCaptureWindow({ startAt: 1500, endAt: 2500 }, { startAt: 4000, endAt: 9000 })
-            && !overlapsCaptureWindow({ startAt: 1000, endAt: 1999 }, { startAt: 4000, endAt: 9000 }),
-            "WebMの先行映像を保持できません"
-        );
-
-        function stopRecordingBuffer() {
-            const session = recording;
-            recording = null;
-            if (!session) return;
-            if (session.frameCallback) video.cancelVideoFrameCallback(session.frameCallback);
-            session.recorder.ondataavailable = null;
-            if (session.recorder.state !== "inactive") session.recorder.stop();
-            session.track.stop();
-            session.pending?.reject(new Error("録画設定が変更されました"));
-        }
-
-        function startRecordingBuffer() {
-            const sourceTrack = video.srcObject?.getVideoTracks()[0];
-            if (!sourceTrack || typeof MediaRecorder === "undefined") return;
-            stopRecordingBuffer();
-            const canvas = document.createElement("canvas");
-            const context = canvas.getContext("2d", { alpha: false });
-            drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
-            const track = canvas.captureStream(0).getVideoTracks()[0];
-            const mimeType = RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
-            let recorder;
-            try {
-                recorder = new MediaRecorder(new MediaStream([track]), {
-                    ...(mimeType && { mimeType }),
-                    videoBitsPerSecond: recordingVideoBitsPerSecond,
-                    videoKeyFrameIntervalDuration: WEBM_KEYFRAME_INTERVAL_MS
-                });
-            } catch (error) {
-                track.stop();
-                console.error("WebM録画を開始できませんでした。", error);
-                return;
-            }
-            const startedAt = performance.now();
-            const session = recording = { recorder, track, header: null, chunks: [], pending: null, frameCallback: 0, startedAt };
-            const copyFrame = () => {
-                if (recording !== session) return;
-                drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
-                track.requestFrame();
-                session.frameCallback = video.requestVideoFrameCallback(copyFrame);
-            };
-            let lastChunkAt = startedAt;
-            let queue = Promise.resolve();
-            const initialBlobs = [];
-            recorder.ondataavailable = ({ data, timeStamp: endAt }) => {
-                queue = queue.then(async () => {
-                    if (recording !== session || !data?.size) return;
-                    let chunk = data;
-                    if (!session.header) {
-                        initialBlobs.push(data);
-                        const initialBlob = new Blob(initialBlobs, { type: data.type });
-                        const bytes = new Uint8Array(await initialBlob.arrayBuffer());
-                        const headerAt = findWebmHeader(bytes);
-                        if (headerAt < 0) {
-                            if (initialBlob.size > 16 * 1024 * 1024) throw new Error(`WebMヘッダーを取得できませんでした（${data.type || "形式不明"}）`);
-                            return;
-                        }
-                        const clusterOffset = findWebmCluster(bytes.subarray(headerAt));
-                        if (clusterOffset < 0) return;
-                        const clusterAt = headerAt + clusterOffset;
-                        session.header = new Blob([bytes.slice(headerAt, clusterAt)], { type: data.type });
-                        initialBlobs.length = 0;
-                        lastChunkAt = startedAt;
-                        chunk = new Blob([bytes.slice(clusterAt)], { type: data.type });
-                    }
-                    session.chunks.push({ startAt: lastChunkAt, endAt, blob: chunk });
-                    lastChunkAt = endAt;
-                    const cutoff = (session.pending?.startAt ?? endAt - recordingBeforeMs) - WEBM_CLUSTER_LOOKBACK_MS;
-                    session.chunks = session.chunks.filter(({ endAt: chunkEnd }) => chunkEnd >= cutoff);
-                    if (session.pending && endAt >= session.pending.endAt) {
-                        const capture = session.pending;
-                        session.pending = null;
-                        const chunks = session.chunks.filter((chunk) => overlapsCaptureWindow(chunk, capture));
-                        capture.resolve({
-                            ...await createWebmClip(chunks.map(({ blob }) => blob), session.header, recorder.mimeType || "video/webm"),
-                            startedAt: session.startedAt,
-                            endedAt: chunks.at(-1)?.endAt ?? capture.endAt
-                        });
-                    }
-                }).catch((error) => {
-                    session.pending?.reject(error);
-                    session.pending = null;
-                    console.error("WebMデータを処理できませんでした。", error);
-                });
-            };
-            recorder.onerror = ({ error }) => {
-                session.pending?.reject(error);
-                session.pending = null;
-                console.error("WebM録画に失敗しました。", error);
-            };
-            recorder.start(250);
-            session.frameCallback = video.requestVideoFrameCallback(copyFrame);
-        }
-
-        function recordClip(triggerAt) {
-            return new Promise((resolve, reject) => {
-                const session = recording;
-                if (!session?.header || session.recorder.state !== "recording" || session.pending) {
-                    reject(new Error("WebM録画の準備ができていません"));
-                    return;
-                }
-                session.pending = {
-                    startAt: triggerAt - recordingBeforeMs,
-                    endAt: triggerAt + recordingAfterMs,
-                    resolve,
-                    reject
-                };
-                session.recorder.requestData();
-                setTimeout(() => session.recorder.state === "recording" && session.recorder.requestData(), recordingAfterMs);
-            });
         }
 
         function drawRotatedFrame(canvas, context, source, degrees) {
@@ -1322,12 +1135,87 @@
             context.drawImage(source, 0, 0);
         }
 
-        function captureImage() {
+        function startExperienceRecording() {
+            const sourceTrack = video.srcObject?.getVideoTracks()[0];
+            if (!sourceTrack || typeof MediaRecorder === "undefined") return;
             const canvas = document.createElement("canvas");
-            drawRotatedFrame(canvas, canvas.getContext("2d", { alpha: false }), video, recordingRotationDegrees);
+            const context = canvas.getContext("2d", { alpha: false });
+            drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
+            const track = canvas.captureStream(0).getVideoTracks()[0];
+            const mimeType = RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+            let recorder;
+            try {
+                recorder = new MediaRecorder(new MediaStream([track]), {
+                    ...(mimeType && { mimeType }),
+                    videoBitsPerSecond: recordingVideoBitsPerSecond,
+                    videoKeyFrameIntervalDuration: WEBM_KEYFRAME_INTERVAL_MS
+                });
+            } catch (error) {
+                track.stop();
+                console.error("WebM録画を開始できませんでした。", error);
+                return;
+            }
+            const session = recording = {
+                recorder,
+                track,
+                chunks: [],
+                frameCallback: 0,
+                startedAt: performance.now(),
+                createdAt: new Date()
+            };
+            recorder.ondataavailable = ({ data }) => {
+                if (data?.size) session.chunks.push(data);
+            };
+            recorder.onerror = ({ error }) => console.error("WebM録画に失敗しました。", error);
+            const copyFrame = () => {
+                if (recording !== session) return;
+                drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
+                track.requestFrame();
+                session.frameCallback = video.requestVideoFrameCallback(copyFrame);
+            };
+            recorder.start(1000);
+            session.frameCallback = video.requestVideoFrameCallback(copyFrame);
+        }
+
+        function stopExperienceRecording() {
+            const session = recording;
+            recording = null;
+            if (!session) return Promise.resolve(null);
+            if (session.frameCallback) video.cancelVideoFrameCallback(session.frameCallback);
             return new Promise((resolve, reject) => {
-                canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNGを作成できませんでした")), "image/png");
+                session.recorder.onstop = () => {
+                    session.track.stop();
+                    resolve({
+                        ...session,
+                        blob: new Blob(session.chunks, { type: session.recorder.mimeType || "video/webm" })
+                    });
+                };
+                session.recorder.onerror = ({ error }) => {
+                    session.track.stop();
+                    reject(error);
+                };
+                if (session.recorder.state === "inactive") session.recorder.onstop();
+                else session.recorder.stop();
             });
+        }
+
+        async function saveExperienceRecording() {
+            const session = await stopExperienceRecording();
+            if (!session) return;
+            const two = (value) => String(value).padStart(2, "0");
+            const { createdAt } = session;
+            const name = `called_${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}`;
+            const metadata = new Blob([JSON.stringify({
+                version: 1,
+                video: `${name}.webm`,
+                timeUnit: "seconds-from-video-start",
+                clearEvents
+            }, null, 2)], { type: "application/json" });
+            const zip = await createZip([
+                { name: `${name}.webm`, blob: session.blob, createdAt },
+                { name: `${name}.json`, blob: metadata, createdAt }
+            ]);
+            downloadBlob(zip, `${name}.zip`);
         }
 
         const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
@@ -1411,62 +1299,6 @@
             anchor.download = filename;
             anchor.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
-        }
-
-        function captureNames(createdAt) {
-            const emotion = situations[situationIndex].emotions.reduce((best, key) => {
-                const score = Number(latestExpressions[key]) || 0;
-                return score > best.score ? { key, score } : best;
-            }, { key: situations[situationIndex].emotions[0], score: 0 });
-            const two = (value) => String(value).padStart(2, "0");
-            const archive = `called_${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}`;
-            return { archive, file: `${emotion.key}_${Math.round(emotion.score * 100)}` };
-        }
-
-        function captureMetadata(capture, timing, names) {
-            const origin = capture.startedAt + capture.firstTimecodeMs;
-            const at = (timestamp) => Math.max(0, (timestamp - origin) / 1000);
-            const trigger = at(timing.triggerAt);
-            const fullyDark = Math.max(trigger, at(timing.fullyDarkAt));
-            const openingStarted = Math.max(fullyDark, at(timing.openingStartedAt));
-            const fullyOpen = Math.max(openingStarted, at(timing.fullyOpenAt));
-            const end = Math.max(fullyOpen, at(capture.endedAt));
-            return {
-                version: 1,
-                video: `${names.file}.webm`,
-                image: `${names.file}.png`,
-                timeUnit: "seconds-from-webm-start",
-                events: { trigger, fullyDark, openingStarted, fullyOpen },
-                segments: {
-                    before: { start: 0, end: fullyDark },
-                    shutter: { start: fullyDark, end: openingStarted },
-                    after: { start: openingStarted, end }
-                }
-            };
-        }
-
-        const captureMetadataCheck = captureMetadata(
-            { startedAt: 1000, firstTimecodeMs: 2000, endedAt: 9000 },
-            { triggerAt: 5000, fullyDarkAt: 5100, openingStartedAt: 6600, fullyOpenAt: 6700 },
-            { file: "happy_99" }
-        );
-        console.assert(
-            captureMetadataCheck.events.trigger === 2
-            && captureMetadataCheck.segments.shutter.start === 2.1
-            && captureMetadataCheck.segments.shutter.end === 3.6
-            && captureMetadataCheck.segments.after.end === 6,
-            "撮影時刻JSONの計算が不正です"
-        );
-
-        async function saveCapture(triggerAt, createdAt, names, imagePromise, timingPromise) {
-            const [image, capture, timing] = await Promise.all([imagePromise, recordClip(triggerAt), timingPromise]);
-            const metadata = new Blob([JSON.stringify(captureMetadata(capture, timing, names), null, 2)], { type: "application/json" });
-            const zip = await createZip([
-                { name: `${names.file}.png`, blob: image, createdAt },
-                { name: `${names.file}.webm`, blob: capture.blob, createdAt },
-                { name: `${names.file}.json`, blob: metadata, createdAt }
-            ]);
-            downloadBlob(zip, `${names.archive}.zip`);
         }
 
         function videoFrameSize() {
@@ -1570,7 +1402,7 @@
                 await detectCameraModes(track);
                 updateEmotionCanvas();
                 measureStatus();
-                if (recordingEnabled) startRecordingBuffer();
+                if (recordingEnabled && !recording) startExperienceRecording();
             } catch (error) {
                 cameraMode.innerHTML = "<option>画質を検出できません</option>";
                 cameraMode.disabled = true;
@@ -1621,21 +1453,14 @@
             stopSituationRotation();
             stopScoreAnimation();
             scoreBar.classList.add("is-frozen");
-            const triggerAt = performance.now();
-            const createdAt = new Date();
-            const timing = { triggerAt, fullyDarkAt: triggerAt, openingStartedAt: triggerAt, fullyOpenAt: triggerAt };
-            const savePromise = recordingEnabled
-                ? saveCapture(triggerAt, createdAt, captureNames(createdAt), captureImage(), Promise.resolve(timing)).catch((error) => {
-                    console.error("画像と映像を保存できませんでした。", error);
-                })
-                : Promise.resolve();
+            if (detected && recording) clearEvents.push({
+                part: situationIndex + 1,
+                time: elapsedSeconds(performance.now(), recording.startedAt)
+            });
             replayAudio(detected ? clearAudio : failureAudio);
             showJudgmentMessage(detected);
             try {
-                await Promise.all([
-                    savePromise,
-                    new Promise((resolve) => setTimeout(resolve, judgmentMessageDurationMs))
-                ]);
+                await new Promise((resolve) => setTimeout(resolve, judgmentMessageDurationMs));
             } finally {
                 judgmentMessage.hidden = true;
                 captureInProgress = false;
@@ -1651,7 +1476,6 @@
                 const nativeOnly = track.getCapabilities?.().resizeMode?.includes("none");
                 await track.applyConstraints(modeConstraints(cameraMode.value.split(",").map(Number), nativeOnly));
                 updateEmotionCanvas();
-                if (recordingEnabled) startRecordingBuffer();
                 if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
                 measureStatus();
             } catch (error) {
@@ -1665,11 +1489,12 @@
         function startExperience(enableRecording) {
             if (!photographScene.hidden) return;
             recordingEnabled = enableRecording;
+            clearEvents = [];
             maximumScores = Array(situations.length).fill(0);
             if (consentDialog.open) consentDialog.close();
             introScene.hidden = true;
             photographScene.hidden = false;
-            if (recordingEnabled) startRecordingBuffer();
+            if (recordingEnabled) startExperienceRecording();
             configurationReady.then(() => showSituation(0)).catch(() => { });
         }
 
@@ -1709,7 +1534,7 @@
             clearTimeout(resultTimer);
             stopTutorial();
             stopSituationRotation();
-            stopRecordingBuffer();
+            void stopExperienceRecording();
             stopScoreAnimation();
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
             video.srcObject?.getTracks().forEach((track) => track.stop());
