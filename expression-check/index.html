@@ -787,9 +787,9 @@
         let judgmentNotDetectedMessage = "";
         let judgmentHoldTimer = 0;
         let recordingRotationDegrees = 270;
-        let recordingVideoBitsPerSecond = 50_000_000;
+        let recordingFrameRate = 30;
+        let recordingVideoBitsPerSecond = 12_000_000;
         let recording = null;
-        let clearEvents = [];
         let captureInProgress = false;
         let recordingEnabled = false;
         let configurationReady;
@@ -908,6 +908,7 @@
 
         function startSituationJudgment() {
             situationJudgmentPending = false;
+            if (recordingEnabled) startPartRecording();
             startSituationRotation();
             renderScore();
         }
@@ -1033,7 +1034,7 @@
             else showSituation(situationIndex + 1);
         }
 
-        async function showResults() {
+        function showResults() {
             clearTimeout(partIntroTimer);
             stopSituationRotation();
             stopScoreAnimation();
@@ -1053,13 +1054,6 @@
                 );
                 return row;
             }));
-            if (recordingEnabled) {
-                try {
-                    await saveExperienceRecording();
-                } catch (error) {
-                    console.error("体験の録画を保存できませんでした。", error);
-                }
-            }
             clearTimeout(resultTimer);
             resultTimer = setTimeout(() => window.location.reload(), resultDurationMs);
         }
@@ -1110,7 +1104,8 @@
             const recordingConfig = config.recording || {};
             recordingRotationDegrees = Number(recordingConfig.rotationDegrees ?? 270);
             if (![0, 90, 180, 270].includes(recordingRotationDegrees)) throw new Error("録画の回転角度は0、90、180、270のいずれかにしてください");
-            recordingVideoBitsPerSecond = Math.max(1, Number(recordingConfig.videoBitsPerSecond) || 50_000_000);
+            recordingFrameRate = Math.min(60, Math.max(1, Number(recordingConfig.frameRate) || 30));
+            recordingVideoBitsPerSecond = Math.max(1, Number(recordingConfig.videoBitsPerSecond) || 12_000_000);
             const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
             scoreBar.style.setProperty("--segment-count", segmentCount);
             scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
@@ -1135,13 +1130,73 @@
             context.drawImage(source, 0, 0);
         }
 
-        function startExperienceRecording() {
+        const findBytes = (bytes, pattern, start = 0, end = bytes.length) => {
+            for (let index = start; index <= end - pattern.length; index += 1) {
+                if (pattern.every((byte, offset) => bytes[index + offset] === byte)) return index;
+            }
+            return -1;
+        };
+
+        function readWebmSize(bytes, index) {
+            let length = 1;
+            while (length <= 8 && !(bytes[index] & (0x80 >> (length - 1)))) length += 1;
+            if (length > 8) throw new Error("WebM要素のサイズを読み取れませんでした");
+            let value = bytes[index] & (0xff >> length);
+            for (let offset = 1; offset < length; offset += 1) value = value * 256 + bytes[index + offset];
+            return { length, value };
+        }
+
+        function writeWebmSize(value, length) {
+            const bytes = new Uint8Array(length);
+            for (let offset = length - 1; offset >= 0; offset -= 1) {
+                bytes[offset] = value & 0xff;
+                value = Math.floor(value / 256);
+            }
+            if (value || bytes[0] >= 0x80 >> (length - 1)) throw new Error("WebM要素のサイズを更新できませんでした");
+            bytes[0] |= 0x80 >> (length - 1);
+            return bytes;
+        }
+
+        async function setWebmDuration(blob, durationMs) {
+            const header = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
+            const infoAt = findBytes(header, [0x15, 0x49, 0xa9, 0x66]);
+            if (infoAt < 0) throw new Error("WebMのInfo要素が見つかりませんでした");
+            const sizeAt = infoAt + 4;
+            const size = readWebmSize(header, sizeAt);
+            const dataAt = sizeAt + size.length;
+            const dataEnd = dataAt + size.value;
+            if (dataEnd > header.length) throw new Error("WebMのInfo要素が大きすぎます");
+            const duration = new Uint8Array(11);
+            duration.set([0x44, 0x89, 0x88]);
+            new DataView(duration.buffer).setFloat64(3, durationMs, false);
+            const existingDurationAt = findBytes(header, [0x44, 0x89, 0x88], dataAt, dataEnd);
+            if (existingDurationAt >= 0) return new Blob([
+                blob.slice(0, existingDurationAt + 3),
+                duration.slice(3),
+                blob.slice(existingDurationAt + duration.length)
+            ], { type: blob.type });
+            return new Blob([
+                header.slice(0, sizeAt),
+                writeWebmSize(size.value + duration.length, size.length),
+                header.slice(dataAt, dataEnd),
+                duration,
+                blob.slice(dataEnd)
+            ], { type: blob.type });
+        }
+
+        console.assert(
+            readWebmSize(Uint8Array.of(0x99), 0).value === 25
+            && writeWebmSize(36, 1)[0] === 0xa4,
+            "WebMの再生時間領域を更新できません"
+        );
+
+        function startPartRecording() {
             const sourceTrack = video.srcObject?.getVideoTracks()[0];
-            if (!sourceTrack || typeof MediaRecorder === "undefined") return;
+            if (recording || !sourceTrack || typeof MediaRecorder === "undefined") return;
             const canvas = document.createElement("canvas");
             const context = canvas.getContext("2d", { alpha: false });
             drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
-            const track = canvas.captureStream(0).getVideoTracks()[0];
+            const track = canvas.captureStream(recordingFrameRate).getVideoTracks()[0];
             const mimeType = RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
             let recorder;
             try {
@@ -1161,7 +1216,9 @@
                 chunks: [],
                 frameCallback: 0,
                 startedAt: performance.now(),
-                createdAt: new Date()
+                createdAt: new Date(),
+                part: situationIndex + 1,
+                clearEvents: []
             };
             recorder.ondataavailable = ({ data }) => {
                 if (data?.size) session.chunks.push(data);
@@ -1170,18 +1227,18 @@
             const copyFrame = () => {
                 if (recording !== session) return;
                 drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
-                track.requestFrame();
-                session.frameCallback = video.requestVideoFrameCallback(copyFrame);
+                session.frameCallback = requestAnimationFrame(copyFrame);
             };
             recorder.start(1000);
-            session.frameCallback = video.requestVideoFrameCallback(copyFrame);
+            session.frameCallback = requestAnimationFrame(copyFrame);
         }
 
-        function stopExperienceRecording() {
+        function stopPartRecording() {
             const session = recording;
             recording = null;
             if (!session) return Promise.resolve(null);
-            if (session.frameCallback) video.cancelVideoFrameCallback(session.frameCallback);
+            session.endedAt = performance.now();
+            if (session.frameCallback) cancelAnimationFrame(session.frameCallback);
             return new Promise((resolve, reject) => {
                 session.recorder.onstop = () => {
                     session.track.stop();
@@ -1199,20 +1256,22 @@
             });
         }
 
-        async function saveExperienceRecording() {
-            const session = await stopExperienceRecording();
+        async function savePartRecording() {
+            const session = await stopPartRecording();
             if (!session) return;
             const two = (value) => String(value).padStart(2, "0");
             const { createdAt } = session;
-            const name = `called_${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}`;
+            const name = `p${session.part}_${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}`;
+            const video = await setWebmDuration(session.blob, session.endedAt - session.startedAt);
             const metadata = new Blob([JSON.stringify({
                 version: 1,
                 video: `${name}.webm`,
-                timeUnit: "seconds-from-video-start",
-                clearEvents
+                part: session.part,
+                timeUnit: "seconds-from-part-start",
+                clearEvents: session.clearEvents
             }, null, 2)], { type: "application/json" });
             const zip = await createZip([
-                { name: `${name}.webm`, blob: session.blob, createdAt },
+                { name: `${name}.webm`, blob: video, createdAt },
                 { name: `${name}.json`, blob: metadata, createdAt }
             ]);
             downloadBlob(zip, `${name}.zip`);
@@ -1402,7 +1461,6 @@
                 await detectCameraModes(track);
                 updateEmotionCanvas();
                 measureStatus();
-                if (recordingEnabled && !recording) startExperienceRecording();
             } catch (error) {
                 cameraMode.innerHTML = "<option>画質を検出できません</option>";
                 cameraMode.disabled = true;
@@ -1453,14 +1511,19 @@
             stopSituationRotation();
             stopScoreAnimation();
             scoreBar.classList.add("is-frozen");
-            if (detected && recording) clearEvents.push({
-                part: situationIndex + 1,
+            if (detected && recording) recording.clearEvents.push({
                 time: elapsedSeconds(performance.now(), recording.startedAt)
             });
+            const savePromise = recordingEnabled
+                ? savePartRecording().catch((error) => console.error("パートの録画を保存できませんでした。", error))
+                : Promise.resolve();
             replayAudio(detected ? clearAudio : failureAudio);
             showJudgmentMessage(detected);
             try {
-                await new Promise((resolve) => setTimeout(resolve, judgmentMessageDurationMs));
+                await Promise.all([
+                    savePromise,
+                    new Promise((resolve) => setTimeout(resolve, judgmentMessageDurationMs))
+                ]);
             } finally {
                 judgmentMessage.hidden = true;
                 captureInProgress = false;
@@ -1489,12 +1552,10 @@
         function startExperience(enableRecording) {
             if (!photographScene.hidden) return;
             recordingEnabled = enableRecording;
-            clearEvents = [];
             maximumScores = Array(situations.length).fill(0);
             if (consentDialog.open) consentDialog.close();
             introScene.hidden = true;
             photographScene.hidden = false;
-            if (recordingEnabled) startExperienceRecording();
             configurationReady.then(() => showSituation(0)).catch(() => { });
         }
 
@@ -1534,7 +1595,7 @@
             clearTimeout(resultTimer);
             stopTutorial();
             stopSituationRotation();
-            void stopExperienceRecording();
+            void stopPartRecording();
             stopScoreAnimation();
             if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
             video.srcObject?.getTracks().forEach((track) => track.stop());

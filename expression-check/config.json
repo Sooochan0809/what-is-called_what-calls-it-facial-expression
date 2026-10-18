@@ -50,7 +50,8 @@
   },
   "recording": {
     "rotationDegrees": 270,
-    "videoBitsPerSecond": 50000000
+    "frameRate": 30,
+    "videoBitsPerSecond": 12000000
   },
   "situations": [
     {
