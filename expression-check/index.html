@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表情と呼ばれるモノver2.0</title>
+    <script defer src="../modules/faceAPI/face-api.min.js"></script>
+    <style>
+        :root {
+            --font-sans: "ヒラギノ明朝 ProN W6", "HiraMinProN-W6", "HG明朝E", "ＭＳ Ｐ明朝", "MS PMincho", "MS 明朝", serif;
+            --color-page: #f7f8fa;
+            --color-white: #fff;
+            --color-shutter: #000;
+            --color-ink: #17202a;
+            --color-backdrop-base: #111821;
+            --color-status: #1b2026e0;
+            --color-control: #343a40;
+            --color-overlay-border: #d9dee5d1;
+            --color-muted: #68727e;
+            --color-note-border: #ead8bd;
+            --color-note-background: #fffaf3;
+            --color-note-text: #3f4650;
+            --color-note-accent: #b85f16;
+            --color-score-track: #e7ecf1;
+            --tutorial-card-gap: 24px;
+            --tutorial-emotion-panel-gap: 8px;
+            --tutorial-card-max-width: 580px;
+            --color-positive: #27c28a;
+            --color-warning: #ef8b39;
+            --color-negative: #dd4d5d;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            background: var(--color-page);
+            color: var(--color-ink);
+            font-family: var(--font-sans);
+        }
+
+        .introScene {
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        .introScene[hidden] {
+            display: none;
+        }
+
+        .introContent {
+            width: min(480px, 100%);
+            display: grid;
+            gap: 20px;
+            justify-items: start;
+            text-align: start;
+            transform: translateY(88px);
+        }
+
+        .introTitle {
+            margin: 0;
+            font-size: clamp(1.5rem, 3vw, 2rem);
+            line-height: 1.15;
+        }
+
+        .introText {
+            margin: 0;
+            color: var(--color-muted);
+            font-size: clamp(0.95rem, 2vw, 1.08rem);
+            line-height: 1.9;
+            text-align: left;
+        }
+
+        .finalContent {
+            width: min(720px, 100%);
+        }
+
+        .finalScores {
+            width: 100%;
+            display: grid;
+            gap: 14px;
+        }
+
+        .finalScoreHeader,
+        .finalScoreRow {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 24px;
+        }
+
+        .finalScoreHeader {
+            border-bottom: 2px solid var(--color-ink);
+            padding: 0 0 10px;
+            color: var(--color-muted);
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .finalScoreHeader span:last-child,
+        .finalScoreValue {
+            text-align: right;
+        }
+
+        .finalScoreRow {
+            align-items: center;
+            border-bottom: 1px solid var(--color-overlay-border);
+            padding: 4px 0 14px;
+            opacity: 0;
+            transform: translateY(8px);
+            animation: revealFinalScore 620ms ease forwards;
+            animation-delay: calc(400ms + var(--score-index) * 240ms);
+        }
+
+        .finalScoreRow:last-child {
+            border-bottom: 0;
+        }
+
+        .finalScoreLabel,
+        .finalScoreValue {
+            font-size: clamp(1rem, 2vw, 1.4rem);
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .finalScoreValue {
+            font-variant-numeric: tabular-nums;
+        }
+
+        @keyframes revealFinalScore {
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .finalScoreRow {
+                opacity: 1;
+                transform: none;
+                animation: none;
+            }
+        }
+
+        .startButton {
+            justify-self: end;
+            min-height: 44px;
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 6px;
+            background: var(--color-ink);
+            padding: 0 18px;
+            color: var(--color-white);
+            font: inherit;
+            font-size: 0.98rem;
+            cursor: pointer;
+        }
+
+        .consentDialog {
+            width: min(640px, calc(100% - 40px));
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 16px;
+            background: var(--color-white);
+            padding: 0;
+            color: var(--color-ink);
+            box-shadow: 0 24px 72px color-mix(in srgb, var(--color-ink) 24%, transparent);
+            transform: translateY(88px);
+        }
+
+        .consentDialog::backdrop {
+            background: color-mix(in srgb, var(--color-backdrop-base) 48%, transparent);
+            backdrop-filter: blur(3px);
+        }
+
+        .consentContent {
+            display: grid;
+            gap: 24px;
+            padding: 32px 36px;
+            text-align: center;
+        }
+
+        .consentText {
+            margin: 0;
+            font-size: 1.15rem;
+            font-weight: 600;
+            line-height: 1.7;
+        }
+
+        .consentQuestion {
+            display: block;
+            font-size: 1.4rem;
+            line-height: 1.5;
+            white-space: nowrap;
+        }
+
+        .consentNotes {
+            display: grid;
+            gap: 8px;
+            margin-top: 24px;
+            border: 1px solid var(--color-note-border);
+            border-radius: 10px;
+            background: var(--color-note-background);
+            padding: 14px 16px;
+            text-align: left;
+        }
+
+        .consentNote {
+            display: grid;
+            grid-template-columns: 1.2em minmax(0, 1fr);
+            column-gap: 8px;
+            align-items: start;
+            color: var(--color-note-text);
+            font-size: 0.7em;
+            font-weight: 400;
+            line-height: 1.6;
+        }
+
+        .consentNote::before {
+            content: "※";
+            color: var(--color-note-accent);
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .consentActions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .consentButton {
+            min-height: 54px;
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 8px;
+            background: var(--color-white);
+            color: var(--color-ink);
+            font: inherit;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        .consentButton--accept {
+            border-color: var(--color-ink);
+            background: var(--color-ink);
+            color: var(--color-white);
+        }
+
+        main {
+            position: relative;
+            width: min(100vw, 75vh);
+            min-height: 100dvh;
+            aspect-ratio: 3 / 4;
+            overflow: hidden;
+        }
+
+        #video {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 100dvh;
+            height: min(100vw, 75vh);
+            object-fit: cover;
+            transform: translate(-50%, -50%) scaleX(-1) rotate(270deg);
+        }
+
+        #capturePreview {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .captureProgress {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 5;
+            height: 8px;
+            background: color-mix(in srgb, var(--color-ink) 12.2%, transparent);
+        }
+
+        .captureProgress[hidden] {
+            display: none;
+        }
+
+        .captureProgressFill {
+            display: block;
+            width: 0;
+            height: 100%;
+            background: var(--color-positive);
+        }
+
+        .frameGuide {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: min(88%, 900px);
+            height: min(90%, 1200px);
+            border: 2px solid var(--color-positive);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.88;
+            pointer-events: none;
+        }
+
+        .frameGuide.is-face-too-small {
+            border-color: var(--color-warning);
+            box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-warning) 14.1%, transparent);
+        }
+
+        .blink {
+            position: absolute;
+            inset: 0;
+            z-index: 4;
+            background:
+                linear-gradient(var(--color-shutter) 0 0) top / 100% 0 no-repeat,
+                linear-gradient(var(--color-shutter) 0 0) bottom / 100% 0 no-repeat;
+            pointer-events: none;
+        }
+
+        output {
+            box-sizing: border-box;
+            min-width: 0;
+            max-width: 100%;
+            padding: 16px 20px;
+            border-radius: 12px;
+            background: var(--color-status);
+            color: var(--color-page);
+            font-size: clamp(14px, 2vw, 20px);
+            white-space: nowrap;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            align-items: baseline;
+            gap: 8px;
+        }
+
+        output[hidden] {
+            display: none;
+        }
+
+        #cameraMode {
+            padding: 8px;
+            border: 0;
+            border-radius: 8px;
+            background: var(--color-control);
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .emotionPanel {
+            position: absolute;
+            z-index: 4;
+            top: 24px;
+            left: 8px;
+            right: 8px;
+            display: grid;
+            gap: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            background: color-mix(in srgb, var(--color-white) 40%, transparent);
+            color: var(--color-ink);
+            opacity: 0.88;
+            pointer-events: none;
+        }
+
+        #scoreText {
+            display: block;
+            min-width: 0;
+            overflow: hidden;
+            font-size: 1.6rem;
+            font-weight: 400;
+            line-height: 1.4;
+            text-align: center;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .scoreBar {
+            display: grid;
+            grid-template-columns: repeat(var(--segment-count, 10), minmax(0, 1fr));
+            gap: 3px;
+        }
+
+        .scoreSegment {
+            height: 9px;
+            border-radius: 999px;
+            background: var(--color-score-track);
+            transition: background-color 120ms linear;
+        }
+
+        .scoreSegment.is-filled {
+            background: var(--accent);
+        }
+
+        .scoreBar.is-frozen .scoreSegment {
+            transition: none;
+        }
+
+        .situationTimer {
+            position: absolute;
+            top: 104px;
+            right: 12px;
+            z-index: 4;
+            min-width: 2.8em;
+            padding: 8px 14px;
+            border: 1px solid var(--color-score-track);
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--color-white) 90.2%, transparent);
+            color: var(--color-ink);
+            font-size: 1.1rem;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            line-height: 1;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .situationTimer.is-ending {
+            border-color: var(--color-negative);
+            color: var(--color-negative);
+        }
+
+        .situationCountdown {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            display: grid;
+            place-items: center;
+            color: var(--color-white);
+            font-size: clamp(7rem, 24vw, 14rem);
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            line-height: 1;
+            pointer-events: none;
+            text-shadow: 0 6px 24px var(--color-status);
+        }
+
+        .situationCountdown[hidden] {
+            display: none;
+        }
+
+        #photographScene.is-tutorial .situationCountdown {
+            z-index: 8;
+        }
+
+        .partIntro {
+            position: absolute;
+            inset: 0;
+            z-index: 6;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: color-mix(in srgb, var(--color-page) 58%, transparent);
+            backdrop-filter: blur(10px);
+        }
+
+        .partIntro[hidden] {
+            display: none;
+        }
+
+        .tutorialOverlay {
+            position: absolute;
+            inset: 0;
+            z-index: 7;
+            background: color-mix(in srgb, var(--color-backdrop-base) 22%, transparent);
+            pointer-events: none;
+        }
+
+        .tutorialOverlay[hidden] {
+            display: none;
+        }
+
+        .tutorialCard {
+            box-sizing: border-box;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: max-content;
+            max-width: min(var(--tutorial-card-max-width), calc(100% - 48px));
+            border-left: 6px solid var(--color-positive);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--color-white) 82%, transparent);
+            padding: 24px 28px;
+            box-shadow: 0 12px 36px color-mix(in srgb, var(--color-ink) 24%, transparent);
+            color: var(--color-ink);
+            font-size: clamp(1rem, 2.5vw, 1.35rem);
+            line-height: 1.8;
+        }
+
+        .tutorialCard p {
+            margin: 0;
+        }
+
+        .tutorialFocus,
+        .tutorialLayer {
+            z-index: 8;
+            opacity: 1;
+        }
+
+        .tutorialFocus {
+            box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-positive) 14.1%, transparent);
+        }
+
+        .frameGuide.tutorialFocus {
+            z-index: 6;
+        }
+
+        .tutorialFocus,
+        .tutorialFocusItem {
+            outline: 4px solid var(--color-positive);
+            outline-offset: 6px;
+        }
+
+        .partIntroCard {
+            box-sizing: border-box;
+            width: min(700px, 100%);
+            display: grid;
+            gap: 10px;
+            padding: 32px 40px;
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 6px;
+            background: color-mix(in srgb, var(--color-white) 82%, transparent);
+            text-align: center;
+        }
+
+        #partIntroLabel {
+            margin: 0;
+            color: var(--color-muted);
+            font-size: clamp(0.72rem, 1.5vw, 0.88rem);
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            line-height: 1.6;
+        }
+
+        #partIntroText {
+            margin: 0;
+            color: var(--color-ink);
+            font-size: clamp(1.6rem, 4vw, 3rem);
+            line-height: 1.2;
+        }
+
+        .controlsFooter {
+            position: absolute;
+            inset: auto 16px 16px;
+            z-index: 2;
+            display: flex;
+        }
+
+        #statusText {
+            overflow: hidden;
+            padding-left: 12px;
+            text-overflow: ellipsis;
+        }
+
+        @media (max-width: 600px) {
+            .consentQuestion {
+                font-size: clamp(0.7rem, 3.6vw, 1.4rem);
+            }
+        }
+
+        @media (max-width: 400px) {
+            .consentContent {
+                padding: 24px 12px;
+            }
+
+            .consentNotes {
+                padding-inline: 12px;
+            }
+        }
+
+        @media (max-width: 1120px) {
+            .emotionPanel {
+                top: 224px;
+                left: 16px;
+                right: 16px;
+                gap: 12px;
+                padding: 14px 16px;
+            }
+
+            #scoreText {
+                font-size: 2.25rem;
+            }
+
+            .scoreSegment {
+                height: 14px;
+            }
+
+            .situationTimer {
+                top: 334px;
+                right: 24px;
+                padding: 12px 20px;
+                font-size: 1.75rem;
+            }
+
+        }
+
+        @media (min-width: 768px) and (min-height: 1200px) and (orientation: portrait) {
+            .introScene {
+                padding: 48px;
+            }
+
+            .introContent {
+                width: min(820px, 100%);
+            }
+
+            .introTitle {
+                font-size: clamp(2.4rem, 4.2vw, 3rem);
+            }
+
+            .introText {
+                font-size: clamp(1.25rem, 2.25vw, 1.5rem);
+                line-height: 1.85;
+            }
+
+            .startButton {
+                min-height: 64px;
+                padding: 0 32px;
+                font-size: 1.25rem;
+            }
+
+            .consentDialog {
+                width: min(720px, calc(100% - 96px));
+            }
+
+            .consentContent {
+                gap: 36px;
+                padding: 44px;
+            }
+
+            .consentText {
+                font-size: 1.5rem;
+            }
+
+            .consentQuestion {
+                font-size: 1.7rem;
+            }
+
+            .consentButton {
+                min-height: 64px;
+                font-size: 1.25rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <section id="introScene" class="introScene">
+        <div class="introContent">
+            <h1 id="introTitle" class="introTitle"></h1>
+            <p id="introText" class="introText"></p>
+            <button id="startButton" class="startButton" type="button" disabled>はじめる</button>
+        </div>
+    </section>
+
+    <dialog id="consentDialog" class="consentDialog" aria-labelledby="consentText">
+        <div class="consentContent">
+            <p id="consentText" class="consentText">
+                <span id="consentQuestion" class="consentQuestion"></span>
+                <span id="consentNotes" class="consentNotes"></span>
+            </p>
+            <div class="consentActions">
+                <button id="consentAcceptButton" class="consentButton consentButton--accept" type="button">はい</button>
+                <button id="consentDeclineButton" class="consentButton" type="button">いいえ</button>
+            </div>
+        </div>
+    </dialog>
+
+    <main id="photographScene" hidden>
+        <video id="video" autoplay muted playsinline></video>
+        <img id="capturePreview" alt="撮影画像" hidden>
+        <div id="captureProgress" class="captureProgress" aria-hidden="true" hidden>
+            <span id="captureProgressFill" class="captureProgressFill"></span>
+        </div>
+        <div class="frameGuide" aria-hidden="true"></div>
+        <div id="blink" class="blink" aria-hidden="true" hidden></div>
+        <section id="partIntro" class="partIntro" aria-live="polite" hidden>
+            <div class="partIntroCard">
+                <p id="partIntroLabel">パート1</p>
+                <h2 id="partIntroText">状況文</h2>
+            </div>
+        </section>
+        <section id="tutorialOverlay" class="tutorialOverlay" aria-live="polite" hidden>
+            <div class="tutorialCard">
+                <p id="tutorialText"></p>
+            </div>
+        </section>
+        <header class="emotionPanel" aria-label="感情推定">
+            <strong id="scoreText">読込中</strong>
+            <div id="scoreBar" class="scoreBar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                aria-valuenow="0"></div>
+        </header>
+        <div id="situationTimer" class="situationTimer" aria-label="残り時間">0:30</div>
+        <div id="situationCountdown" class="situationCountdown" aria-live="assertive" hidden></div>
+        <footer class="controlsFooter">
+            <output id="status" aria-live="polite" hidden>
+                <label for="cameraMode">設定:</label>
+                <select id="cameraMode" aria-label="Webcam画質" disabled>
+                    <option>画質検出中...</option>
+                </select>
+                <span id="statusLabel">状態:</span>
+                <span id="statusText">カメラ起動中...</span>
+            </output>
+        </footer>
+    </main>
+
+    <section id="finalScene" class="introScene" hidden>
+        <div class="introContent finalContent">
+            <div id="finalScores" class="finalScores" aria-label="シーンごとの最高スコア"></div>
+        </div>
+    </section>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const introScene = $("introScene");
+        const photographScene = $("photographScene");
+        const finalScene = $("finalScene");
+        const finalScores = $("finalScores");
+        const startButton = $("startButton");
+        const consentDialog = $("consentDialog");
+        const video = $("video");
+        const capturePreview = $("capturePreview");
+        const captureProgress = $("captureProgress");
+        const captureProgressFill = $("captureProgressFill");
+        const status = $("status");
+        const statusLabel = $("statusLabel");
+        const statusText = $("statusText");
+        const cameraMode = $("cameraMode");
+        const scoreText = $("scoreText");
+        const scoreBar = $("scoreBar");
+        const emotionPanel = document.querySelector(".emotionPanel");
+        const frameGuide = document.querySelector(".frameGuide");
+        const situationTimer = $("situationTimer");
+        const situationCountdown = $("situationCountdown");
+        const tutorialOverlay = $("tutorialOverlay");
+        const tutorialCard = tutorialOverlay.firstElementChild;
+        const tutorialText = $("tutorialText");
+        const partIntro = $("partIntro");
+        const partIntroLabel = $("partIntroLabel");
+        const partIntroText = $("partIntroText");
+        const blink = $("blink");
+        const guideAudio = new Audio("./sound/guide.mp3");
+        const shutterAudio = new Audio("./sound/shutter.mp3");
+        const tutorialChimeAudio = new Audio("./sound/announce.wav");
+        guideAudio.preload = "auto";
+        tutorialChimeAudio.preload = "auto";
+        const emotionCanvas = document.createElement("canvas");
+        const emotionContext = emotionCanvas.getContext("2d");
+        const MODEL_URL = "../modules/faceAPI/models";
+        const COPY_FIELDS = ["introTitle", "introText", "consentQuestion"];
+        const RECORDING_MIME_TYPES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
+        const WEBM_CLUSTER_LOOKBACK_MS = 2000;
+        const WEBM_KEYFRAME_INTERVAL_MS = 1000;
+        const cameraModes = [
+            [3840, 2160, 60], [3840, 2160, 30],
+            [2560, 1440, 60], [2560, 1440, 30],
+            [1920, 1080, 60], [1920, 1080, 30],
+            [1280, 720, 90], [1280, 720, 60], [1280, 720, 30]
+        ];
+        let statusFrameCallback = 0;
+        let situations = [];
+        let situationIndex = 0;
+        let rotationIntervalMs = 30000;
+        let resultDurationMs = 8000;
+        let resultTimer = 0;
+        let rotationTimer = 0;
+        let rotationClockTimer = 0;
+        let rotationStartedAt = 0;
+        let situationJudgmentPending = false;
+        let faceGuideMinWidthRatio = 0.85;
+        let partIntroTimer = 0;
+        let partIntroDurationMs = 3000;
+        let tutorialSteps = [];
+        let tutorialStepIndex = 0;
+        let tutorialTimer = 0;
+        let tutorialEffectTimer = 0;
+        let tutorialShown = false;
+        let shutterSoundEnabled = false;
+        let latestExpressions = {};
+        let maximumScores = [];
+        let scoreSegments = [];
+        let displayedSegmentCount = 0;
+        let targetSegmentCount = 0;
+        let scoreStepIntervalMs = 80;
+        let scoreStepTimer = 0;
+        let shutterScoreThreshold = 80;
+        let shutterTransitionDurationMs = 270;
+        let shutterHoldDurationMs = 60;
+        let shutterPreviewDurationMs = 2000;
+        let shutterEasing = "ease-in-out";
+        let recordingBeforeMs = 2000;
+        let recordingAfterMs = 3000;
+        let recordingRotationDegrees = 270;
+        let recordingVideoBitsPerSecond = 50_000_000;
+        let recording = null;
+        let captureInProgress = false;
+        let recordingEnabled = false;
+        let configurationReady;
+
+        const tutorialFilledSegments = (frame, peak) => peak - Math.abs(peak - frame);
+        const finalCountdownValue = (seconds) => seconds > 0 && seconds <= 3 ? seconds : "";
+        console.assert(
+            [0, 5, 10, 5, 0].every((value, index) => value === tutorialFilledSegments(index * 5, 10)),
+            "チュートリアルのスコア推移が不正です"
+        );
+        console.assert(finalCountdownValue(4) === "" && finalCountdownValue(3) === 3 && finalCountdownValue(0) === "", "撮影カウントダウンが不正です");
+
+        function replayAudio(audio) {
+            audio.currentTime = 0;
+            audio.play().catch(() => { });
+        }
+
+        function textElement(tag, className, text) {
+            const element = document.createElement(tag);
+            element.className = className;
+            element.textContent = text;
+            return element;
+        }
+
+        function positionTutorialCard(target) {
+            const containerRect = photographScene.getBoundingClientRect();
+            if (target === "frameGuide") {
+                tutorialCard.style.top = `${(containerRect.height - tutorialCard.offsetHeight) / 2}px`;
+                tutorialCard.style.left = `${(containerRect.width - tutorialCard.offsetWidth) / 2}px`;
+                return;
+            }
+            const placeAbove = target === "scoreText" || target === "scoreBar";
+            const anchor = placeAbove ? emotionPanel : situationTimer;
+            const anchorRect = anchor.getBoundingClientRect();
+            const gapProperty = placeAbove ? "--tutorial-emotion-panel-gap" : "--tutorial-card-gap";
+            const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(gapProperty));
+            const left = anchorRect.left - containerRect.left + (anchorRect.width - tutorialCard.offsetWidth) / 2;
+            tutorialCard.style.top = `${placeAbove
+                ? anchorRect.top - containerRect.top - tutorialCard.offsetHeight - gap
+                : anchorRect.bottom - containerRect.top + gap}px`;
+            tutorialCard.style.left = `${Math.min(Math.max(24, left), containerRect.width - tutorialCard.offsetWidth - 24)}px`;
+        }
+
+        function stopSituationRotation() {
+            clearTimeout(rotationTimer);
+            clearInterval(rotationClockTimer);
+            rotationTimer = 0;
+            rotationClockTimer = 0;
+            situationCountdown.hidden = true;
+        }
+
+        function faceIsLargeEnough(box) {
+            if (!box) return false;
+            const sceneRect = photographScene.getBoundingClientRect();
+            const guideRect = frameGuide.getBoundingClientRect();
+            if (!sceneRect.width || !guideRect.width) return false;
+            const scaleX = emotionCanvas.width / sceneRect.width;
+            return box.width / (guideRect.width * scaleX) >= faceGuideMinWidthRatio;
+        }
+
+        function updateFacePosition(box) {
+            if (!tutorialOverlay.hidden && tutorialOverlay.dataset.target === "frameGuide") {
+                if (tutorialTimer) return;
+                const ready = faceIsLargeEnough(box);
+                frameGuide.classList.toggle("is-face-too-small", !ready);
+                if (ready) {
+                    tutorialTimer = setTimeout(
+                        () => showTutorialStep(tutorialStepIndex + 1),
+                        tutorialSteps[tutorialStepIndex].durationMs
+                    );
+                }
+            }
+        }
+
+        function stopScoreAnimation() {
+            clearTimeout(scoreStepTimer);
+            scoreStepTimer = 0;
+        }
+
+        function paintScore(filled) {
+            scoreSegments.forEach((segment, index) => segment.classList.toggle("is-filled", index < filled));
+            const score = Math.round(filled / scoreSegments.length * 100);
+            scoreBar.setAttribute("aria-valuenow", score);
+            return score;
+        }
+
+        function stepScore() {
+            scoreStepTimer = 0;
+            if (!tutorialOverlay.hidden || !partIntro.hidden) return;
+            if (displayedSegmentCount === targetSegmentCount) return;
+            displayedSegmentCount += Math.sign(targetSegmentCount - displayedSegmentCount);
+            const displayedScore = paintScore(displayedSegmentCount);
+            if (displayedScore >= shutterScoreThreshold) playShutter();
+            if (!captureInProgress && displayedSegmentCount !== targetSegmentCount)
+                scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
+        }
+
+        function renderScore() {
+            if (photographScene.hidden || captureInProgress || situationJudgmentPending || !tutorialOverlay.hidden || !partIntro.hidden) return;
+            const emotions = situations[situationIndex]?.emotions || [];
+            const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
+            const rounded = Math.round(score * 100);
+            maximumScores[situationIndex] = Math.max(maximumScores[situationIndex] || 0, rounded);
+            targetSegmentCount = Math.ceil(score * scoreSegments.length);
+            const accent = rounded >= 72 ? "var(--color-positive)" : rounded >= 44 ? "var(--color-warning)" : "var(--color-negative)";
+            scoreBar.style.setProperty("--accent", accent);
+            if (!scoreStepTimer && displayedSegmentCount !== targetSegmentCount)
+                scoreStepTimer = setTimeout(stepScore, scoreStepIntervalMs);
+        }
+
+        function startSituationJudgment() {
+            situationJudgmentPending = false;
+            renderScore();
+            startSituationRotation();
+        }
+
+        function showSituation(index) {
+            clearTimeout(partIntroTimer);
+            stopSituationRotation();
+            stopScoreAnimation();
+            situationJudgmentPending = true;
+            situationIndex = (index + situations.length) % situations.length;
+            const tutorialIntro = situationIndex === 0 && !tutorialShown;
+            const situation = situations[situationIndex];
+            scoreText.textContent = tutorialIntro ? "　　　" : situation.text;
+            partIntroLabel.hidden = tutorialIntro;
+            partIntroLabel.textContent = `part${situationIndex + 1}`;
+            partIntroText.textContent = tutorialIntro ? "チュートリアル" : situations[situationIndex].text;
+            partIntro.hidden = false;
+            guideAudio.pause();
+            replayAudio(guideAudio);
+            rotationStartedAt = performance.now();
+            updateSituationTimer();
+            partIntroTimer = setTimeout(() => {
+                guideAudio.pause();
+                partIntro.hidden = true;
+                if (tutorialIntro) showTutorial();
+                else partIntroTimer = setTimeout(startSituationJudgment, situations[situationIndex].judgmentDelayMs);
+            }, partIntroDurationMs);
+        }
+
+        function stopTutorial() {
+            clearTimeout(tutorialTimer);
+            clearTimeout(tutorialEffectTimer);
+            photographScene.classList.remove("is-tutorial");
+            tutorialOverlay.hidden = true;
+            situationCountdown.hidden = true;
+            emotionPanel.classList.remove("tutorialLayer");
+            scoreText.classList.remove("tutorialFocusItem");
+            scoreBar.classList.remove("tutorialFocusItem");
+            frameGuide.classList.remove("tutorialFocus");
+            situationTimer.classList.remove("tutorialFocus");
+        }
+
+        async function playTutorialShutter() {
+            if (shutterSoundEnabled) replayAudio(shutterAudio);
+            blink.hidden = false;
+            await blink.animate([
+                { backgroundSize: "100% 0, 100% 0" },
+                { backgroundSize: "100% 50%, 100% 50%" },
+                { backgroundSize: "100% 50%, 100% 50%", offset: 0.65 },
+                { backgroundSize: "100% 0, 100% 0" }
+            ], { duration: shutterTransitionDurationMs * 2 + shutterHoldDurationMs, easing: shutterEasing }).finished;
+            blink.hidden = true;
+        }
+
+        function animateTutorialScore(durationMs) {
+            let frame = 0;
+            const peak = scoreSegments.length;
+            const intervalMs = Math.max(40, durationMs / (peak * 2 + 1));
+            scoreBar.style.setProperty("--accent", "var(--color-positive)");
+            const tick = () => {
+                if (tutorialOverlay.hidden) return;
+                const filled = tutorialFilledSegments(frame, peak);
+                paintScore(filled);
+                if (frame === peak) playTutorialShutter().catch(console.error);
+                if (frame++ < peak * 2) tutorialEffectTimer = setTimeout(tick, intervalMs);
+            };
+            tick();
+        }
+
+        function playTutorialCountdown(durationMs) {
+            let count = 3;
+            const intervalMs = Math.min(1000, Math.max(400, durationMs / 5));
+            situationCountdown.textContent = count;
+            situationCountdown.hidden = false;
+            const tick = () => {
+                if (tutorialOverlay.hidden) return;
+                count -= 1;
+                if (count) {
+                    situationCountdown.textContent = count;
+                    tutorialEffectTimer = setTimeout(tick, intervalMs);
+                } else {
+                    situationCountdown.hidden = true;
+                    playTutorialShutter().catch(console.error);
+                }
+            };
+            tutorialEffectTimer = setTimeout(tick, intervalMs);
+        }
+
+        function showTutorialStep(index = 0) {
+            clearTimeout(tutorialTimer);
+            clearTimeout(tutorialEffectTimer);
+            tutorialTimer = 0;
+            tutorialEffectTimer = 0;
+            situationCountdown.hidden = true;
+            if (tutorialOverlay.dataset.target === "scoreBar") paintScore(0);
+            tutorialStepIndex = index;
+            if (index >= tutorialSteps.length) {
+                stopTutorial();
+                paintScore(0);
+                startSituationJudgment();
+                return;
+            }
+            const step = tutorialSteps[index];
+            scoreText.textContent = step.target === "scoreText" ? situations[situationIndex].text : "　　　";
+            tutorialOverlay.dataset.target = step.target;
+            const focusPanel = step.target === "scoreText" || step.target === "scoreBar";
+            emotionPanel.classList.toggle("tutorialLayer", focusPanel);
+            scoreText.classList.toggle("tutorialFocusItem", step.target === "scoreText");
+            scoreBar.classList.toggle("tutorialFocusItem", step.target === "scoreBar");
+            frameGuide.classList.toggle("tutorialFocus", step.target === "frameGuide");
+            situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
+            tutorialText.textContent = step.text.replace("{seconds}", Math.ceil(rotationIntervalMs / 1000));
+            positionTutorialCard(step.target);
+            if (step.target !== "frameGuide") replayAudio(tutorialChimeAudio);
+            if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
+            if (step.target === "timeoutShutter") playTutorialCountdown(step.durationMs);
+            if (step.target !== "frameGuide") tutorialTimer = setTimeout(() => showTutorialStep(index + 1), step.durationMs);
+        }
+
+        function showTutorial() {
+            tutorialShown = true;
+            photographScene.classList.add("is-tutorial");
+            stopScoreAnimation();
+            tutorialOverlay.hidden = false;
+            showTutorialStep();
+        }
+
+        function updateSituationTimer() {
+            const remainingSeconds = Math.ceil(Math.max(0, rotationIntervalMs - (performance.now() - rotationStartedAt)) / 1000);
+            situationTimer.textContent = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`;
+            situationTimer.classList.toggle("is-ending", remainingSeconds <= 10);
+            const countdown = !captureInProgress && partIntro.hidden && tutorialOverlay.hidden && finalCountdownValue(remainingSeconds);
+            situationCountdown.hidden = !countdown;
+            if (countdown) situationCountdown.textContent = countdown;
+        }
+
+        function startSituationRotation(durationMs = rotationIntervalMs) {
+            stopSituationRotation();
+            rotationStartedAt = performance.now() - (rotationIntervalMs - durationMs);
+            updateSituationTimer();
+            rotationClockTimer = setInterval(updateSituationTimer, 250);
+            rotationTimer = setTimeout(playShutter, durationMs);
+        }
+
+        function advanceAfterShutter() {
+            stopScoreAnimation();
+            displayedSegmentCount = 0;
+            latestExpressions = {};
+            paintScore(0);
+            scoreBar.classList.remove("is-frozen");
+            if (situationIndex === situations.length - 1) showResults();
+            else showSituation(situationIndex + 1);
+        }
+
+        function showResults() {
+            clearTimeout(partIntroTimer);
+            stopSituationRotation();
+            stopScoreAnimation();
+            stopRecordingBuffer();
+            partIntro.hidden = true;
+            photographScene.hidden = true;
+            finalScene.hidden = false;
+            const header = document.createElement("div");
+            header.className = "finalScoreHeader";
+            header.innerHTML = "<span>状況</span><span>適切度</span>";
+            finalScores.replaceChildren(header, ...situations.map(({ text }, index) => {
+                const row = document.createElement("div");
+                row.className = "finalScoreRow";
+                row.style.setProperty("--score-index", index);
+                row.append(
+                    textElement("span", "finalScoreLabel", text),
+                    textElement("span", "finalScoreValue", `${maximumScores[index] || 0}%`)
+                );
+                return row;
+            }));
+            clearTimeout(resultTimer);
+            resultTimer = setTimeout(() => window.location.reload(), resultDurationMs);
+        }
+
+        async function loadConfig() {
+            const response = await fetch("config.json", { cache: "no-store" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const config = await response.json();
+            if (!Array.isArray(config.situations) || !config.situations.length || config.situations.some(
+                ({ text, emotions, judgmentDelayMs = 0 }) => typeof text !== "string" || !Array.isArray(emotions) || !emotions.length
+                    || !(Number(judgmentDelayMs) >= 0)
+            )) throw new Error("状況文の設定が不正です");
+            const copy = config.copy;
+            if (!copy || COPY_FIELDS.some((field) => typeof copy[field] !== "string")
+                || !Array.isArray(copy.consentNotes) || !copy.consentNotes.length
+                || copy.consentNotes.some((text) => typeof text !== "string")) throw new Error("表示文言の設定が不正です");
+
+            COPY_FIELDS.forEach((field) => $(field).textContent = copy[field]);
+            $("consentNotes").replaceChildren(...copy.consentNotes.map((text) => textElement("span", "consentNote", text)));
+
+            situations = config.situations.map((situation) => ({
+                ...situation,
+                judgmentDelayMs: Number(situation.judgmentDelayMs ?? 0)
+            }));
+            rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
+            partIntroDurationMs = Math.max(0, Number(config.partIntroDurationMs) || 3000);
+            resultDurationMs = Math.max(1000, Number(config.resultDurationMs) || 8000);
+            tutorialSteps = config.tutorial?.steps || [];
+            if (!tutorialSteps.length || tutorialSteps.some(({ target, text, durationMs }) =>
+                !["frameGuide", "scoreText", "scoreBar", "situationTimer", "timeoutShutter"].includes(target)
+                || typeof text !== "string" || !(Number(durationMs) > 0)
+            )) throw new Error("チュートリアル設定が不正です");
+            tutorialSteps = tutorialSteps.map((step) => ({ ...step, durationMs: Number(step.durationMs) }));
+            faceGuideMinWidthRatio = Number(config.faceGuideMinWidthRatio ?? 0.85);
+            if (!(faceGuideMinWidthRatio >= 0 && faceGuideMinWidthRatio <= 1)) throw new Error("顔サイズ判定の設定が不正です");
+            scoreStepIntervalMs = Math.max(1, Number(config.scoreStepIntervalMs) || 80);
+            const shutter = config.shutter || {};
+            shutterScoreThreshold = Math.min(100, Math.max(0, Number(shutter.scoreThreshold ?? 80)));
+            shutterTransitionDurationMs = Math.max(1, Number(shutter.transitionDurationMs ?? 270));
+            shutterHoldDurationMs = Math.max(0, Number(shutter.holdDurationMs ?? 60));
+            shutterPreviewDurationMs = Math.max(0, Number(shutter.previewDurationMs ?? 2000) || 0);
+            shutterEasing = shutter.easing || "ease-in-out";
+            const shutterVolume = Number(shutter.volume ?? 1);
+            if (!(shutterVolume >= 0 && shutterVolume <= 1)) throw new Error("シャッター音量の設定は0.0〜1.0にしてください");
+            shutterAudio.volume = shutterVolume;
+            const recordingConfig = config.recording || {};
+            recordingBeforeMs = Math.max(0, Number(recordingConfig.secondsBefore ?? 2) || 0) * 1000;
+            recordingAfterMs = Math.max(0, Number(recordingConfig.secondsAfter ?? 3) || 0) * 1000;
+            recordingRotationDegrees = Number(recordingConfig.rotationDegrees ?? 270);
+            if (![0, 90, 180, 270].includes(recordingRotationDegrees)) throw new Error("録画の回転角度は0、90、180、270のいずれかにしてください");
+            recordingVideoBitsPerSecond = Math.max(1, Number(recordingConfig.videoBitsPerSecond) || 50_000_000);
+            const segmentCount = Math.max(1, Math.round(Number(config.scoreSegmentCount) || 10));
+            scoreBar.style.setProperty("--segment-count", segmentCount);
+            scoreBar.innerHTML = '<span class="scoreSegment"></span>'.repeat(segmentCount);
+            scoreSegments = [...scoreBar.children];
+        }
+
+        const findWebmCluster = (bytes) => {
+            for (let index = 0; index <= bytes.length - 4; index += 1) {
+                if (bytes[index] === 0x1f && bytes[index + 1] === 0x43 && bytes[index + 2] === 0xb6 && bytes[index + 3] === 0x75) return index;
+            }
+            return -1;
+        };
+
+        const findWebmHeader = (bytes) => {
+            for (let index = 0; index <= bytes.length - 4; index += 1) {
+                if (bytes[index] === 0x1a && bytes[index + 1] === 0x45 && bytes[index + 2] === 0xdf && bytes[index + 3] === 0xa3) return index;
+            }
+            return -1;
+        };
+
+        const webmVintLength = (byte) => {
+            for (let length = 1, mask = 0x80; length <= 8; length += 1, mask >>= 1) {
+                if (byte & mask) return length;
+            }
+            return 0;
+        };
+
+        function normalizeWebmTimecodes(bytes) {
+            let firstTimecode;
+            for (let cluster = findWebmCluster(bytes); cluster >= 0;) {
+                const nextOffset = findWebmCluster(bytes.subarray(cluster + 4));
+                const nextCluster = nextOffset < 0 ? bytes.length : cluster + 4 + nextOffset;
+                const sizeLength = webmVintLength(bytes[cluster + 4]);
+                const limit = Math.min(nextCluster, cluster + 4 + sizeLength + 64);
+                for (let index = cluster + 4 + sizeLength; index < limit - 2; index += 1) {
+                    if (bytes[index] !== 0xe7) continue;
+                    const valueLength = bytes[index + 1] & 0x7f;
+                    const valueAt = index + 2;
+                    if (!valueLength || valueLength > 4 || valueAt + valueLength > limit) break;
+                    let value = 0;
+                    for (let offset = 0; offset < valueLength; offset += 1) value = value * 256 + bytes[valueAt + offset];
+                    firstTimecode ??= value;
+                    value -= firstTimecode;
+                    for (let offset = valueLength - 1; offset >= 0; offset -= 1) {
+                        bytes[valueAt + offset] = value & 0xff;
+                        value = Math.floor(value / 256);
+                    }
+                    break;
+                }
+                if (nextOffset < 0) break;
+                cluster = nextCluster;
+            }
+            return { bytes, firstTimecode };
+        }
+
+        const webmTimecodeCheck = normalizeWebmTimecodes(Uint8Array.of(
+            0x1f, 0x43, 0xb6, 0x75, 0x84, 0xe7, 0x82, 0x03, 0xe8,
+            0x1f, 0x43, 0xb6, 0x75, 0x84, 0xe7, 0x82, 0x04, 0x4c
+        ));
+        console.assert(
+            findWebmHeader(Uint8Array.of(0, 0x1a, 0x45, 0xdf, 0xa3)) === 1
+            && webmTimecodeCheck.firstTimecode === 1000
+            && webmTimecodeCheck.bytes[7] === 0 && webmTimecodeCheck.bytes[8] === 0 && webmTimecodeCheck.bytes[17] === 100,
+            "WebMデータを正規化できません"
+        );
+
+        async function createWebmClip(blobs, header, type) {
+            const bytes = new Uint8Array(await new Blob(blobs).arrayBuffer());
+            const clusterAt = findWebmCluster(bytes);
+            if (!header || clusterAt < 0) throw new Error("WebMデータを作成できませんでした");
+            const normalized = normalizeWebmTimecodes(bytes.slice(clusterAt));
+            if (!Number.isFinite(normalized.firstTimecode)) throw new Error("WebMの開始時刻を取得できませんでした");
+            const clip = new Blob([header, normalized.bytes], { type });
+            if (findWebmHeader(new Uint8Array(await clip.slice(0, 4).arrayBuffer())) !== 0) {
+                throw new Error("WebMヘッダーを作成できませんでした");
+            }
+            return { blob: clip, firstTimecodeMs: normalized.firstTimecode };
+        }
+
+        const overlapsCaptureWindow = ({ startAt, endAt }, capture) =>
+            startAt <= capture.endAt && endAt >= capture.startAt - WEBM_CLUSTER_LOOKBACK_MS;
+
+        console.assert(
+            overlapsCaptureWindow({ startAt: 1500, endAt: 2500 }, { startAt: 4000, endAt: 9000 })
+            && !overlapsCaptureWindow({ startAt: 1000, endAt: 1999 }, { startAt: 4000, endAt: 9000 }),
+            "WebMの先行映像を保持できません"
+        );
+
+        function stopRecordingBuffer() {
+            const session = recording;
+            recording = null;
+            if (!session) return;
+            if (session.frameCallback) video.cancelVideoFrameCallback(session.frameCallback);
+            session.recorder.ondataavailable = null;
+            if (session.recorder.state !== "inactive") session.recorder.stop();
+            session.track.stop();
+            session.pending?.reject(new Error("録画設定が変更されました"));
+        }
+
+        function startRecordingBuffer() {
+            const sourceTrack = video.srcObject?.getVideoTracks()[0];
+            if (!sourceTrack || typeof MediaRecorder === "undefined") return;
+            stopRecordingBuffer();
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d", { alpha: false });
+            drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
+            const track = canvas.captureStream(0).getVideoTracks()[0];
+            const mimeType = RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+            let recorder;
+            try {
+                recorder = new MediaRecorder(new MediaStream([track]), {
+                    ...(mimeType && { mimeType }),
+                    videoBitsPerSecond: recordingVideoBitsPerSecond,
+                    videoKeyFrameIntervalDuration: WEBM_KEYFRAME_INTERVAL_MS
+                });
+            } catch (error) {
+                track.stop();
+                console.error("WebM録画を開始できませんでした。", error);
+                return;
+            }
+            const startedAt = performance.now();
+            const session = recording = { recorder, track, header: null, chunks: [], pending: null, frameCallback: 0, startedAt };
+            const copyFrame = () => {
+                if (recording !== session) return;
+                drawRotatedFrame(canvas, context, video, recordingRotationDegrees);
+                track.requestFrame();
+                session.frameCallback = video.requestVideoFrameCallback(copyFrame);
+            };
+            let lastChunkAt = startedAt;
+            let queue = Promise.resolve();
+            const initialBlobs = [];
+            recorder.ondataavailable = ({ data, timeStamp: endAt }) => {
+                queue = queue.then(async () => {
+                    if (recording !== session || !data?.size) return;
+                    let chunk = data;
+                    if (!session.header) {
+                        initialBlobs.push(data);
+                        const initialBlob = new Blob(initialBlobs, { type: data.type });
+                        const bytes = new Uint8Array(await initialBlob.arrayBuffer());
+                        const headerAt = findWebmHeader(bytes);
+                        if (headerAt < 0) {
+                            if (initialBlob.size > 16 * 1024 * 1024) throw new Error(`WebMヘッダーを取得できませんでした（${data.type || "形式不明"}）`);
+                            return;
+                        }
+                        const clusterOffset = findWebmCluster(bytes.subarray(headerAt));
+                        if (clusterOffset < 0) return;
+                        const clusterAt = headerAt + clusterOffset;
+                        session.header = new Blob([bytes.slice(headerAt, clusterAt)], { type: data.type });
+                        initialBlobs.length = 0;
+                        lastChunkAt = startedAt;
+                        chunk = new Blob([bytes.slice(clusterAt)], { type: data.type });
+                    }
+                    session.chunks.push({ startAt: lastChunkAt, endAt, blob: chunk });
+                    lastChunkAt = endAt;
+                    const cutoff = (session.pending?.startAt ?? endAt - recordingBeforeMs) - WEBM_CLUSTER_LOOKBACK_MS;
+                    session.chunks = session.chunks.filter(({ endAt: chunkEnd }) => chunkEnd >= cutoff);
+                    if (session.pending && endAt >= session.pending.endAt) {
+                        const capture = session.pending;
+                        session.pending = null;
+                        const chunks = session.chunks.filter((chunk) => overlapsCaptureWindow(chunk, capture));
+                        capture.resolve({
+                            ...await createWebmClip(chunks.map(({ blob }) => blob), session.header, recorder.mimeType || "video/webm"),
+                            startedAt: session.startedAt,
+                            endedAt: chunks.at(-1)?.endAt ?? capture.endAt
+                        });
+                    }
+                }).catch((error) => {
+                    session.pending?.reject(error);
+                    session.pending = null;
+                    console.error("WebMデータを処理できませんでした。", error);
+                });
+            };
+            recorder.onerror = ({ error }) => {
+                session.pending?.reject(error);
+                session.pending = null;
+                console.error("WebM録画に失敗しました。", error);
+            };
+            recorder.start(250);
+            session.frameCallback = video.requestVideoFrameCallback(copyFrame);
+        }
+
+        function recordClip(triggerAt) {
+            return new Promise((resolve, reject) => {
+                const session = recording;
+                if (!session?.header || session.recorder.state !== "recording" || session.pending) {
+                    reject(new Error("WebM録画の準備ができていません"));
+                    return;
+                }
+                session.pending = {
+                    startAt: triggerAt - recordingBeforeMs,
+                    endAt: triggerAt + recordingAfterMs,
+                    resolve,
+                    reject
+                };
+                session.recorder.requestData();
+                setTimeout(() => session.recorder.state === "recording" && session.recorder.requestData(), recordingAfterMs);
+            });
+        }
+
+        function drawRotatedFrame(canvas, context, source, degrees) {
+            const swapSides = degrees % 180 !== 0;
+            const width = swapSides ? source.videoHeight : source.videoWidth;
+            const height = swapSides ? source.videoWidth : source.videoHeight;
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+            }
+            const transforms = {
+                0: [1, 0, 0, 1, 0, 0],
+                90: [0, 1, -1, 0, source.videoHeight, 0],
+                180: [-1, 0, 0, -1, source.videoWidth, source.videoHeight],
+                270: [0, -1, 1, 0, 0, source.videoWidth]
+            };
+            context.setTransform(...transforms[degrees]);
+            context.drawImage(source, 0, 0);
+        }
+
+        function captureImage() {
+            const canvas = document.createElement("canvas");
+            drawRotatedFrame(canvas, canvas.getContext("2d", { alpha: false }), video, recordingRotationDegrees);
+            return new Promise((resolve, reject) => {
+                canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNGを作成できませんでした")), "image/png");
+            });
+        }
+
+        const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
+            let value = index;
+            for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+            return value >>> 0;
+        });
+
+        async function blobCrc32(blob) {
+            let crc = 0xffffffff;
+            for await (const bytes of blob.stream()) {
+                for (const byte of bytes) crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+
+        function zipStamp(date) {
+            return {
+                date: ((Math.max(1980, date.getFullYear()) - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+                time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2)
+            };
+        }
+
+        async function createZip(files) {
+            const encoder = new TextEncoder();
+            const localParts = [];
+            const entries = [];
+            let offset = 0;
+            for (const file of files) {
+                const name = encoder.encode(file.name);
+                const crc = await blobCrc32(file.blob);
+                const stamp = zipStamp(file.createdAt);
+                const header = new Uint8Array(30 + name.length);
+                const view = new DataView(header.buffer);
+                view.setUint32(0, 0x04034b50, true);
+                view.setUint16(4, 20, true);
+                view.setUint16(6, 0x0800, true);
+                view.setUint16(10, stamp.time, true);
+                view.setUint16(12, stamp.date, true);
+                view.setUint32(14, crc, true);
+                view.setUint32(18, file.blob.size, true);
+                view.setUint32(22, file.blob.size, true);
+                view.setUint16(26, name.length, true);
+                header.set(name, 30);
+                localParts.push(header, file.blob);
+                entries.push({ name, crc, stamp, size: file.blob.size, offset });
+                offset += header.length + file.blob.size;
+            }
+            const centralParts = entries.map((entry) => {
+                const header = new Uint8Array(46 + entry.name.length);
+                const view = new DataView(header.buffer);
+                view.setUint32(0, 0x02014b50, true);
+                view.setUint16(4, 20, true);
+                view.setUint16(6, 20, true);
+                view.setUint16(8, 0x0800, true);
+                view.setUint16(12, entry.stamp.time, true);
+                view.setUint16(14, entry.stamp.date, true);
+                view.setUint32(16, entry.crc, true);
+                view.setUint32(20, entry.size, true);
+                view.setUint32(24, entry.size, true);
+                view.setUint16(28, entry.name.length, true);
+                view.setUint32(42, entry.offset, true);
+                header.set(entry.name, 46);
+                return header;
+            });
+            const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+            const end = new Uint8Array(22);
+            const endView = new DataView(end.buffer);
+            endView.setUint32(0, 0x06054b50, true);
+            endView.setUint16(8, entries.length, true);
+            endView.setUint16(10, entries.length, true);
+            endView.setUint32(12, centralSize, true);
+            endView.setUint32(16, offset, true);
+            return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = filename;
+            anchor.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function captureNames(createdAt) {
+            const emotion = situations[situationIndex].emotions.reduce((best, key) => {
+                const score = Number(latestExpressions[key]) || 0;
+                return score > best.score ? { key, score } : best;
+            }, { key: situations[situationIndex].emotions[0], score: 0 });
+            const two = (value) => String(value).padStart(2, "0");
+            const archive = `called_${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}`;
+            return { archive, file: `${emotion.key}_${Math.round(emotion.score * 100)}` };
+        }
+
+        function captureMetadata(capture, timing, names) {
+            const origin = capture.startedAt + capture.firstTimecodeMs;
+            const at = (timestamp) => Math.max(0, (timestamp - origin) / 1000);
+            const trigger = at(timing.triggerAt);
+            const fullyDark = Math.max(trigger, at(timing.fullyDarkAt));
+            const openingStarted = Math.max(fullyDark, at(timing.openingStartedAt));
+            const fullyOpen = Math.max(openingStarted, at(timing.fullyOpenAt));
+            const end = Math.max(fullyOpen, at(capture.endedAt));
+            return {
+                version: 1,
+                video: `${names.file}.webm`,
+                image: `${names.file}.png`,
+                timeUnit: "seconds-from-webm-start",
+                events: { trigger, fullyDark, openingStarted, fullyOpen },
+                segments: {
+                    before: { start: 0, end: fullyDark },
+                    shutter: { start: fullyDark, end: openingStarted },
+                    after: { start: openingStarted, end }
+                }
+            };
+        }
+
+        const captureMetadataCheck = captureMetadata(
+            { startedAt: 1000, firstTimecodeMs: 2000, endedAt: 9000 },
+            { triggerAt: 5000, fullyDarkAt: 5100, openingStartedAt: 6600, fullyOpenAt: 6700 },
+            { file: "happy_99" }
+        );
+        console.assert(
+            captureMetadataCheck.events.trigger === 2
+            && captureMetadataCheck.segments.shutter.start === 2.1
+            && captureMetadataCheck.segments.shutter.end === 3.6
+            && captureMetadataCheck.segments.after.end === 6,
+            "撮影時刻JSONの計算が不正です"
+        );
+
+        async function saveCapture(triggerAt, createdAt, names, imagePromise, timingPromise) {
+            const [image, capture, timing] = await Promise.all([imagePromise, recordClip(triggerAt), timingPromise]);
+            const metadata = new Blob([JSON.stringify(captureMetadata(capture, timing, names), null, 2)], { type: "application/json" });
+            const zip = await createZip([
+                { name: `${names.file}.png`, blob: image, createdAt },
+                { name: `${names.file}.webm`, blob: capture.blob, createdAt },
+                { name: `${names.file}.json`, blob: metadata, createdAt }
+            ]);
+            downloadBlob(zip, `${names.archive}.zip`);
+        }
+
+        function videoFrameSize() {
+            return {
+                width: Math.round(video.videoHeight / 2) * 2,
+                height: Math.round(video.videoWidth / 2) * 2
+            };
+        }
+
+        function measureStatus() {
+            const size = videoFrameSize();
+            statusLabel.textContent = "実測:";
+            statusText.textContent = `${size.width}x${size.height} / 計測中`;
+            let startedAt;
+            let frames = 0;
+
+            const measure = (now) => {
+                if (statusLabel.textContent !== "実測:") return;
+                if (startedAt !== undefined) frames += 1;
+                else startedAt = now;
+
+                const elapsed = now - startedAt;
+                if (elapsed >= 1000) {
+                    const current = videoFrameSize();
+                    statusText.textContent = `${current.width}x${current.height} / ${Math.round(frames * 1000 / elapsed)}fps`;
+                    startedAt = now;
+                    frames = 0;
+                }
+                statusFrameCallback = video.requestVideoFrameCallback(measure);
+            };
+
+            statusFrameCallback = video.requestVideoFrameCallback(measure);
+        }
+
+        function updateEmotionCanvas() {
+            const scale = 224 / video.videoHeight;
+            emotionCanvas.width = 224;
+            emotionCanvas.height = Math.round(video.videoWidth * scale);
+            emotionContext.setTransform(0, -scale, -scale, 0, emotionCanvas.width, emotionCanvas.height);
+        }
+
+        function modeConstraints(mode, nativeOnly) {
+            const [width, height, frameRate] = mode;
+            return {
+                width: { exact: width },
+                height: { exact: height },
+                frameRate: { exact: frameRate },
+                ...(nativeOnly && { resizeMode: { exact: "none" } })
+            };
+        }
+
+        function currentMode(track) {
+            const { width, height, frameRate } = track.getSettings();
+            return [width, height, Math.round(frameRate)];
+        }
+
+        async function detectCameraModes(track) {
+            const capabilities = track.getCapabilities?.() || {};
+            const nativeOnly = capabilities.resizeMode?.includes("none");
+            const initialMode = currentMode(track);
+            const supported = new Map();
+
+            for (const mode of cameraModes) {
+                const [width, height, frameRate] = mode;
+                if (capabilities.width && (width < capabilities.width.min || width > capabilities.width.max)) continue;
+                if (capabilities.height && (height < capabilities.height.min || height > capabilities.height.max)) continue;
+                if (capabilities.frameRate && (frameRate < capabilities.frameRate.min || frameRate > capabilities.frameRate.max)) continue;
+                try {
+                    await track.applyConstraints(modeConstraints(mode, nativeOnly));
+                    const actual = track.getSettings();
+                    if (actual.width === width && actual.height === height && Math.abs(actual.frameRate - frameRate) < 1) {
+                        supported.set(mode.join(), mode);
+                    }
+                } catch { }
+            }
+
+            try {
+                await track.applyConstraints(modeConstraints(initialMode, nativeOnly));
+            } catch { }
+
+            const selectedMode = currentMode(track);
+            supported.set(selectedMode.join(), selectedMode);
+            const modes = [...supported.values()].sort((a, b) => b[0] * b[1] - a[0] * a[1] || b[2] - a[2]);
+            cameraMode.replaceChildren(...modes.map((mode) => new Option(`${mode[0]}x${mode[1]} / ${mode[2]}fps`, mode.join())));
+            cameraMode.value = selectedMode.join();
+            cameraMode.disabled = false;
+        }
+
+        async function startCamera() {
+            try {
+                video.srcObject = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                        frameRate: { ideal: 60 }
+                    }
+                });
+                await video.play();
+                updateEmotionCanvas();
+                const track = video.srcObject.getVideoTracks()[0];
+                await detectCameraModes(track);
+                updateEmotionCanvas();
+                measureStatus();
+                if (recordingEnabled) startRecordingBuffer();
+            } catch (error) {
+                cameraMode.innerHTML = "<option>画質を検出できません</option>";
+                cameraMode.disabled = true;
+                statusLabel.textContent = "エラー:";
+                statusText.textContent = `カメラを開始できません: ${error.message}`;
+            }
+        }
+
+        async function detectEmotion(detectOptions) {
+            let result;
+            try {
+                emotionContext.drawImage(video, 0, 0);
+                result = await faceapi.detectSingleFace(emotionCanvas, detectOptions).withFaceExpressions();
+                latestExpressions = result?.expressions || {};
+            } catch {
+                latestExpressions = {};
+            }
+            updateFacePosition(result?.detection?.box);
+            renderScore();
+            setTimeout(() => detectEmotion(detectOptions), 200);
+        }
+
+        async function startEmotionDetection() {
+            try {
+                await configurationReady;
+            } catch (error) {
+                scoreText.textContent = "設定を読み込めません";
+                console.error("photograph/config.json を読み込めませんでした。", error);
+                return;
+            }
+
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+                ]);
+                detectEmotion(new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }));
+            } catch (error) {
+                scoreText.textContent = "モデルを読み込めません";
+                console.error("FaceAPIモデルを読み込めませんでした。", error);
+            }
+        }
+
+        async function playShutter() {
+            if (!tutorialOverlay.hidden || !blink.hidden || captureInProgress || !partIntro.hidden) return;
+            captureInProgress = true;
+            updateSituationTimer();
+            stopSituationRotation();
+            stopScoreAnimation();
+            scoreBar.classList.add("is-frozen");
+            const triggerAt = performance.now();
+            const createdAt = new Date();
+            const imagePromise = captureImage();
+            const timing = { triggerAt };
+            let resolveTiming;
+            const timingPromise = new Promise((resolve) => { resolveTiming = resolve; });
+            const savePromise = recordingEnabled
+                ? saveCapture(triggerAt, createdAt, captureNames(createdAt), imagePromise, timingPromise).catch((error) => {
+                    console.error("画像と映像を保存できませんでした。", error);
+                })
+                : Promise.resolve();
+            blink.hidden = false;
+            if (shutterSoundEnabled) replayAudio(shutterAudio);
+            const closeAnimation = blink.animate([
+                { backgroundSize: "100% 0, 100% 0" },
+                { backgroundSize: "100% 50%, 100% 50%" }
+            ], { duration: shutterTransitionDurationMs, easing: shutterEasing, fill: "forwards" });
+            const closeFinished = closeAnimation.finished.then(() => {
+                timing.fullyDarkAt = performance.now();
+            });
+            let previewUrl;
+            try {
+                const [, image] = await Promise.all([closeFinished, imagePromise]);
+                previewUrl = URL.createObjectURL(image);
+                capturePreview.src = previewUrl;
+                capturePreview.hidden = false;
+                await capturePreview.decode();
+                blink.style.backgroundSize = "100% 50%, 100% 50%";
+                closeAnimation.cancel();
+                await new Promise((resolve) => setTimeout(resolve, shutterHoldDurationMs));
+                timing.openingStartedAt = performance.now();
+                await blink.animate([
+                    { backgroundSize: "100% 50%, 100% 50%" },
+                    { backgroundSize: "100% 0, 100% 0" }
+                ], { duration: shutterTransitionDurationMs, easing: shutterEasing }).finished;
+                timing.fullyOpenAt = performance.now();
+                blink.hidden = true;
+                captureProgress.hidden = false;
+                await captureProgressFill.animate([
+                    { width: "0%" },
+                    { width: "100%" }
+                ], { duration: shutterPreviewDurationMs, easing: "linear" }).finished;
+            } catch (error) {
+                console.error("撮影画像を表示できませんでした。", error);
+            } finally {
+                timing.fullyDarkAt ??= triggerAt + shutterTransitionDurationMs;
+                timing.openingStartedAt ??= timing.fullyDarkAt + shutterHoldDurationMs;
+                timing.fullyOpenAt ??= timing.openingStartedAt + shutterTransitionDurationMs;
+                resolveTiming(timing);
+                await savePromise;
+                blink.hidden = true;
+                blink.style.removeProperty("background-size");
+                captureProgress.hidden = true;
+                capturePreview.hidden = true;
+                capturePreview.removeAttribute("src");
+                if (previewUrl) URL.revokeObjectURL(previewUrl);
+                captureInProgress = false;
+                advanceAfterShutter();
+            }
+        }
+
+        cameraMode.addEventListener("change", async () => {
+            const track = video.srcObject?.getVideoTracks()[0];
+            if (!track) return;
+            cameraMode.disabled = true;
+            try {
+                const nativeOnly = track.getCapabilities?.().resizeMode?.includes("none");
+                await track.applyConstraints(modeConstraints(cameraMode.value.split(",").map(Number), nativeOnly));
+                updateEmotionCanvas();
+                if (recordingEnabled) startRecordingBuffer();
+                if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
+                measureStatus();
+            } catch (error) {
+                cameraMode.value = currentMode(track).join();
+                statusLabel.textContent = "エラー:";
+                statusText.textContent = `画質を変更できません: ${error.message}`;
+            } finally {
+                cameraMode.disabled = false;
+            }
+        });
+        function startExperience(enableRecording) {
+            if (!photographScene.hidden) return;
+            recordingEnabled = enableRecording;
+            maximumScores = Array(situations.length).fill(0);
+            if (consentDialog.open) consentDialog.close();
+            introScene.hidden = true;
+            photographScene.hidden = false;
+            if (recordingEnabled) startRecordingBuffer();
+            configurationReady.then(() => showSituation(0)).catch(() => { });
+        }
+
+        startButton.addEventListener("click", () => consentDialog.showModal());
+        consentDialog.addEventListener("cancel", (event) => event.preventDefault());
+        $("consentAcceptButton").addEventListener("click", () => startExperience(true));
+        $("consentDeclineButton").addEventListener("click", () => startExperience(false));
+        document.addEventListener("keydown", (event) => {
+            if (!introScene.hidden) {
+                if (event.key === "1" || event.key === "2") {
+                    shutterSoundEnabled = event.key === "2";
+                    return;
+                }
+                if (event.code === "Space" && !startButton.disabled) {
+                    event.preventDefault();
+                    startExperience(true);
+                }
+                return;
+            }
+            if (!finalScene.hidden) return;
+            if (event.code === "Space") {
+                event.preventDefault();
+                status.hidden = !status.hidden;
+                return;
+            }
+            const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+            if (!step || event.target.matches("input, select, textarea, button")) return;
+            if (!tutorialOverlay.hidden) {
+                event.preventDefault();
+                showTutorialStep(Math.max(0, tutorialStepIndex + step));
+                return;
+            }
+            if (!situations.length || captureInProgress) return;
+            event.preventDefault();
+            if (step > 0 && situationIndex === situations.length - 1) showResults();
+            else showSituation(situationIndex + step);
+        });
+        window.addEventListener("pagehide", () => {
+            guideAudio.pause();
+            clearTimeout(partIntroTimer);
+            clearTimeout(resultTimer);
+            stopTutorial();
+            stopSituationRotation();
+            stopRecordingBuffer();
+            stopScoreAnimation();
+            if (statusFrameCallback) video.cancelVideoFrameCallback(statusFrameCallback);
+            video.srcObject?.getTracks().forEach((track) => track.stop());
+        });
+        window.addEventListener("load", () => {
+            startCamera();
+            configurationReady = loadConfig();
+            startEmotionDetection();
+            startButton.disabled = false;
+        });
+    </script>
+</body>
+
+</html>

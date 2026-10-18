@@ -1,0 +1,108 @@
+{
+  "copy": {
+    "introTitle": "表情と呼ばれるモノ",
+    "introText": "1971年、心理学者ポール・エクマンらは、基本情動理論を提唱しました。\nこの理論においてエクマンは、「喜び」「怒り」「悲しみ」「恐れ」「驚き」「嫌悪」という基本感情が存在し、それぞれに対応する表情には、文化を越えた普遍性があると主張しました。\nこの表情の捉え方は、直感的な分かりやすさと、顔の動きを分類・測定できる扱いやすさから、エンタメ、セキュリティ、感情認識技術などに応用され、現在も私たちの表情に対する理解の基盤となっています。",
+    "consentQuestion": "表情の撮影・使用について同意して始めますか？",
+    "consentNotes": [
+      "同意していただける場合は、同意書に署名し、「はい」を押してください。",
+      "同意していただける場合は、撮影結果が５分間、②《表情と呼ぶモノ》に反映されます。",
+      "同意しない場合でも、体験は可能です。"
+    ]
+  },
+  "rotationIntervalMs": 30000,
+  "partIntroDurationMs": 3000,
+  "resultDurationMs": 8000,
+  "tutorial": {
+    "steps": [
+      {
+        "target": "frameGuide",
+        "text": "顔の位置を円の中にぴったり収まるように調整してください",
+        "durationMs": 3000
+      },
+      {
+        "target": "scoreBar",
+        "text": "あなたの表情の適切さを装置が判定して、最高の瞬間を撮影してくれます。",
+        "durationMs": 10000
+      },
+      {
+        "target": "situationTimer",
+        "text": "制限時間は{seconds}秒です",
+        "durationMs": 6000
+      },
+      {
+        "target": "timeoutShutter",
+        "text": "時間内に撮影されなかった場合でも、最後に3、2、1のカウントダウンで撮影されます。",
+        "durationMs": 8000
+      },
+      {
+        "target": "scoreText",
+        "text": "この状況に相応しいと思う表情を作ってみましょう！",
+        "durationMs": 6000
+      }
+    ]
+  },
+  "faceGuideMinWidthRatio": 0.80,
+  "scoreSegmentCount": 10,
+  "scoreStepIntervalMs": 80,
+  "shutter": {
+    "scoreThreshold": 80,
+    "transitionDurationMs": 100,
+    "holdDurationMs": 1500,
+    "previewDurationMs": 3000,
+    "volume": 0.4,
+    "easing": "ease-in-out"
+  },
+  "recording": {
+    "secondsBefore": 2,
+    "secondsAfter": 5,
+    "rotationDegrees": 270,
+    "videoBitsPerSecond": 50000000
+  },
+  "situations": [
+    {
+      "text": "ずっと欲しかったプレゼントをもらった！",
+      "emotions": [
+        "happy",
+        "surprised"
+      ]
+    },
+    {
+      "text": "楽しみだった旅行が中止に...",
+      "judgmentDelayMs": 2000,
+      "emotions": [
+        "sad",
+        "angry",
+        "disgusted"
+      ]
+    },
+    {
+      "text": "列に横入りされた！",
+      "emotions": [
+        "angry",
+        "fearful"
+      ]
+    },
+    {
+      "text": "出張先で友人にばったり遭遇！",
+      "emotions": [
+        "surprised",
+        "happy"
+      ]
+    },
+    {
+      "text": "突然、刃物を持った男が襲いかかってきた",
+      "emotions": [
+        "fearful",
+        "disgusted"
+      ]
+    },
+    {
+      "text": "犬のフンを踏んでしまった...",
+      "emotions": [
+        "disgusted",
+        "fearful",
+        "surprised"
+      ]
+    }
+  ]
+}
