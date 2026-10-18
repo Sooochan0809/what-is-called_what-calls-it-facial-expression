@@ -899,7 +899,9 @@
                 clearTimeout(judgmentHoldTimer);
                 judgmentHoldTimer = 0;
             }
-            targetSegmentCount = Math.ceil(score * scoreSegments.length);
+            targetSegmentCount = Object.keys(latestExpressions).length
+                ? Math.max(1, Math.ceil(score * scoreSegments.length))
+                : 0;
             const accent = rounded >= 72 ? "var(--color-positive)" : rounded >= 44 ? "var(--color-warning)" : "var(--color-negative)";
             scoreBar.style.setProperty("--accent", accent);
             if (!scoreStepTimer && displayedSegmentCount !== targetSegmentCount)
