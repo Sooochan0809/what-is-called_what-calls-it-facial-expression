@@ -286,21 +286,52 @@
 
         .judgmentMessage {
             position: absolute;
-            left: 50%;
-            top: 50%;
+            inset: 0;
             z-index: 9;
-            width: max-content;
-            max-width: 85vw;
-            color: var(--color-negative);
-            font-size: clamp(18px, 3vw, 32px);
-            font-weight: 700;
-            text-align: center;
-            transform: translate(-50%, -50%);
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: color-mix(in srgb, var(--color-page) 58%, transparent);
+            backdrop-filter: blur(10px);
             pointer-events: none;
         }
 
-        .judgmentMessage.is-detected {
+        .judgmentMessage[hidden] {
+            display: none;
+        }
+
+        .judgmentCard {
+            box-sizing: border-box;
+            width: min(560px, 100%);
+            display: grid;
+            gap: 10px;
+            padding: 18px 24px;
+            border: 1px solid var(--color-overlay-border);
+            border-radius: 6px;
+            background: color-mix(in srgb, var(--color-white) 82%, transparent);
+            text-align: center;
+        }
+
+        .judgmentTitle {
+            margin: 0;
+            color: var(--color-ink);
+            font-size: clamp(1.6rem, 4vw, 3rem);
+            line-height: 1.2;
+        }
+
+        .judgmentResult {
+            color: var(--color-negative);
+        }
+
+        .judgmentResult.is-detected {
             color: var(--color-positive);
+        }
+
+        .judgmentText {
+            margin: 0;
+            color: var(--color-muted);
+            font-size: clamp(0.95rem, 2vw, 1.08rem);
+            line-height: 1.7;
         }
 
         output {
@@ -631,7 +662,12 @@
     <main id="photographScene" hidden>
         <video id="video" autoplay muted playsinline></video>
         <div class="frameGuide" aria-hidden="true"></div>
-        <div id="judgmentMessage" class="judgmentMessage" role="status" aria-live="polite" hidden></div>
+        <section id="judgmentMessage" class="judgmentMessage" role="status" aria-live="polite" aria-atomic="true" hidden>
+            <div class="judgmentCard">
+                <h2 class="judgmentTitle"><span id="judgmentTitlePrefix"></span><span id="judgmentResult" class="judgmentResult"></span></h2>
+                <p id="judgmentText" class="judgmentText"></p>
+            </div>
+        </section>
         <section id="partIntro" class="partIntro" aria-live="polite" hidden>
             <div class="partIntroCard">
                 <p id="partIntroLabel">パート1</p>
@@ -685,6 +721,9 @@
         const emotionPanel = document.querySelector(".emotionPanel");
         const frameGuide = document.querySelector(".frameGuide");
         const judgmentMessage = $("judgmentMessage");
+        const judgmentTitlePrefix = $("judgmentTitlePrefix");
+        const judgmentResult = $("judgmentResult");
+        const judgmentText = $("judgmentText");
         const situationTimer = $("situationTimer");
         const tutorialOverlay = $("tutorialOverlay");
         const tutorialCard = tutorialOverlay.firstElementChild;
@@ -693,8 +732,12 @@
         const partIntroLabel = $("partIntroLabel");
         const partIntroText = $("partIntroText");
         const guideAudio = new Audio("./sound/guide.mp3");
+        const clearAudio = new Audio("./sound/clear.mp3");
+        const failureAudio = new Audio("./sound/failure.mp3");
         const tutorialChimeAudio = new Audio("./sound/announce.wav");
         guideAudio.preload = "auto";
+        clearAudio.preload = "auto";
+        failureAudio.preload = "auto";
         tutorialChimeAudio.preload = "auto";
         const emotionCanvas = document.createElement("canvas");
         const emotionContext = emotionCanvas.getContext("2d");
@@ -703,6 +746,7 @@
         const RECORDING_MIME_TYPES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
         const WEBM_CLUSTER_LOOKBACK_MS = 2000;
         const WEBM_KEYFRAME_INTERVAL_MS = 1000;
+        const JUDGMENT_HOLD_MS = 1000;
         const cameraModes = [
             [3840, 2160, 60], [3840, 2160, 30],
             [2560, 1440, 60], [2560, 1440, 30],
@@ -736,8 +780,11 @@
         let scoreStepTimer = 0;
         let judgmentScoreThreshold = 80;
         let judgmentMessageDurationMs = 2000;
+        let judgmentDetectedTitle = "";
+        let judgmentNotDetectedTitle = "";
         let judgmentDetectedMessage = "";
         let judgmentNotDetectedMessage = "";
+        let judgmentHoldTimer = 0;
         let recordingBeforeMs = 2000;
         let recordingAfterMs = 3000;
         let recordingRotationDegrees = 270;
@@ -789,6 +836,8 @@
             clearInterval(rotationClockTimer);
             rotationTimer = 0;
             rotationClockTimer = 0;
+            clearTimeout(judgmentHoldTimer);
+            judgmentHoldTimer = 0;
         }
 
         function faceIsLargeEnough(box) {
@@ -842,6 +891,12 @@
             const score = Math.min(1, Math.max(0, ...emotions.map((name) => Number(latestExpressions[name]) || 0)));
             const rounded = Math.round(score * 100);
             maximumScores[situationIndex] = Math.max(maximumScores[situationIndex] || 0, rounded);
+            if (rounded >= judgmentScoreThreshold) {
+                if (!judgmentHoldTimer) judgmentHoldTimer = setTimeout(() => finishSituation(true), JUDGMENT_HOLD_MS);
+            } else {
+                clearTimeout(judgmentHoldTimer);
+                judgmentHoldTimer = 0;
+            }
             targetSegmentCount = Math.ceil(score * scoreSegments.length);
             const accent = rounded >= 72 ? "var(--color-positive)" : rounded >= 44 ? "var(--color-warning)" : "var(--color-negative)";
             scoreBar.style.setProperty("--accent", accent);
@@ -851,8 +906,8 @@
 
         function startSituationJudgment() {
             situationJudgmentPending = false;
-            renderScore();
             startSituationRotation();
+            renderScore();
         }
 
         function showSituation(index) {
@@ -894,8 +949,9 @@
         }
 
         function showJudgmentMessage(detected) {
-            judgmentMessage.textContent = detected ? judgmentDetectedMessage : judgmentNotDetectedMessage;
-            judgmentMessage.classList.toggle("is-detected", detected);
+            judgmentResult.textContent = detected ? judgmentDetectedTitle : judgmentNotDetectedTitle;
+            judgmentResult.classList.toggle("is-detected", detected);
+            judgmentText.textContent = detected ? judgmentDetectedMessage : judgmentNotDetectedMessage;
             judgmentMessage.hidden = false;
         }
 
@@ -962,10 +1018,7 @@
             rotationStartedAt = performance.now() - (rotationIntervalMs - durationMs);
             updateSituationTimer();
             rotationClockTimer = setInterval(updateSituationTimer, 250);
-            rotationTimer = setTimeout(
-                () => finishSituation(maximumScores[situationIndex] >= judgmentScoreThreshold),
-                durationMs
-            );
+            rotationTimer = setTimeout(() => finishSituation(false), durationMs);
         }
 
         function advanceAfterJudgment() {
@@ -1013,11 +1066,16 @@
             )) throw new Error("状況文の設定が不正です");
             const copy = config.copy;
             if (!copy || COPY_FIELDS.some((field) => typeof copy[field] !== "string")
+                || typeof copy.judgmentTitlePrefix !== "string"
+                || typeof copy.judgmentDetectedTitle !== "string" || typeof copy.judgmentNotDetectedTitle !== "string"
                 || typeof copy.judgmentDetected !== "string" || typeof copy.judgmentNotDetected !== "string"
                 || !Array.isArray(copy.consentNotes) || !copy.consentNotes.length
                 || copy.consentNotes.some((text) => typeof text !== "string")) throw new Error("表示文言の設定が不正です");
 
             COPY_FIELDS.forEach((field) => $(field).textContent = copy[field]);
+            judgmentTitlePrefix.textContent = copy.judgmentTitlePrefix;
+            judgmentDetectedTitle = copy.judgmentDetectedTitle;
+            judgmentNotDetectedTitle = copy.judgmentNotDetectedTitle;
             judgmentDetectedMessage = copy.judgmentDetected;
             judgmentNotDetectedMessage = copy.judgmentNotDetected;
             $("consentNotes").replaceChildren(...copy.consentNotes.map((text) => textElement("span", "consentNote", text)));
@@ -1571,6 +1629,7 @@
                     console.error("画像と映像を保存できませんでした。", error);
                 })
                 : Promise.resolve();
+            replayAudio(detected ? clearAudio : failureAudio);
             showJudgmentMessage(detected);
             try {
                 await Promise.all([
