@@ -26,7 +26,7 @@
       },
       {
         "target": "scoreBar",
-        "text": "あなたの表情の適切さを装置が判定します。",
+        "text": "このバーは、あなたの表情の〈適切さ〉を示しています。",
         "durationMs": 10000
       },
       {
@@ -46,6 +46,7 @@
   "scoreStepIntervalMs": 80,
   "judgment": {
     "scoreThreshold": 80,
+    "holdDurationMs": 1000,
     "messageDurationMs": 3000
   },
   "recording": {
