@@ -37,7 +37,7 @@
       {
         "target": "scoreText",
         "text": "この状況に相応しいと思う表情を作ってみましょう！",
-        "durationMs": 6000
+        "durationMs": 5000
       }
     ]
   },
@@ -50,7 +50,7 @@
   },
   "recording": {
     "rotationDegrees": 270,
-    "frameRate": 30,
+    "frameRate": 60,
     "videoBitsPerSecond": 12000000
   },
   "situations": [
@@ -85,7 +85,7 @@
       ]
     },
     {
-      "text": "突然、刃物を持った男が襲いかかってきた",
+      "text": "ホラー映画を見ている時の表情",
       "emotions": [
         "fearful",
         "disgusted"
