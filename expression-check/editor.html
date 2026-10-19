@@ -410,6 +410,9 @@
             current.duration = video.duration;
             renderResult();
         });
+        video.addEventListener("loadeddata", () => {
+            if (!current?.analysis && !analyzeButton.disabled) analyzeCurrent();
+        });
         video.addEventListener("timeupdate", () => {
             const analysis = current?.analysis;
             const from = loopInterval?.start ?? analysis?.from;
