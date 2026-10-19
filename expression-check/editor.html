@@ -237,6 +237,7 @@
         let recordings = [];
         let current = null;
         let loopInterval = null;
+        let analysisQueue = Promise.resolve();
         let sourceUrl = "";
         let outputUrl = "";
         let ffmpeg = null;
@@ -410,7 +411,10 @@
             title.textContent = `part ${recording.metadata.part ?? "-"}`;
             empty.hidden = true;
             editor.hidden = false;
-            status.textContent = "";
+            status.textContent = recording.analyzing ? "表情を解析中…" : recording.analysisQueued ? "解析待ち…" : recording.analysisError || "";
+            progress.hidden = !recording.analyzing;
+            progress.value = recording.analysisProgress || 0;
+            analyzeButton.disabled = Boolean(recording.analyzing || recording.analysisQueued);
             renderList();
             renderResult();
         }
@@ -474,19 +478,39 @@
             renderResult();
         }
 
-        async function analyzeCurrent() {
+        function analyzeCurrent() {
             const recording = current;
-            if (!recording?.duration) return;
+            if (!recording) return;
             if (recording.analysis?.reliable) { preview(recording.analysis); return; }
-            analyzeButton.disabled = true;
-            saveButton.hidden = true;
-            progress.hidden = false;
-            progress.value = 0;
+            queueAnalysis(recording);
+        }
+
+        function queueAnalysis(recording) {
+            if (recording.analysisQueued || recording.analyzing) return;
+            recording.analysisQueued = true;
+            if (current === recording) {
+                analyzeButton.disabled = true;
+                status.textContent = "解析待ち…";
+            }
+            analysisQueue = analysisQueue.then(() => analyzeRecording(recording));
+        }
+
+        async function analyzeRecording(recording) {
+            recording.analysisQueued = false;
+            recording.analyzing = true;
+            recording.analysisProgress = 0;
+            delete recording.analysisError;
+            if (current === recording) {
+                analyzeButton.disabled = true;
+                saveButton.hidden = true;
+                progress.hidden = false;
+                progress.value = 0;
+            }
             let landmarker;
             let analysisUrl;
             try {
                 await analysisConfigurationReady;
-                status.textContent = "表情解析モデルを読み込み中…";
+                if (current === recording) status.textContent = "表情解析モデルを読み込み中…";
                 const { FaceLandmarker, FilesetResolver } = await import("../modules/mediapipe/vision_bundle.mjs");
                 const vision = await FilesetResolver.forVisionTasks("../modules/mediapipe/wasm");
                 landmarker = await FaceLandmarker.createFromOptions(vision, {
@@ -500,6 +524,7 @@
                 analysisUrl = URL.createObjectURL(recording.videoBlob);
                 media.src = analysisUrl;
                 await waitFor(media, "loadeddata");
+                recording.duration = media.duration;
                 const scale = ANALYSIS_MAX_SIZE / Math.max(media.videoWidth, media.videoHeight);
                 const canvas = document.createElement("canvas");
                 canvas.width = Math.round(media.videoWidth * scale);
@@ -514,8 +539,11 @@
                     context.drawImage(media, 0, 0, canvas.width, canvas.height);
                     const result = landmarker.detectForVideo(canvas, index * 1000 / analysisFps);
                     samples.push({ time, vector: blendshapeVector(result) });
-                    progress.value = (index + 1) / frameCount;
-                    status.textContent = `表情を解析中… ${Math.round(progress.value * 100)}%`;
+                    recording.analysisProgress = (index + 1) / frameCount;
+                    if (current === recording) {
+                        progress.value = recording.analysisProgress;
+                        status.textContent = `表情を解析中… ${Math.round(progress.value * 100)}%`;
+                    }
                     if (index % 10 === 9) await new Promise((resolve) => setTimeout(resolve));
                 }
                 const analysis = activityAnalysis(samples, limit);
@@ -524,6 +552,7 @@
                 analysis.from = analysis.intervals[0].start;
                 analysis.to = analysis.intervals.at(-1).end;
                 recording.analysis = analysis;
+                delete recording.analysisError;
                 if (current === recording) {
                     renderResult();
                     if (analysis.reliable) preview(analysis);
@@ -531,27 +560,34 @@
                 }
             } catch (error) {
                 console.error(error);
-                status.textContent = error.message || "表情解析に失敗しました。";
+                recording.analysisError = error.message || "表情解析に失敗しました。";
+                if (current === recording) status.textContent = recording.analysisError;
             } finally {
+                recording.analyzing = false;
                 landmarker?.close();
                 if (analysisUrl) URL.revokeObjectURL(analysisUrl);
-                progress.hidden = true;
-                analyzeButton.disabled = false;
+                if (current === recording) {
+                    progress.hidden = true;
+                    analyzeButton.disabled = false;
+                }
             }
         }
 
         async function addFiles(files) {
             const errors = [];
+            const added = [];
             for (const file of files) {
                 try {
                     const recording = await readRecording(file);
                     const duplicate = recordings.findIndex((item) => item.videoName === recording.videoName);
                     if (duplicate >= 0) recordings.splice(duplicate, 1, recording); else recordings.push(recording);
+                    added.push(recording);
                 } catch (error) { errors.push(error.message); }
             }
             recordings.sort((a, b) => Number(a.metadata.part) - Number(b.metadata.part));
             renderList();
             if (!current && recordings.length) openRecording(recordings[0]);
+            added.forEach(queueAnalysis);
             if (errors.length) status.textContent = errors.join(" ");
         }
 
@@ -565,9 +601,6 @@
             if (!current) return;
             current.duration = video.duration;
             renderResult();
-        });
-        video.addEventListener("loadeddata", () => {
-            if (!current?.analysis && !analyzeButton.disabled) analyzeCurrent();
         });
         video.addEventListener("timeupdate", () => {
             const analysis = current?.analysis;
