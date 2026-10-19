@@ -1,44 +1,198 @@
 <!doctype html>
 <html lang="ja">
+
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>表情変化の自動抽出</title>
     <style>
-        :root { color-scheme: dark; font-family: system-ui, sans-serif; --accent: #8b7dff; --border: #3b3b42; }
-        * { box-sizing: border-box; }
-        body { margin: 0; background: #101012; color: #f4f4f5; }
-        button { border: 0; border-radius: 9px; padding: 11px 16px; background: #35353d; color: inherit; font: inherit; cursor: pointer; }
-        button:hover { background: #464650; }
-        button.primary { background: var(--accent); color: white; font-weight: 700; }
-        button:disabled { opacity: .45; cursor: wait; }
-        header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
-        h1 { margin: 0 0 4px; font-size: 1.4rem; }
-        header p { margin: 0; color: #aaa; font-size: .88rem; }
-        main { min-height: calc(100vh - 83px); display: grid; grid-template-columns: 230px minmax(0, 1fr); }
-        aside { padding: 18px; border-right: 1px solid var(--border); background: #151518; }
-        .drop { min-height: 120px; display: grid; place-items: center; align-content: center; gap: 7px; border: 2px dashed #555561; border-radius: 12px; text-align: center; cursor: pointer; }
-        .drop:hover, .drop.drag { border-color: var(--accent); background: #211e36; }
-        .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-        .drop small, #empty { color: #999; }
-        #list { margin: 16px 0 0; padding: 0; display: grid; gap: 7px; list-style: none; }
-        #list button { width: 100%; text-align: left; }
-        #list button.active { outline: 2px solid var(--accent); background: #2b2840; }
-        #empty { place-self: center; }
-        #editor { width: min(900px, 100%); margin: 0 auto; padding: 24px; }
-        h2 { margin: 0 0 12px; font-size: 1.1rem; }
-        video { width: 100%; max-height: 62vh; border-radius: 12px; background: #000; }
-        #motionGraph { width: 100%; height: 72px; display: block; margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; background: #17171b; cursor: pointer; }
-        .actions { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; }
-        progress { width: 100%; margin-top: 14px; accent-color: var(--accent); }
-        #status { min-height: 1.4em; margin: 10px 0 0; color: #bbb; }
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, sans-serif;
+            --accent: #8b7dff;
+            --border: #3b3b42;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #101012;
+            color: #f4f4f5;
+        }
+
+        button {
+            border: 0;
+            border-radius: 9px;
+            padding: 11px 16px;
+            background: #35353d;
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #464650;
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: white;
+            font-weight: 700;
+        }
+
+        button:disabled {
+            opacity: .45;
+            cursor: wait;
+        }
+
+        header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h1 {
+            margin: 0 0 4px;
+            font-size: 1.4rem;
+        }
+
+        header p {
+            margin: 0;
+            color: #aaa;
+            font-size: .88rem;
+        }
+
+        main {
+            min-height: calc(100vh - 83px);
+            display: grid;
+            grid-template-columns: 230px minmax(0, 1fr);
+        }
+
+        aside {
+            padding: 18px;
+            border-right: 1px solid var(--border);
+            background: #151518;
+        }
+
+        .drop {
+            min-height: 120px;
+            display: grid;
+            place-items: center;
+            align-content: center;
+            gap: 7px;
+            border: 2px dashed #555561;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .drop:hover,
+        .drop.drag {
+            border-color: var(--accent);
+            background: #211e36;
+        }
+
+        .drop input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+        }
+
+        .drop small,
+        #empty {
+            color: #999;
+        }
+
+        #list {
+            margin: 16px 0 0;
+            padding: 0;
+            display: grid;
+            gap: 7px;
+            list-style: none;
+        }
+
+        #list button {
+            width: 100%;
+            text-align: left;
+        }
+
+        #list button.active {
+            outline: 2px solid var(--accent);
+            background: #2b2840;
+        }
+
+        #empty {
+            place-self: center;
+        }
+
+        #editor {
+            width: min(900px, 100%);
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        h2 {
+            margin: 0 0 12px;
+            font-size: 1.1rem;
+        }
+
+        video {
+            width: 100%;
+            max-height: 62vh;
+            border-radius: 12px;
+            background: #000;
+        }
+
+        #motionGraph {
+            width: 100%;
+            height: 72px;
+            display: block;
+            margin-top: 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #17171b;
+            cursor: pointer;
+        }
+
+        .actions {
+            margin-top: 18px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        progress {
+            width: 100%;
+            margin-top: 14px;
+            accent-color: var(--accent);
+        }
+
+        #status {
+            min-height: 1.4em;
+            margin: 10px 0 0;
+            color: #bbb;
+        }
+
         @media (max-width: 700px) {
-            main { display: block; }
-            aside { border-right: 0; border-bottom: 1px solid var(--border); }
-            #list { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+            main {
+                display: block;
+            }
+
+            aside {
+                border-right: 0;
+                border-bottom: 1px solid var(--border);
+            }
+
+            #list {
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            }
         }
     </style>
 </head>
+
 <body>
     <header>
         <h1>表情変化の自動抽出</h1>
@@ -200,8 +354,10 @@
                     end: Math.min(limit, samples[index - 1].time + 1 / analysisFps + activityPaddingSeconds)
                 });
             }
-            return { samples, scores, threshold, intervals,
-                detectedRatio: samples.filter((sample) => sample.vector).length / samples.length };
+            return {
+                samples, scores, threshold, intervals,
+                detectedRatio: samples.filter((sample) => sample.vector).length / samples.length
+            };
         }
 
         console.assert((() => {
@@ -441,8 +597,10 @@
                     status.textContent = "処理エンジンを読み込み中…";
                     ffmpeg = new FFmpegWASM.FFmpeg();
                     ffmpeg.on("progress", ({ progress: ratio }) => progress.value = Math.max(0, Math.min(ratio, 1)));
-                    await ffmpeg.load({ coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
-                        wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href });
+                    await ffmpeg.load({
+                        coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
+                        wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href
+                    });
                 }
                 status.textContent = "抽出映像を作成中…";
                 await ffmpeg.writeFile("input.webm", new Uint8Array(await current.videoBlob.arrayBuffer()));
@@ -470,4 +628,5 @@
         });
     </script>
 </body>
+
 </html>
