@@ -1534,7 +1534,7 @@
             }
             updateFacePosition(result?.detection?.box);
             renderScore(true);
-            requestAnimationFrame(() => detectEmotion(detectOptions));
+            setTimeout(() => detectEmotion(detectOptions), 200);
         }
 
         async function startEmotionDetection() {
