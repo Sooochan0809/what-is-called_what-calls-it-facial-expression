@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>エディタ</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, sans-serif;
+            --accent: #8b7dff;
+            --panel: #1b1b1f;
+            --border: #3b3b42;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #101012;
+            color: #f4f4f5;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        button {
+            border: 0;
+            border-radius: 9px;
+            padding: 10px 14px;
+            background: #35353d;
+            color: inherit;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #464650;
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: white;
+            font-weight: 700;
+        }
+
+        button:disabled {
+            opacity: .45;
+            cursor: wait;
+        }
+
+        header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h1 {
+            margin: 0 0 4px;
+            font-size: 1.4rem;
+        }
+
+        header p,
+        .hint {
+            margin: 0;
+            color: #aaa;
+            font-size: .88rem;
+        }
+
+        main {
+            min-height: calc(100vh - 83px);
+            display: grid;
+            grid-template-columns: 250px minmax(0, 1fr);
+        }
+
+        aside {
+            padding: 18px;
+            border-right: 1px solid var(--border);
+            background: #151518;
+        }
+
+        .drop {
+            min-height: 126px;
+            display: grid;
+            place-items: center;
+            align-content: center;
+            gap: 7px;
+            border: 2px dashed #555561;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .drop.drag,
+        .drop:hover {
+            border-color: var(--accent);
+            background: #211e36;
+        }
+
+        .drop input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+        }
+
+        .drop small {
+            color: #999;
+        }
+
+        #list {
+            margin: 16px 0 0;
+            padding: 0;
+            display: grid;
+            gap: 7px;
+            list-style: none;
+        }
+
+        #list button {
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 4px;
+            text-align: left;
+        }
+
+        #list button.active {
+            outline: 2px solid var(--accent);
+            background: #2b2840;
+        }
+
+        #list small {
+            color: #aaa;
+        }
+
+        #clearAll {
+            width: 100%;
+            margin-top: 12px;
+        }
+
+        #empty {
+            place-self: center;
+            color: #999;
+        }
+
+        #editor {
+            width: min(1100px, 100%);
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .topline {
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: baseline;
+        }
+
+        .topline h2 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+
+        #judgment {
+            font-weight: 700;
+        }
+
+        #judgment.ok {
+            color: #67d89a;
+        }
+
+        #judgment.ng {
+            color: #ff8e8e;
+        }
+
+        video {
+            width: 100%;
+            max-height: 58vh;
+            border-radius: 12px;
+            background: #000;
+        }
+
+        .timeline {
+            margin-top: 20px;
+        }
+
+        .track {
+            height: 36px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #29292f;
+        }
+
+        .marker {
+            position: absolute;
+            inset-block: 0;
+            min-width: 2px;
+        }
+
+        .marker.threshold {
+            background: #d3a52d;
+            opacity: .72;
+        }
+
+        .marker.hold {
+            background: #3bbd7a;
+            opacity: .82;
+        }
+
+        .marker.result {
+            background: #55555d;
+        }
+
+        .selection {
+            position: absolute;
+            inset-block: 0;
+            border: 2px solid #b9b0ff;
+            background: #8b7dff33;
+            pointer-events: none;
+        }
+
+        .ranges {
+            height: 34px;
+            position: relative;
+            margin-top: -35px;
+        }
+
+        input[type=range] {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            margin: 0;
+            background: transparent;
+            pointer-events: none;
+            accent-color: var(--accent);
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            pointer-events: auto;
+        }
+
+        input[type=range]::-moz-range-thumb {
+            pointer-events: auto;
+        }
+
+        .legend {
+            margin: 9px 0 18px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            color: #aaa;
+            font-size: .8rem;
+        }
+
+        .legend i {
+            width: 11px;
+            height: 11px;
+            display: inline-block;
+            margin-right: 5px;
+            border-radius: 2px;
+            vertical-align: -1px;
+        }
+
+        .legend .threshold {
+            background: #d3a52d;
+        }
+
+        .legend .hold {
+            background: #3bbd7a;
+        }
+
+        .legend .result {
+            background: #55555d;
+        }
+
+        .legend .selected {
+            border: 2px solid #b9b0ff;
+        }
+
+        .presets,
+        .actions,
+        .time-fields {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .time-fields {
+            margin-top: 14px;
+        }
+
+        .time-fields label {
+            flex: 1;
+            min-width: 150px;
+            color: #bbb;
+            font-size: .82rem;
+        }
+
+        input[type=number] {
+            width: 100%;
+            margin-top: 5px;
+            padding: 9px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: inherit;
+        }
+
+        .actions {
+            margin-top: 18px;
+        }
+
+        .loop {
+            display: inline-flex;
+            gap: 6px;
+            align-items: center;
+            color: #bbb;
+        }
+
+        progress {
+            width: 100%;
+            margin-top: 14px;
+            accent-color: var(--accent);
+        }
+
+        #status {
+            min-height: 1.4em;
+            margin: 10px 0 0;
+            color: #aaa;
+        }
+
+        @media (max-width: 760px) {
+            main {
+                display: block;
+            }
+
+            aside {
+                border-right: 0;
+                border-bottom: 1px solid var(--border);
+            }
+
+            #list {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>編集エディター</h1>
+        <p>録画ZIPから、判定前の試行錯誤を切り出します。</p>
+    </header>
+    <main>
+        <aside>
+            <label class="drop" id="drop">
+                <strong>録画ZIPを選択</strong>
+                <small>複数選択・ドロップ可</small>
+                <input id="files" type="file" accept=".zip,application/zip" multiple>
+            </label>
+            <ul id="list"></ul>
+            <button id="clearAll" hidden>すべて外す</button>
+        </aside>
+
+        <p id="empty">左側に録画ZIPを読み込んでください。</p>
+        <section id="editor" hidden>
+            <div class="topline">
+                <h2 id="title"></h2>
+                <span id="judgment"></span>
+            </div>
+            <video id="video" controls playsinline></video>
+
+            <div class="timeline">
+                <div id="track" class="track">
+                    <div id="selection" class="selection"></div>
+                </div>
+                <div class="ranges">
+                    <input id="startRange" type="range" min="0" step="0.01" value="0" aria-label="切り抜き開始位置">
+                    <input id="endRange" type="range" min="0" step="0.01" value="0" aria-label="切り抜き終了位置">
+                </div>
+                <div class="legend">
+                    <span><i class="threshold"></i>80%以上</span>
+                    <span><i class="hold"></i>判定保持</span>
+                    <span><i class="result"></i>判定後</span>
+                    <span><i class="selected"></i>書き出し範囲</span>
+                </div>
+            </div>
+
+            <div class="presets">
+                <button id="trialPreset">試行錯誤のみ</button>
+                <button id="beforePreset">判定直前まで</button>
+                <button id="playSelection">選択範囲を再生</button>
+                <label class="loop"><input id="loop" type="checkbox" checked>ループ</label>
+            </div>
+            <div class="time-fields">
+                <label>開始（秒）<input id="start" type="number" min="0" step="0.01"></label>
+                <button id="setStart">現在位置を開始に</button>
+                <label>終了（秒）<input id="end" type="number" min="0" step="0.01"></label>
+                <button id="setEnd">現在位置を終了に</button>
+            </div>
+            <div class="actions">
+                <button id="exportButton" class="primary">選択範囲を書き出す</button>
+            </div>
+            <progress id="progress" max="1" value="0" hidden></progress>
+            <p id="status" role="status" aria-live="polite"></p>
+            <p class="hint">高速な無劣化切り出しです。開始位置は最寄りのキーフレームに揃う場合があります。</p>
+        </section>
+    </main>
+
+    <script src="../modules/ffmpeg/ffmpeg.js"></script>
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const [fileInput, drop, list, clearAll, empty, editor, title, judgment, video, track, selection,
+            startRange, endRange, startInput, endInput, status, progress, exportButton] =
+            ["files", "drop", "list", "clearAll", "empty", "editor", "title", "judgment", "video", "track", "selection",
+                "startRange", "endRange", "start", "end", "status", "progress", "exportButton"].map($);
+        const decoder = new TextDecoder();
+        let recordings = [];
+        let current = null;
+        let sourceUrl = "";
+        let outputUrl = "";
+        let ffmpeg = null;
+        let rotationSeconds = 30;
+
+        fetch("config.json", { cache: "no-store" })
+            .then((response) => response.json())
+            .then((config) => rotationSeconds = Math.max(1, Number(config.rotationIntervalMs) / 1000 || 30))
+            .catch(() => { });
+
+        function storedZipEntries(file) {
+            return file.arrayBuffer().then((buffer) => {
+                const bytes = new Uint8Array(buffer);
+                const view = new DataView(buffer);
+                const entries = new Map();
+                let offset = 0;
+                while (offset + 30 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+                    const flags = view.getUint16(offset + 6, true);
+                    const method = view.getUint16(offset + 8, true);
+                    const size = view.getUint32(offset + 18, true);
+                    const nameLength = view.getUint16(offset + 26, true);
+                    const extraLength = view.getUint16(offset + 28, true);
+                    const dataAt = offset + 30 + nameLength + extraLength;
+                    const dataEnd = dataAt + size;
+                    if (flags & 0x08 || method !== 0 || dataEnd > bytes.length) {
+                        throw new Error("このZIP形式には対応していません。expression-checkで作成したZIPを選択してください。");
+                    }
+                    const name = decoder.decode(bytes.subarray(offset + 30, offset + 30 + nameLength));
+                    entries.set(name, new Blob([bytes.slice(dataAt, dataEnd)]));
+                    offset = dataEnd;
+                }
+                return entries;
+            });
+        }
+
+        async function readRecording(file) {
+            const entries = await storedZipEntries(file);
+            const jsonEntry = [...entries].find(([name]) => name.toLowerCase().endsWith(".json"));
+            if (!jsonEntry) throw new Error(`${file.name}: JSONがありません。`);
+            let metadata;
+            try { metadata = JSON.parse(await jsonEntry[1].text()); }
+            catch { throw new Error(`${file.name}: JSONを読み取れません。`); }
+            const videoEntry = metadata.video && entries.get(metadata.video)
+                ? [metadata.video, entries.get(metadata.video)]
+                : [...entries].find(([name]) => name.toLowerCase().endsWith(".webm"));
+            if (!videoEntry) throw new Error(`${file.name}: WebMがありません。`);
+            return { sourceName: file.name, videoName: videoEntry[0], videoBlob: videoEntry[1], metadata };
+        }
+
+        function rangesFor(metadata, duration) {
+            const clear = metadata.clearEvents?.find((event) => Number.isFinite(Number(event.start)) && Number.isFinite(Number(event.end)));
+            const explicitJudgment = metadata.judgmentAt;
+            const judgmentAt = Math.min(duration, Number.isFinite(explicitJudgment)
+                ? Number(explicitJudgment)
+                : clear ? Number(clear.end) : rotationSeconds);
+            const explicitHold = metadata.holdStartedAt;
+            const trialEnd = Math.min(judgmentAt, Number.isFinite(explicitHold)
+                ? Number(explicitHold)
+                : clear ? Number(clear.start) : judgmentAt);
+            return { clear, trialEnd: Math.max(0, trialEnd), judgmentAt: Math.max(0, judgmentAt) };
+        }
+
+        console.assert(rangesFor({ clearEvents: [{ start: 2, end: 3 }] }, 8).trialEnd === 2
+            && rangesFor({ judgmentAt: 30, holdStartedAt: null }, 33).trialEnd === 30,
+            "試行錯誤区間の計算が不正です");
+
+        function resultOf(metadata) {
+            if (metadata.result) return metadata.result === "detected";
+            return Boolean(metadata.clearEvents?.length);
+        }
+
+        function marker(className, from, to, duration) {
+            if (!(to > from) || !duration) return;
+            const node = document.createElement("i");
+            node.className = `marker ${className}`;
+            node.style.left = `${from / duration * 100}%`;
+            node.style.width = `${(to - from) / duration * 100}%`;
+            track.insertBefore(node, selection);
+        }
+
+        function renderTimeline() {
+            track.querySelectorAll(".marker").forEach((node) => node.remove());
+            if (!current) return;
+            const { duration, metadata } = current;
+            const { clear, judgmentAt } = rangesFor(metadata, duration);
+            for (const interval of metadata.aboveThresholdIntervals || [])
+                marker("threshold", Math.max(0, Number(interval.start)), Math.min(judgmentAt, Number(interval.end)), duration);
+            if (clear) marker("hold", Number(clear.start), Math.min(judgmentAt, Number(clear.end)), duration);
+            marker("result", judgmentAt, duration, duration);
+            renderSelection();
+        }
+
+        function renderSelection() {
+            if (!current?.duration) return;
+            const from = Number(startInput.value) || 0;
+            const to = Number(endInput.value) || 0;
+            selection.style.left = `${from / current.duration * 100}%`;
+            selection.style.width = `${Math.max(0, to - from) / current.duration * 100}%`;
+        }
+
+        function setRange(from, to) {
+            const duration = current?.duration || 0;
+            from = Math.max(0, Math.min(Number(from) || 0, duration));
+            to = Math.max(from + .01, Math.min(Number(to) || 0, duration));
+            if (to > duration) { to = duration; from = Math.max(0, to - .01); }
+            startInput.value = startRange.value = from.toFixed(2);
+            endInput.value = endRange.value = to.toFixed(2);
+            renderSelection();
+        }
+
+        function usePreset(kind) {
+            const ranges = rangesFor(current.metadata, current.duration);
+            setRange(0, kind === "trial" ? ranges.trialEnd : ranges.judgmentAt);
+            video.currentTime = 0;
+        }
+
+        function renderList() {
+            list.replaceChildren(...recordings.map((recording) => {
+                const item = document.createElement("li");
+                const button = document.createElement("button");
+                const label = document.createElement("span");
+                const result = document.createElement("small");
+                label.textContent = `part ${recording.metadata.part ?? "-"}`;
+                result.textContent = resultOf(recording.metadata) ? "適切" : "不適切";
+                button.classList.toggle("active", recording === current);
+                button.append(label, result);
+                button.addEventListener("click", () => openRecording(recording));
+                item.append(button);
+                return item;
+            }));
+            clearAll.hidden = recordings.length === 0;
+        }
+
+        function openRecording(recording) {
+            current = recording;
+            if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+            sourceUrl = URL.createObjectURL(recording.videoBlob);
+            video.src = sourceUrl;
+            title.textContent = `part ${recording.metadata.part ?? "-"} — ${recording.videoName}`;
+            const detected = resultOf(recording.metadata);
+            judgment.textContent = detected ? "適切" : "不適切";
+            judgment.className = detected ? "ok" : "ng";
+            empty.hidden = true;
+            editor.hidden = false;
+            status.textContent = "";
+            renderList();
+        }
+
+        video.addEventListener("loadedmetadata", () => {
+            if (!current) return;
+            current.duration = video.duration;
+            for (const input of [startRange, endRange, startInput, endInput]) input.max = video.duration;
+            renderTimeline();
+            usePreset("trial");
+        });
+
+        async function addFiles(files) {
+            const errors = [];
+            for (const file of files) {
+                try {
+                    const recording = await readRecording(file);
+                    const duplicate = recordings.findIndex((item) => item.videoName === recording.videoName);
+                    if (duplicate >= 0) recordings.splice(duplicate, 1, recording); else recordings.push(recording);
+                } catch (error) { errors.push(error.message); }
+            }
+            recordings.sort((a, b) => Number(a.metadata.part) - Number(b.metadata.part));
+            renderList();
+            if (!current && recordings.length) openRecording(recordings[0]);
+            status.textContent = errors.join(" ");
+        }
+
+        fileInput.addEventListener("change", () => addFiles(fileInput.files));
+        for (const name of ["dragenter", "dragover"])
+            drop.addEventListener(name, (event) => { event.preventDefault(); drop.classList.add("drag"); });
+        for (const name of ["dragleave", "drop"])
+            drop.addEventListener(name, (event) => { event.preventDefault(); drop.classList.remove("drag"); });
+        drop.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
+
+        clearAll.addEventListener("click", () => {
+            recordings = [];
+            current = null;
+            video.removeAttribute("src");
+            video.load();
+            if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+            sourceUrl = "";
+            editor.hidden = true;
+            empty.hidden = false;
+            fileInput.value = "";
+            renderList();
+        });
+
+        startRange.addEventListener("input", () => { setRange(startRange.value, endInput.value); video.currentTime = Number(startInput.value); });
+        endRange.addEventListener("input", () => { setRange(startInput.value, endRange.value); video.currentTime = Number(endInput.value); });
+        startInput.addEventListener("change", () => setRange(startInput.value, endInput.value));
+        endInput.addEventListener("change", () => setRange(startInput.value, endInput.value));
+        $("setStart").addEventListener("click", () => setRange(video.currentTime, endInput.value));
+        $("setEnd").addEventListener("click", () => setRange(startInput.value, video.currentTime));
+        $("trialPreset").addEventListener("click", () => usePreset("trial"));
+        $("beforePreset").addEventListener("click", () => usePreset("before"));
+        $("playSelection").addEventListener("click", () => { video.currentTime = Number(startInput.value); video.play(); });
+        video.addEventListener("timeupdate", () => {
+            if (video.currentTime < Number(endInput.value)) return;
+            if ($("loop").checked) { video.currentTime = Number(startInput.value); video.play(); }
+            else video.pause();
+        });
+
+        exportButton.addEventListener("click", async () => {
+            const from = Number(startInput.value);
+            const length = Number(endInput.value) - from;
+            if (!current || !(length > 0)) return;
+            exportButton.disabled = true;
+            progress.hidden = false;
+            progress.value = 0;
+            try {
+                if (!ffmpeg) {
+                    status.textContent = "処理エンジンを読み込み中…";
+                    ffmpeg = new FFmpegWASM.FFmpeg();
+                    ffmpeg.on("progress", ({ progress: ratio }) => progress.value = Math.max(0, Math.min(ratio, 1)));
+                    await ffmpeg.load({
+                        coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
+                        wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href
+                    });
+                }
+                status.textContent = "切り出し中…";
+                await ffmpeg.writeFile("input.webm", new Uint8Array(await current.videoBlob.arrayBuffer()));
+                const exitCode = await ffmpeg.exec(["-ss", String(from), "-i", "input.webm", "-t", String(length),
+                    "-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero", "output.webm"]);
+                if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
+                const data = await ffmpeg.readFile("output.webm");
+                if (outputUrl) URL.revokeObjectURL(outputUrl);
+                outputUrl = URL.createObjectURL(new Blob([data], { type: "video/webm" }));
+                const anchor = document.createElement("a");
+                anchor.href = outputUrl;
+                anchor.download = current.videoName.replace(/\.webm$/i, "-trial.webm");
+                anchor.click();
+                progress.value = 1;
+                status.textContent = "書き出しました。";
+            } catch (error) {
+                console.error(error);
+                status.textContent = "切り出しに失敗しました。";
+            } finally {
+                if (ffmpeg) for (const name of ["input.webm", "output.webm"]) try { await ffmpeg.deleteFile(name); } catch { }
+                exportButton.disabled = false;
+            }
+        });
+    </script>
+</body>
+
+</html>

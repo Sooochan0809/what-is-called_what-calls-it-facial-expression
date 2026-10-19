@@ -921,13 +921,13 @@
             const aboveThresholdEmotions = faceDetected
                 ? emotions.filter((name) => Math.round((Number(latestExpressions[name]) || 0) * 100) >= judgmentScoreThreshold)
                 : [];
+            if (photographScene.hidden || captureInProgress || situationJudgmentPending || !tutorialOverlay.hidden || !partIntro.hidden) return;
             const measuredAt = isDetectionFrame ? performance.now() : 0;
             if (isDetectionFrame && recording) updateThresholdInterval(
                 recording,
                 aboveThresholdEmotions,
                 elapsedSeconds(measuredAt, recording.startedAt)
             );
-            if (photographScene.hidden || captureInProgress || situationJudgmentPending || !tutorialOverlay.hidden || !partIntro.hidden) return;
             maximumScores[situationIndex] = Math.max(maximumScores[situationIndex] || 0, rounded);
             if (isDetectionFrame) {
                 if (aboveThreshold) {
@@ -1315,12 +1315,16 @@
             const name = `p${session.part}_${two(createdAt.getMonth() + 1)}${two(createdAt.getDate())}_${two(createdAt.getHours())}${two(createdAt.getMinutes())}${two(createdAt.getSeconds())}`;
             const video = await setWebmDuration(session.blob, session.endedAt - session.startedAt);
             const metadata = new Blob([JSON.stringify({
-                version: 6,
+                version: 7,
                 video: `${name}.webm`,
                 part: session.part,
                 timeUnit: "seconds-from-part-start",
                 targetEmotions: session.targetEmotions,
                 threshold: judgmentScoreThreshold,
+                result: session.result,
+                holdStartedAt: session.holdStartedAt,
+                judgmentAt: session.judgmentAt,
+                recordingEndedAt: elapsedSeconds(session.endedAt, session.startedAt),
                 clearEvents: session.clearEvents,
                 aboveThresholdIntervals: session.aboveThresholdIntervals
             }, null, 2)], { type: "application/json" });
@@ -1566,10 +1570,17 @@
             stopSituationRotation();
             stopScoreAnimation();
             scoreBar.classList.add("is-frozen");
-            if (detected && recording) recording.clearEvents.push({
-                start: elapsedSeconds(clearStartedAt, recording.startedAt),
-                end: elapsedSeconds(clearEndedAt, recording.startedAt)
-            });
+            if (recording) {
+                const judgmentAt = elapsedSeconds(clearEndedAt, recording.startedAt);
+                recording.result = detected ? "detected" : "notDetected";
+                recording.holdStartedAt = detected ? elapsedSeconds(clearStartedAt, recording.startedAt) : null;
+                recording.judgmentAt = judgmentAt;
+                updateThresholdInterval(recording, [], judgmentAt);
+                if (detected) recording.clearEvents.push({
+                    start: recording.holdStartedAt,
+                    end: judgmentAt
+                });
+            }
             replayAudio(detected ? clearAudio : failureAudio);
             showJudgmentMessage(detected);
             try {
