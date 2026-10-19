@@ -1,362 +1,48 @@
 <!doctype html>
 <html lang="ja">
-
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>エディタ</title>
+    <title>表情変化の自動抽出</title>
     <style>
-        :root {
-            color-scheme: dark;
-            font-family: system-ui, sans-serif;
-            --accent: #8b7dff;
-            --panel: #1b1b1f;
-            --border: #3b3b42;
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            background: #101012;
-            color: #f4f4f5;
-        }
-
-        button,
-        input {
-            font: inherit;
-        }
-
-        button {
-            border: 0;
-            border-radius: 9px;
-            padding: 10px 14px;
-            background: #35353d;
-            color: inherit;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background: #464650;
-        }
-
-        button.primary {
-            background: var(--accent);
-            color: white;
-            font-weight: 700;
-        }
-
-        button:disabled {
-            opacity: .45;
-            cursor: wait;
-        }
-
-        header {
-            padding: 20px 24px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        h1 {
-            margin: 0 0 4px;
-            font-size: 1.4rem;
-        }
-
-        header p,
-        .hint {
-            margin: 0;
-            color: #aaa;
-            font-size: .88rem;
-        }
-
-        main {
-            min-height: calc(100vh - 83px);
-            display: grid;
-            grid-template-columns: 250px minmax(0, 1fr);
-        }
-
-        aside {
-            padding: 18px;
-            border-right: 1px solid var(--border);
-            background: #151518;
-        }
-
-        .drop {
-            min-height: 126px;
-            display: grid;
-            place-items: center;
-            align-content: center;
-            gap: 7px;
-            border: 2px dashed #555561;
-            border-radius: 12px;
-            text-align: center;
-            cursor: pointer;
-        }
-
-        .drop.drag,
-        .drop:hover {
-            border-color: var(--accent);
-            background: #211e36;
-        }
-
-        .drop input {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            opacity: 0;
-        }
-
-        .drop small {
-            color: #999;
-        }
-
-        #list {
-            margin: 16px 0 0;
-            padding: 0;
-            display: grid;
-            gap: 7px;
-            list-style: none;
-        }
-
-        #list button {
-            width: 100%;
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 4px;
-            text-align: left;
-        }
-
-        #list button.active {
-            outline: 2px solid var(--accent);
-            background: #2b2840;
-        }
-
-        #list small {
-            color: #aaa;
-        }
-
-        #clearAll {
-            width: 100%;
-            margin-top: 12px;
-        }
-
-        #empty {
-            place-self: center;
-            color: #999;
-        }
-
-        #editor {
-            width: min(1100px, 100%);
-            margin: 0 auto;
-            padding: 24px;
-        }
-
-        .topline {
-            margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            align-items: baseline;
-        }
-
-        .topline h2 {
-            margin: 0;
-            font-size: 1.2rem;
-        }
-
-        #judgment {
-            font-weight: 700;
-        }
-
-        #judgment.ok {
-            color: #67d89a;
-        }
-
-        #judgment.ng {
-            color: #ff8e8e;
-        }
-
-        video {
-            width: 100%;
-            max-height: 58vh;
-            border-radius: 12px;
-            background: #000;
-        }
-
-        .timeline {
-            margin-top: 20px;
-        }
-
-        .track {
-            height: 36px;
-            position: relative;
-            overflow: hidden;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: #29292f;
-        }
-
-        .marker {
-            position: absolute;
-            inset-block: 0;
-            min-width: 2px;
-        }
-
-        .marker.threshold {
-            background: #d3a52d;
-            opacity: .72;
-        }
-
-        .marker.hold {
-            background: #3bbd7a;
-            opacity: .82;
-        }
-
-        .marker.result {
-            background: #55555d;
-        }
-
-        .selection {
-            position: absolute;
-            inset-block: 0;
-            border: 2px solid #b9b0ff;
-            background: #8b7dff33;
-            pointer-events: none;
-        }
-
-        .ranges {
-            height: 34px;
-            position: relative;
-            margin-top: -35px;
-        }
-
-        input[type=range] {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            margin: 0;
-            background: transparent;
-            pointer-events: none;
-            accent-color: var(--accent);
-        }
-
-        input[type=range]::-webkit-slider-thumb {
-            pointer-events: auto;
-        }
-
-        input[type=range]::-moz-range-thumb {
-            pointer-events: auto;
-        }
-
-        .legend {
-            margin: 9px 0 18px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 14px;
-            color: #aaa;
-            font-size: .8rem;
-        }
-
-        .legend i {
-            width: 11px;
-            height: 11px;
-            display: inline-block;
-            margin-right: 5px;
-            border-radius: 2px;
-            vertical-align: -1px;
-        }
-
-        .legend .threshold {
-            background: #d3a52d;
-        }
-
-        .legend .hold {
-            background: #3bbd7a;
-        }
-
-        .legend .result {
-            background: #55555d;
-        }
-
-        .legend .selected {
-            border: 2px solid #b9b0ff;
-        }
-
-        .presets,
-        .actions,
-        .time-fields {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            align-items: end;
-        }
-
-        .time-fields {
-            margin-top: 14px;
-        }
-
-        .time-fields label {
-            flex: 1;
-            min-width: 150px;
-            color: #bbb;
-            font-size: .82rem;
-        }
-
-        input[type=number] {
-            width: 100%;
-            margin-top: 5px;
-            padding: 9px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--panel);
-            color: inherit;
-        }
-
-        .actions {
-            margin-top: 18px;
-        }
-
-        .loop {
-            display: inline-flex;
-            gap: 6px;
-            align-items: center;
-            color: #bbb;
-        }
-
-        progress {
-            width: 100%;
-            margin-top: 14px;
-            accent-color: var(--accent);
-        }
-
-        #status {
-            min-height: 1.4em;
-            margin: 10px 0 0;
-            color: #aaa;
-        }
-
-        @media (max-width: 760px) {
-            main {
-                display: block;
-            }
-
-            aside {
-                border-right: 0;
-                border-bottom: 1px solid var(--border);
-            }
-
-            #list {
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            }
+        :root { color-scheme: dark; font-family: system-ui, sans-serif; --accent: #8b7dff; --border: #3b3b42; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #101012; color: #f4f4f5; }
+        button { border: 0; border-radius: 9px; padding: 11px 16px; background: #35353d; color: inherit; font: inherit; cursor: pointer; }
+        button:hover { background: #464650; }
+        button.primary { background: var(--accent); color: white; font-weight: 700; }
+        button:disabled { opacity: .45; cursor: wait; }
+        header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+        h1 { margin: 0 0 4px; font-size: 1.4rem; }
+        header p { margin: 0; color: #aaa; font-size: .88rem; }
+        main { min-height: calc(100vh - 83px); display: grid; grid-template-columns: 230px minmax(0, 1fr); }
+        aside { padding: 18px; border-right: 1px solid var(--border); background: #151518; }
+        .drop { min-height: 120px; display: grid; place-items: center; align-content: center; gap: 7px; border: 2px dashed #555561; border-radius: 12px; text-align: center; cursor: pointer; }
+        .drop:hover, .drop.drag { border-color: var(--accent); background: #211e36; }
+        .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        .drop small, #empty { color: #999; }
+        #list { margin: 16px 0 0; padding: 0; display: grid; gap: 7px; list-style: none; }
+        #list button { width: 100%; text-align: left; }
+        #list button.active { outline: 2px solid var(--accent); background: #2b2840; }
+        #empty { place-self: center; }
+        #editor { width: min(900px, 100%); margin: 0 auto; padding: 24px; }
+        h2 { margin: 0 0 12px; font-size: 1.1rem; }
+        video { width: 100%; max-height: 62vh; border-radius: 12px; background: #000; }
+        #motionGraph { width: 100%; height: 72px; display: block; margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; background: #17171b; cursor: pointer; }
+        .actions { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; }
+        progress { width: 100%; margin-top: 14px; accent-color: var(--accent); }
+        #status { min-height: 1.4em; margin: 10px 0 0; color: #bbb; }
+        @media (max-width: 700px) {
+            main { display: block; }
+            aside { border-right: 0; border-bottom: 1px solid var(--border); }
+            #list { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
         }
     </style>
 </head>
-
 <body>
     <header>
-        <h1>編集エディター</h1>
-        <p>録画ZIPから、判定前の試行錯誤を切り出します。</p>
+        <h1>表情変化の自動抽出</h1>
+        <p>録画ZIPを読み込み、動き続けている表情を抽出します。</p>
     </header>
     <main>
         <aside>
@@ -366,219 +52,337 @@
                 <input id="files" type="file" accept=".zip,application/zip" multiple>
             </label>
             <ul id="list"></ul>
-            <button id="clearAll" hidden>すべて外す</button>
         </aside>
-
-        <p id="empty">左側に録画ZIPを読み込んでください。</p>
+        <p id="empty">録画ZIPを読み込んでください。</p>
         <section id="editor" hidden>
-            <div class="topline">
-                <h2 id="title"></h2>
-                <span id="judgment"></span>
-            </div>
+            <h2 id="title"></h2>
             <video id="video" controls playsinline></video>
-
-            <div class="timeline">
-                <div id="track" class="track">
-                    <div id="selection" class="selection"></div>
-                </div>
-                <div class="ranges">
-                    <input id="startRange" type="range" min="0" step="0.01" value="0" aria-label="切り抜き開始位置">
-                    <input id="endRange" type="range" min="0" step="0.01" value="0" aria-label="切り抜き終了位置">
-                </div>
-                <div class="legend">
-                    <span><i class="threshold"></i>80%以上</span>
-                    <span><i class="hold"></i>判定保持</span>
-                    <span><i class="result"></i>判定後</span>
-                    <span><i class="selected"></i>書き出し範囲</span>
-                </div>
-            </div>
-
-            <div class="presets">
-                <button id="trialPreset">試行錯誤のみ</button>
-                <button id="beforePreset">判定直前まで</button>
-                <button id="playSelection">選択範囲を再生</button>
-                <label class="loop"><input id="loop" type="checkbox" checked>ループ</label>
-            </div>
-            <div class="time-fields">
-                <label>開始（秒）<input id="start" type="number" min="0" step="0.01"></label>
-                <button id="setStart">現在位置を開始に</button>
-                <label>終了（秒）<input id="end" type="number" min="0" step="0.01"></label>
-                <button id="setEnd">現在位置を終了に</button>
-            </div>
+            <canvas id="motionGraph" height="72" aria-label="表情変化量グラフ" hidden></canvas>
             <div class="actions">
-                <button id="exportButton" class="primary">選択範囲を書き出す</button>
+                <button id="analyzeButton" class="primary">表情変化を解析・自動抽出</button>
+                <button id="saveButton" hidden>抽出映像を保存</button>
             </div>
             <progress id="progress" max="1" value="0" hidden></progress>
             <p id="status" role="status" aria-live="polite"></p>
-            <p class="hint">高速な無劣化切り出しです。開始位置は最寄りのキーフレームに揃う場合があります。</p>
         </section>
     </main>
-
     <script src="../modules/ffmpeg/ffmpeg.js"></script>
     <script>
         const $ = (id) => document.getElementById(id);
-        const [fileInput, drop, list, clearAll, empty, editor, title, judgment, video, track, selection,
-            startRange, endRange, startInput, endInput, status, progress, exportButton] =
-            ["files", "drop", "list", "clearAll", "empty", "editor", "title", "judgment", "video", "track", "selection",
-                "startRange", "endRange", "start", "end", "status", "progress", "exportButton"].map($);
+        const [fileInput, drop, list, empty, editor, title, video, motionGraph, analyzeButton, saveButton, progress, status] =
+            ["files", "drop", "list", "empty", "editor", "title", "video", "motionGraph", "analyzeButton", "saveButton", "progress", "status"].map($);
         const decoder = new TextDecoder();
+        const ANALYSIS_MAX_SIZE = 480;
+        let analysisFps = 10;
+        let activityMinSeconds = .3;
+        let activityMaxGapSeconds = .6;
+        let activityPaddingSeconds = .2;
+        let activityMinThreshold = .008;
+        let minimumFaceDetectionRatio = .8;
+        let rotationSeconds = 30;
         let recordings = [];
         let current = null;
+        let loopInterval = null;
         let sourceUrl = "";
         let outputUrl = "";
         let ffmpeg = null;
-        let rotationSeconds = 30;
 
-        fetch("config.json", { cache: "no-store" })
+        const analysisConfigurationReady = fetch("analysis.json", { cache: "no-store" })
             .then((response) => response.json())
-            .then((config) => rotationSeconds = Math.max(1, Number(config.rotationIntervalMs) / 1000 || 30))
-            .catch(() => { });
+            .then((analysis) => {
+                rotationSeconds = Math.max(1, Number(analysis.maximumDurationMs) / 1000 || 30);
+                analysisFps = Math.min(30, Math.max(1, Number(analysis.frameRate) || 10));
+                activityMinSeconds = Math.max(.1, Number(analysis.minimumActivityMs) / 1000 || .3);
+                activityMaxGapSeconds = Math.max(0, Number(analysis.maximumGapMs) / 1000 || .6);
+                activityPaddingSeconds = Math.max(0, Number(analysis.paddingMs) / 1000 || .2);
+                activityMinThreshold = Math.max(.001, Number(analysis.minimumMotionThreshold) || .008);
+                minimumFaceDetectionRatio = Math.min(1, Math.max(0, Number(analysis.minimumFaceDetectionRatio) || .8));
+            }).catch(() => { });
 
-        function storedZipEntries(file) {
-            return file.arrayBuffer().then((buffer) => {
-                const bytes = new Uint8Array(buffer);
-                const view = new DataView(buffer);
-                const entries = new Map();
-                let offset = 0;
-                while (offset + 30 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
-                    const flags = view.getUint16(offset + 6, true);
-                    const method = view.getUint16(offset + 8, true);
-                    const size = view.getUint32(offset + 18, true);
-                    const nameLength = view.getUint16(offset + 26, true);
-                    const extraLength = view.getUint16(offset + 28, true);
-                    const dataAt = offset + 30 + nameLength + extraLength;
-                    const dataEnd = dataAt + size;
-                    if (flags & 0x08 || method !== 0 || dataEnd > bytes.length) {
-                        throw new Error("このZIP形式には対応していません。expression-checkで作成したZIPを選択してください。");
-                    }
-                    const name = decoder.decode(bytes.subarray(offset + 30, offset + 30 + nameLength));
-                    entries.set(name, new Blob([bytes.slice(dataAt, dataEnd)]));
-                    offset = dataEnd;
-                }
-                return entries;
-            });
+        async function storedZipEntries(file) {
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            const view = new DataView(buffer);
+            const entries = new Map();
+            let offset = 0;
+            while (offset + 30 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+                const flags = view.getUint16(offset + 6, true);
+                const method = view.getUint16(offset + 8, true);
+                const size = view.getUint32(offset + 18, true);
+                const nameLength = view.getUint16(offset + 26, true);
+                const extraLength = view.getUint16(offset + 28, true);
+                const dataAt = offset + 30 + nameLength + extraLength;
+                const dataEnd = dataAt + size;
+                if (flags & 0x08 || method !== 0 || dataEnd > bytes.length)
+                    throw new Error("expression-checkで作成したZIPを選択してください。");
+                const name = decoder.decode(bytes.subarray(offset + 30, offset + 30 + nameLength));
+                entries.set(name, new Blob([bytes.slice(dataAt, dataEnd)]));
+                offset = dataEnd;
+            }
+            return entries;
         }
 
         async function readRecording(file) {
             const entries = await storedZipEntries(file);
             const jsonEntry = [...entries].find(([name]) => name.toLowerCase().endsWith(".json"));
             if (!jsonEntry) throw new Error(`${file.name}: JSONがありません。`);
-            let metadata;
-            try { metadata = JSON.parse(await jsonEntry[1].text()); }
-            catch { throw new Error(`${file.name}: JSONを読み取れません。`); }
+            const metadata = JSON.parse(await jsonEntry[1].text());
             const videoEntry = metadata.video && entries.get(metadata.video)
                 ? [metadata.video, entries.get(metadata.video)]
                 : [...entries].find(([name]) => name.toLowerCase().endsWith(".webm"));
             if (!videoEntry) throw new Error(`${file.name}: WebMがありません。`);
-            return { sourceName: file.name, videoName: videoEntry[0], videoBlob: videoEntry[1], metadata };
+            return { videoName: videoEntry[0], videoBlob: videoEntry[1], metadata };
         }
 
-        function rangesFor(metadata, duration) {
-            const clear = metadata.clearEvents?.find((event) => Number.isFinite(Number(event.start)) && Number.isFinite(Number(event.end)));
-            const explicitJudgment = metadata.judgmentAt;
-            const judgmentAt = Math.min(duration, Number.isFinite(explicitJudgment)
-                ? Number(explicitJudgment)
-                : clear ? Number(clear.end) : rotationSeconds);
-            const explicitHold = metadata.holdStartedAt;
-            const trialEnd = Math.min(judgmentAt, Number.isFinite(explicitHold)
-                ? Number(explicitHold)
-                : clear ? Number(clear.start) : judgmentAt);
-            return { clear, trialEnd: Math.max(0, trialEnd), judgmentAt: Math.max(0, judgmentAt) };
+        function analysisLimit(metadata, duration) {
+            const clear = metadata.clearEvents?.[0];
+            if (Number.isFinite(metadata.holdStartedAt)) return Math.min(duration, metadata.holdStartedAt);
+            if (Number.isFinite(Number(clear?.start))) return Math.min(duration, Number(clear.start));
+            if (Number.isFinite(metadata.judgmentAt)) return Math.min(duration, metadata.judgmentAt);
+            return Math.min(duration, rotationSeconds);
         }
 
-        console.assert(rangesFor({ clearEvents: [{ start: 2, end: 3 }] }, 8).trialEnd === 2
-            && rangesFor({ judgmentAt: 30, holdStartedAt: null }, 33).trialEnd === 30,
-            "試行錯誤区間の計算が不正です");
+        const median = (values) => {
+            const sorted = [...values].sort((a, b) => a - b);
+            const middle = Math.floor(sorted.length / 2);
+            return sorted.length % 2 ? sorted[middle] : ((sorted[middle - 1] || 0) + (sorted[middle] || 0)) / 2;
+        };
 
-        function resultOf(metadata) {
-            if (metadata.result) return metadata.result === "detected";
-            return Boolean(metadata.clearEvents?.length);
+        function fillShortGaps(flags, maximum) {
+            for (let index = 0; index < flags.length;) {
+                if (flags[index]) { index += 1; continue; }
+                const start = index;
+                while (index < flags.length && !flags[index]) index += 1;
+                if (start && index < flags.length && index - start <= maximum) flags.fill(true, start, index);
+            }
         }
 
-        function marker(className, from, to, duration) {
-            if (!(to > from) || !duration) return;
-            const node = document.createElement("i");
-            node.className = `marker ${className}`;
-            node.style.left = `${from / duration * 100}%`;
-            node.style.width = `${(to - from) / duration * 100}%`;
-            track.insertBefore(node, selection);
+        function removeShortRuns(flags, minimum) {
+            for (let index = 0; index < flags.length;) {
+                if (!flags[index]) { index += 1; continue; }
+                const start = index;
+                while (index < flags.length && flags[index]) index += 1;
+                if (index - start < minimum) flags.fill(false, start, index);
+            }
         }
 
-        function renderTimeline() {
-            track.querySelectorAll(".marker").forEach((node) => node.remove());
-            if (!current) return;
-            const { duration, metadata } = current;
-            const { clear, judgmentAt } = rangesFor(metadata, duration);
-            for (const interval of metadata.aboveThresholdIntervals || [])
-                marker("threshold", Math.max(0, Number(interval.start)), Math.min(judgmentAt, Number(interval.end)), duration);
-            if (clear) marker("hold", Number(clear.start), Math.min(judgmentAt, Number(clear.end)), duration);
-            marker("result", judgmentAt, duration, duration);
-            renderSelection();
+        function activityAnalysis(samples, limit) {
+            const deltas = Array(samples.length).fill(0);
+            let previous = null;
+            samples.forEach((sample, index) => {
+                if (!sample.vector) { previous = null; return; }
+                const smooth = sample.vector.map((value, key) => previous ? value * .45 + previous[key] * .55 : value);
+                if (previous) deltas[index] = Math.sqrt(smooth.reduce((sum, value, key) => {
+                    const difference = value - previous[key];
+                    return sum + difference * difference;
+                }, 0) / smooth.length);
+                previous = smooth;
+            });
+            const scores = deltas.map((_, index) => {
+                const values = deltas.slice(Math.max(0, index - 1), Math.min(deltas.length, index + 2));
+                return values.reduce((sum, value) => sum + value, 0) / values.length;
+            });
+            const sorted = [...scores].sort((a, b) => a - b);
+            const noise = sorted.slice(0, Math.max(3, Math.ceil(sorted.length * .3)));
+            const noiseMedian = median(noise);
+            const threshold = Math.max(activityMinThreshold,
+                noiseMedian + median(noise.map((value) => Math.abs(value - noiseMedian))) * 4);
+            const active = scores.map((score, index) => Boolean(samples[index].vector) && score >= threshold);
+            fillShortGaps(active, Math.round(activityMaxGapSeconds * analysisFps));
+            removeShortRuns(active, Math.ceil(activityMinSeconds * analysisFps));
+            const intervals = [];
+            for (let index = 0; index < active.length;) {
+                if (!active[index]) { index += 1; continue; }
+                const start = index;
+                while (index < active.length && active[index]) index += 1;
+                intervals.push({
+                    start: Math.max(0, samples[start].time - activityPaddingSeconds),
+                    end: Math.min(limit, samples[index - 1].time + 1 / analysisFps + activityPaddingSeconds)
+                });
+            }
+            return { samples, scores, threshold, intervals,
+                detectedRatio: samples.filter((sample) => sample.vector).length / samples.length };
         }
 
-        function renderSelection() {
-            if (!current?.duration) return;
-            const from = Number(startInput.value) || 0;
-            const to = Number(endInput.value) || 0;
-            selection.style.left = `${from / current.duration * 100}%`;
-            selection.style.width = `${Math.max(0, to - from) / current.duration * 100}%`;
+        console.assert((() => {
+            const flags = [true, false, false, true, false];
+            fillShortGaps(flags, 2);
+            removeShortRuns(flags, 3);
+            return flags.join() === "true,true,true,true,false";
+        })(), "表情変化区間の計算が不正です");
+
+        const waitFor = (target, event) => new Promise((resolve, reject) => {
+            const done = () => { target.removeEventListener("error", failed); resolve(); };
+            const failed = () => { target.removeEventListener(event, done); reject(new Error("映像を読み込めませんでした。")); };
+            target.addEventListener(event, done, { once: true });
+            target.addEventListener("error", failed, { once: true });
+        });
+
+        async function seek(media, time) {
+            if (Math.abs(media.currentTime - time) < .005 && media.readyState >= 2) return;
+            const ready = waitFor(media, "seeked");
+            media.currentTime = time;
+            await ready;
         }
 
-        function setRange(from, to) {
-            const duration = current?.duration || 0;
-            from = Math.max(0, Math.min(Number(from) || 0, duration));
-            to = Math.max(from + .01, Math.min(Number(to) || 0, duration));
-            if (to > duration) { to = duration; from = Math.max(0, to - .01); }
-            startInput.value = startRange.value = from.toFixed(2);
-            endInput.value = endRange.value = to.toFixed(2);
-            renderSelection();
-        }
-
-        function usePreset(kind) {
-            const ranges = rangesFor(current.metadata, current.duration);
-            setRange(0, kind === "trial" ? ranges.trialEnd : ranges.judgmentAt);
-            video.currentTime = 0;
+        function blendshapeVector(result) {
+            const categories = result.faceBlendshapes?.[0]?.categories || [];
+            if (!categories.length) return null;
+            return categories
+                .filter(({ categoryName }) => categoryName !== "_neutral" && !/^eye(?:Blink|Look)/.test(categoryName))
+                .map(({ score }) => Number(score) || 0);
         }
 
         function renderList() {
             list.replaceChildren(...recordings.map((recording) => {
                 const item = document.createElement("li");
                 const button = document.createElement("button");
-                const label = document.createElement("span");
-                const result = document.createElement("small");
-                label.textContent = `part ${recording.metadata.part ?? "-"}`;
-                result.textContent = resultOf(recording.metadata) ? "適切" : "不適切";
+                button.textContent = `part ${recording.metadata.part ?? "-"}`;
                 button.classList.toggle("active", recording === current);
-                button.append(label, result);
                 button.addEventListener("click", () => openRecording(recording));
                 item.append(button);
                 return item;
             }));
-            clearAll.hidden = recordings.length === 0;
         }
 
         function openRecording(recording) {
             current = recording;
+            loopInterval = null;
             if (sourceUrl) URL.revokeObjectURL(sourceUrl);
             sourceUrl = URL.createObjectURL(recording.videoBlob);
             video.src = sourceUrl;
-            title.textContent = `part ${recording.metadata.part ?? "-"} — ${recording.videoName}`;
-            const detected = resultOf(recording.metadata);
-            judgment.textContent = detected ? "適切" : "不適切";
-            judgment.className = detected ? "ok" : "ng";
+            title.textContent = `part ${recording.metadata.part ?? "-"}`;
             empty.hidden = true;
             editor.hidden = false;
             status.textContent = "";
             renderList();
+            renderResult();
         }
 
-        video.addEventListener("loadedmetadata", () => {
-            if (!current) return;
-            current.duration = video.duration;
-            for (const input of [startRange, endRange, startInput, endInput]) input.max = video.duration;
-            renderTimeline();
-            usePreset("trial");
-        });
+        function renderResult() {
+            const analysis = current?.analysis;
+            motionGraph.hidden = !analysis;
+            saveButton.hidden = !analysis?.reliable;
+            if (!analysis || !current.duration) return;
+
+            const ratio = devicePixelRatio || 1;
+            const width = Math.max(1, Math.round(motionGraph.clientWidth * ratio));
+            const height = Math.round(72 * ratio);
+            motionGraph.width = width;
+            motionGraph.height = height;
+            const context = motionGraph.getContext("2d");
+            context.scale(ratio, ratio);
+            const cssWidth = width / ratio;
+            const cssHeight = height / ratio;
+            const sorted = [...analysis.scores].sort((a, b) => a - b);
+            const ceiling = Math.max(analysis.threshold * 1.5, sorted[Math.floor(sorted.length * .95)] || 1);
+
+            analysis.intervals.forEach((interval) => {
+                context.fillStyle = interval === loopInterval ? "#8b7dff99" : "#8b7dff55";
+                context.fillRect(
+                    interval.start / current.duration * cssWidth,
+                    0,
+                    (interval.end - interval.start) / current.duration * cssWidth,
+                    cssHeight
+                );
+            });
+
+            context.strokeStyle = "#c074ff";
+            context.lineWidth = 1.5;
+            context.beginPath();
+            analysis.samples.forEach((sample, index) => {
+                const x = sample.time / current.duration * cssWidth;
+                const y = cssHeight - Math.min(1, analysis.scores[index] / ceiling) * (cssHeight - 8) - 4;
+                if (index) context.lineTo(x, y); else context.moveTo(x, y);
+            });
+            context.stroke();
+
+            context.strokeStyle = "#ffffff66";
+            context.setLineDash([4, 4]);
+            const thresholdY = cssHeight - Math.min(1, analysis.threshold / ceiling) * (cssHeight - 8) - 4;
+            context.beginPath();
+            context.moveTo(0, thresholdY);
+            context.lineTo(cssWidth, thresholdY);
+            context.stroke();
+        }
+
+        window.addEventListener("resize", renderResult);
+
+        function preview(analysis, interval = null) {
+            loopInterval = interval;
+            const from = interval?.start ?? analysis.from;
+            const to = interval?.end ?? analysis.to;
+            video.currentTime = from;
+            video.play().catch(() => { });
+            status.textContent = `${from.toFixed(2)}秒〜${to.toFixed(2)}秒を${interval ? "ループ再生中" : "自動抽出しました"}。`;
+            renderResult();
+        }
+
+        async function analyzeCurrent() {
+            const recording = current;
+            if (!recording?.duration) return;
+            if (recording.analysis?.reliable) { preview(recording.analysis); return; }
+            analyzeButton.disabled = true;
+            saveButton.hidden = true;
+            progress.hidden = false;
+            progress.value = 0;
+            let landmarker;
+            let analysisUrl;
+            try {
+                await analysisConfigurationReady;
+                status.textContent = "表情解析モデルを読み込み中…";
+                const { FaceLandmarker, FilesetResolver } = await import("../modules/mediapipe/vision_bundle.mjs");
+                const vision = await FilesetResolver.forVisionTasks("../modules/mediapipe/wasm");
+                landmarker = await FaceLandmarker.createFromOptions(vision, {
+                    baseOptions: { modelAssetPath: "../modules/mediapipe/models/face_landmarker.task" },
+                    runningMode: "VIDEO", numFaces: 1, minFaceDetectionConfidence: .35,
+                    minFacePresenceConfidence: .35, minTrackingConfidence: .35, outputFaceBlendshapes: true
+                });
+                const media = document.createElement("video");
+                media.muted = true;
+                media.preload = "auto";
+                analysisUrl = URL.createObjectURL(recording.videoBlob);
+                media.src = analysisUrl;
+                await waitFor(media, "loadeddata");
+                const scale = ANALYSIS_MAX_SIZE / Math.max(media.videoWidth, media.videoHeight);
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.round(media.videoWidth * scale);
+                canvas.height = Math.round(media.videoHeight * scale);
+                const context = canvas.getContext("2d", { alpha: false });
+                const limit = analysisLimit(recording.metadata, recording.duration);
+                const frameCount = Math.max(1, Math.ceil(limit * analysisFps));
+                const samples = [];
+                for (let index = 0; index < frameCount; index += 1) {
+                    const time = Math.min(index / analysisFps, Math.max(0, limit - .001));
+                    await seek(media, time);
+                    context.drawImage(media, 0, 0, canvas.width, canvas.height);
+                    const result = landmarker.detectForVideo(canvas, index * 1000 / analysisFps);
+                    samples.push({ time, vector: blendshapeVector(result) });
+                    progress.value = (index + 1) / frameCount;
+                    status.textContent = `表情を解析中… ${Math.round(progress.value * 100)}%`;
+                    if (index % 10 === 9) await new Promise((resolve) => setTimeout(resolve));
+                }
+                const analysis = activityAnalysis(samples, limit);
+                if (!analysis.intervals.length) throw new Error("連続した表情変化を検出できませんでした。");
+                analysis.reliable = analysis.detectedRatio >= minimumFaceDetectionRatio;
+                analysis.from = analysis.intervals[0].start;
+                analysis.to = analysis.intervals.at(-1).end;
+                recording.analysis = analysis;
+                if (current === recording) {
+                    renderResult();
+                    if (analysis.reliable) preview(analysis);
+                    else status.textContent = `顔検出率が${Math.round(analysis.detectedRatio * 100)}%のため抽出できませんでした。`;
+                }
+            } catch (error) {
+                console.error(error);
+                status.textContent = error.message || "表情解析に失敗しました。";
+            } finally {
+                landmarker?.close();
+                if (analysisUrl) URL.revokeObjectURL(analysisUrl);
+                progress.hidden = true;
+                analyzeButton.disabled = false;
+            }
+        }
 
         async function addFiles(files) {
             const errors = [];
@@ -592,7 +396,7 @@
             recordings.sort((a, b) => Number(a.metadata.part) - Number(b.metadata.part));
             renderList();
             if (!current && recordings.length) openRecording(recordings[0]);
-            status.textContent = errors.join(" ");
+            if (errors.length) status.textContent = errors.join(" ");
         }
 
         fileInput.addEventListener("change", () => addFiles(fileInput.files));
@@ -601,40 +405,32 @@
         for (const name of ["dragleave", "drop"])
             drop.addEventListener(name, (event) => { event.preventDefault(); drop.classList.remove("drag"); });
         drop.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
-
-        clearAll.addEventListener("click", () => {
-            recordings = [];
-            current = null;
-            video.removeAttribute("src");
-            video.load();
-            if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-            sourceUrl = "";
-            editor.hidden = true;
-            empty.hidden = false;
-            fileInput.value = "";
-            renderList();
+        video.addEventListener("loadedmetadata", () => {
+            if (!current) return;
+            current.duration = video.duration;
+            renderResult();
         });
-
-        startRange.addEventListener("input", () => { setRange(startRange.value, endInput.value); video.currentTime = Number(startInput.value); });
-        endRange.addEventListener("input", () => { setRange(startInput.value, endRange.value); video.currentTime = Number(endInput.value); });
-        startInput.addEventListener("change", () => setRange(startInput.value, endInput.value));
-        endInput.addEventListener("change", () => setRange(startInput.value, endInput.value));
-        $("setStart").addEventListener("click", () => setRange(video.currentTime, endInput.value));
-        $("setEnd").addEventListener("click", () => setRange(startInput.value, video.currentTime));
-        $("trialPreset").addEventListener("click", () => usePreset("trial"));
-        $("beforePreset").addEventListener("click", () => usePreset("before"));
-        $("playSelection").addEventListener("click", () => { video.currentTime = Number(startInput.value); video.play(); });
         video.addEventListener("timeupdate", () => {
-            if (video.currentTime < Number(endInput.value)) return;
-            if ($("loop").checked) { video.currentTime = Number(startInput.value); video.play(); }
-            else video.pause();
+            const analysis = current?.analysis;
+            const from = loopInterval?.start ?? analysis?.from;
+            const to = loopInterval?.end ?? analysis?.to;
+            if (!video.paused && Number.isFinite(to) && video.currentTime >= to)
+                video.currentTime = from;
         });
+        motionGraph.addEventListener("click", (event) => {
+            const analysis = current?.analysis;
+            if (!analysis || !current.duration) return;
+            const time = event.offsetX / motionGraph.clientWidth * current.duration;
+            const interval = analysis.intervals.find(({ start, end }) => time >= start && time <= end);
+            if (interval) preview(analysis, interval);
+        });
+        analyzeButton.addEventListener("click", analyzeCurrent);
 
-        exportButton.addEventListener("click", async () => {
-            const from = Number(startInput.value);
-            const length = Number(endInput.value) - from;
-            if (!current || !(length > 0)) return;
-            exportButton.disabled = true;
+        saveButton.addEventListener("click", async () => {
+            const analysis = current?.analysis;
+            if (!analysis?.reliable) return;
+            saveButton.disabled = true;
+            analyzeButton.disabled = true;
             progress.hidden = false;
             progress.value = 0;
             try {
@@ -642,15 +438,14 @@
                     status.textContent = "処理エンジンを読み込み中…";
                     ffmpeg = new FFmpegWASM.FFmpeg();
                     ffmpeg.on("progress", ({ progress: ratio }) => progress.value = Math.max(0, Math.min(ratio, 1)));
-                    await ffmpeg.load({
-                        coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
-                        wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href
-                    });
+                    await ffmpeg.load({ coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
+                        wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href });
                 }
-                status.textContent = "切り出し中…";
+                status.textContent = "抽出映像を作成中…";
                 await ffmpeg.writeFile("input.webm", new Uint8Array(await current.videoBlob.arrayBuffer()));
-                const exitCode = await ffmpeg.exec(["-ss", String(from), "-i", "input.webm", "-t", String(length),
-                    "-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero", "output.webm"]);
+                const exitCode = await ffmpeg.exec(["-ss", String(analysis.from), "-i", "input.webm",
+                    "-t", String(analysis.to - analysis.from), "-map", "0", "-c", "copy",
+                    "-avoid_negative_ts", "make_zero", "output.webm"]);
                 if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
                 const data = await ffmpeg.readFile("output.webm");
                 if (outputUrl) URL.revokeObjectURL(outputUrl);
@@ -659,17 +454,17 @@
                 anchor.href = outputUrl;
                 anchor.download = current.videoName.replace(/\.webm$/i, "-trial.webm");
                 anchor.click();
-                progress.value = 1;
-                status.textContent = "書き出しました。";
+                status.textContent = "抽出映像を保存しました。";
             } catch (error) {
                 console.error(error);
-                status.textContent = "切り出しに失敗しました。";
+                status.textContent = "抽出映像を作成できませんでした。";
             } finally {
                 if (ffmpeg) for (const name of ["input.webm", "output.webm"]) try { await ffmpeg.deleteFile(name); } catch { }
-                exportButton.disabled = false;
+                progress.hidden = true;
+                saveButton.disabled = false;
+                analyzeButton.disabled = false;
             }
         });
     </script>
 </body>
-
 </html>

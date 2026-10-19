@@ -1,0 +1,9 @@
+{
+  "maximumDurationMs": 30000,
+  "frameRate": 30,
+  "minimumMotionThreshold": 0.016,
+  "minimumActivityMs": 300,
+  "maximumGapMs": 600,
+  "paddingMs": 200,
+  "minimumFaceDetectionRatio": 0.8
+}
