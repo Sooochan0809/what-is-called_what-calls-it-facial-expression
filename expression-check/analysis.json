@@ -5,5 +5,10 @@
   "minimumActivityMs": 300,
   "maximumGapMs": 600,
   "paddingMs": 200,
-  "minimumFaceDetectionRatio": 0.8
+  "minimumFaceDetectionRatio": 0.8,
+  "montage": {
+    "videoBitsPerSecond": 16000000,
+    "crf": 8,
+    "cpuUsed": 2
+  }
 }

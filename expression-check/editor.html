@@ -17,6 +17,10 @@
             box-sizing: border-box;
         }
 
+        [hidden] {
+            display: none !important;
+        }
+
         body {
             margin: 0;
             background: #101012;
@@ -67,7 +71,7 @@
         main {
             min-height: calc(100vh - 83px);
             display: grid;
-            grid-template-columns: 230px minmax(0, 1fr);
+            grid-template-columns: 230px repeat(2, minmax(0, 1fr));
         }
 
         aside {
@@ -128,10 +132,22 @@
             place-self: center;
         }
 
-        #editor {
-            width: min(900px, 100%);
-            margin: 0 auto;
+        #editor,
+        #montage {
             padding: 24px;
+        }
+
+        #montage {
+            border-left: 1px solid var(--border);
+            background: #131316;
+        }
+
+        #montageEmpty {
+            min-height: 220px;
+            display: grid;
+            place-items: center;
+            color: #888;
+            text-align: center;
         }
 
         h2 {
@@ -140,8 +156,11 @@
         }
 
         video {
-            width: 100%;
-            max-height: 62vh;
+            display: block;
+            width: min(100%, 34.875vh);
+            aspect-ratio: 9 / 16;
+            margin-inline: auto;
+            object-fit: contain;
             border-radius: 12px;
             background: #000;
         }
@@ -170,10 +189,23 @@
             accent-color: var(--accent);
         }
 
-        #status {
+        #status,
+        #montageStatus {
             min-height: 1.4em;
             margin: 10px 0 0;
             color: #bbb;
+        }
+
+        @media (max-width: 1100px) {
+            main {
+                grid-template-columns: 230px minmax(0, 1fr);
+            }
+
+            #montage {
+                grid-column: 2;
+                border-left: 0;
+                border-top: 1px solid var(--border);
+            }
         }
 
         @media (max-width: 700px) {
@@ -184,6 +216,10 @@
             aside {
                 border-right: 0;
                 border-bottom: 1px solid var(--border);
+            }
+
+            #montage {
+                border-top: 1px solid var(--border);
             }
 
             #list {
@@ -219,12 +255,24 @@
             <progress id="progress" max="1" value="0" hidden></progress>
             <p id="status" role="status" aria-live="polite"></p>
         </section>
+        <section id="montage">
+            <h2>結合結果</h2>
+            <video id="montageVideo" controls playsinline hidden></video>
+            <p id="montageEmpty">解析された区間を、近い表情が隣り合うようにつなぎます。</p>
+            <div class="actions">
+                <button id="montageButton" class="primary" disabled>抽出区間をつなぐ</button>
+            </div>
+            <progress id="montageProgress" max="1" value="0" hidden></progress>
+            <p id="montageStatus" role="status" aria-live="polite"></p>
+        </section>
     </main>
     <script src="../modules/ffmpeg/ffmpeg.js"></script>
     <script>
         const $ = (id) => document.getElementById(id);
-        const [fileInput, drop, list, empty, editor, title, video, motionGraph, analyzeButton, saveButton, progress, status] =
-            ["files", "drop", "list", "empty", "editor", "title", "video", "motionGraph", "analyzeButton", "saveButton", "progress", "status"].map($);
+        const [fileInput, drop, list, empty, editor, title, video, motionGraph, analyzeButton, saveButton, progress, status,
+            montageVideo, montageEmpty, montageButton, montageProgress, montageStatus] =
+            ["files", "drop", "list", "empty", "editor", "title", "video", "motionGraph", "analyzeButton", "saveButton", "progress", "status",
+                "montageVideo", "montageEmpty", "montageButton", "montageProgress", "montageStatus"].map($);
         const decoder = new TextDecoder();
         const ANALYSIS_MAX_SIZE = 480;
         let analysisFps = 10;
@@ -234,12 +282,18 @@
         let activityMinThreshold = .008;
         let minimumFaceDetectionRatio = .8;
         let rotationSeconds = 30;
+        let montageVideoBitsPerSecond = 16000000;
+        let montageCrf = 8;
+        let montageCpuUsed = 2;
         let recordings = [];
         let current = null;
         let loopInterval = null;
         let analysisQueue = Promise.resolve();
         let sourceUrl = "";
         let outputUrl = "";
+        let montageUrl = "";
+        let ffmpegProgress = progress;
+        let montageBusy = false;
         let ffmpeg = null;
 
         const analysisConfigurationReady = fetch("analysis.json", { cache: "no-store" })
@@ -252,6 +306,9 @@
                 activityPaddingSeconds = Math.max(0, Number(analysis.paddingMs) / 1000 || .2);
                 activityMinThreshold = Math.max(.001, Number(analysis.minimumMotionThreshold) || .008);
                 minimumFaceDetectionRatio = Math.min(1, Math.max(0, Number(analysis.minimumFaceDetectionRatio) || .8));
+                montageVideoBitsPerSecond = Math.max(1000000, Number(analysis.montage?.videoBitsPerSecond) || 16000000);
+                montageCrf = Math.min(63, Math.max(0, Number(analysis.montage?.crf) || 8));
+                montageCpuUsed = Math.min(8, Math.max(0, Number(analysis.montage?.cpuUsed) || 2));
             }).catch(() => { });
 
         async function storedZipEntries(file) {
@@ -390,6 +447,85 @@
                 .map(({ score }) => Number(score) || 0);
         }
 
+        function faceShapeVector(result) {
+            const landmarks = result.faceLandmarks?.[0];
+            if (!landmarks) return null;
+            return [10, 152, 234, 454, 1, 33, 263, 70, 300, 159, 386, 61, 291, 13, 14]
+                .flatMap((index) => [landmarks[index].x, landmarks[index].y, landmarks[index].z]);
+        }
+
+        const vectorDistance = (left, right) => Math.sqrt(left.reduce((sum, value, index) => {
+            const difference = value - right[index];
+            return sum + difference * difference;
+        }, 0) / left.length);
+
+        function orderClips(clips) {
+            if (clips.length < 2) return clips;
+            let best = clips;
+            let bestCost = Infinity;
+            clips.forEach((first) => {
+                const remaining = clips.filter((clip) => clip !== first);
+                const ordered = [first];
+                let cost = 0;
+                while (remaining.length) {
+                    const previous = ordered.at(-1);
+                    let nearest = 0;
+                    for (let index = 1; index < remaining.length; index += 1)
+                        if (vectorDistance(previous.endVector, remaining[index].startVector) <
+                            vectorDistance(previous.endVector, remaining[nearest].startVector)) nearest = index;
+                    const next = remaining.splice(nearest, 1)[0];
+                    cost += vectorDistance(previous.endVector, next.startVector);
+                    ordered.push(next);
+                }
+                if (cost < bestCost) { best = ordered; bestCost = cost; }
+            });
+            return best;
+        }
+
+        console.assert(orderClips([
+            { id: "b", startVector: [5], endVector: [6] },
+            { id: "a", startVector: [0], endVector: [1] },
+            { id: "c", startVector: [1.1], endVector: [5.1] }
+        ]).map(({ id }) => id).join("") === "acb", "表情類似度による並び替えが不正です");
+
+        function extractedClips() {
+            return recordings.flatMap((recording) => {
+                const analysis = recording.analysis;
+                if (!analysis?.reliable) return [];
+                const samples = analysis.samples.filter(({ vector }) => vector);
+                if (!samples.length) return [];
+                return analysis.intervals.map((interval) => {
+                    const nearest = (time) => samples.reduce((best, sample) =>
+                        Math.abs(sample.time - time) < Math.abs(best.time - time) ? sample : best);
+                    return {
+                        recording,
+                        start: interval.start,
+                        end: interval.end,
+                        startVector: nearest(interval.start).shape || nearest(interval.start).vector,
+                        endVector: nearest(interval.end).shape || nearest(interval.end).vector
+                    };
+                });
+            });
+        }
+
+        function resetMontage() {
+            if (montageUrl) URL.revokeObjectURL(montageUrl);
+            montageUrl = "";
+            montageVideo.removeAttribute("src");
+            montageVideo.hidden = true;
+            montageEmpty.hidden = false;
+        }
+
+        function updateMontageAvailability() {
+            if (montageBusy) return;
+            const waiting = recordings.some(({ analyzing, analysisQueued }) => analyzing || analysisQueued);
+            const count = extractedClips().length;
+            montageButton.disabled = waiting || !count;
+            if (montageUrl && !waiting) return;
+            montageStatus.textContent = waiting ? "すべての録画を順番に解析しています…" :
+                count ? `${count}区間を結合できます。` : "解析済みの区間がありません。";
+        }
+
         function renderList() {
             list.replaceChildren(...recordings.map((recording) => {
                 const item = document.createElement("li");
@@ -487,11 +623,13 @@
 
         function queueAnalysis(recording) {
             if (recording.analysisQueued || recording.analyzing) return;
+            resetMontage();
             recording.analysisQueued = true;
             if (current === recording) {
                 analyzeButton.disabled = true;
                 status.textContent = "解析待ち…";
             }
+            updateMontageAvailability();
             analysisQueue = analysisQueue.then(() => analyzeRecording(recording));
         }
 
@@ -538,7 +676,7 @@
                     await seek(media, time);
                     context.drawImage(media, 0, 0, canvas.width, canvas.height);
                     const result = landmarker.detectForVideo(canvas, index * 1000 / analysisFps);
-                    samples.push({ time, vector: blendshapeVector(result) });
+                    samples.push({ time, vector: blendshapeVector(result), shape: faceShapeVector(result) });
                     recording.analysisProgress = (index + 1) / frameCount;
                     if (current === recording) {
                         progress.value = recording.analysisProgress;
@@ -570,6 +708,7 @@
                     progress.hidden = true;
                     analyzeButton.disabled = false;
                 }
+                updateMontageAvailability();
             }
         }
 
@@ -588,7 +727,74 @@
             renderList();
             if (!current && recordings.length) openRecording(recordings[0]);
             added.forEach(queueAnalysis);
+            updateMontageAvailability();
             if (errors.length) status.textContent = errors.join(" ");
+        }
+
+        async function ensureFFmpeg() {
+            if (ffmpeg) return;
+            ffmpeg = new FFmpegWASM.FFmpeg();
+            ffmpeg.on("progress", ({ progress: ratio }) =>
+                ffmpegProgress.value = Math.max(0, Math.min(ratio, 1)));
+            await ffmpeg.load({
+                coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
+                wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href
+            });
+        }
+
+        async function buildMontage() {
+            const clips = orderClips(extractedClips());
+            if (!clips.length) return;
+            const inputFiles = new Map();
+            clips.forEach(({ recording }) => {
+                if (!inputFiles.has(recording)) inputFiles.set(recording, `montage-input-${inputFiles.size}.webm`);
+            });
+            const output = "montage-output.webm";
+            montageBusy = true;
+            montageButton.disabled = true;
+            analyzeButton.disabled = true;
+            saveButton.disabled = true;
+            montageProgress.hidden = false;
+            montageProgress.value = 0;
+            ffmpegProgress = montageProgress;
+            try {
+                if (!ffmpeg) montageStatus.textContent = "処理エンジンを読み込み中…";
+                await ensureFFmpeg();
+                montageStatus.textContent = `${clips.length}区間を表情の近い順につないでいます…`;
+                for (const [recording, name] of inputFiles)
+                    await ffmpeg.writeFile(name, new Uint8Array(await recording.videoBlob.arrayBuffer()));
+                const inputArgs = [...inputFiles.values()].flatMap((name) => ["-i", name]);
+                const filters = clips.map((clip, index) => {
+                    const input = [...inputFiles.keys()].indexOf(clip.recording);
+                    return `[${input}:v]trim=start=${clip.start}:end=${clip.end},setpts=PTS-STARTPTS[v${index}]`;
+                });
+                filters.push(clips.length === 1 ? "[v0]null[outv]" :
+                    `${clips.map((_, index) => `[v${index}]`).join("")}concat=n=${clips.length}:v=1:a=0[outv]`);
+                const exitCode = await ffmpeg.exec([...inputArgs, "-filter_complex", filters.join(";"),
+                    "-map", "[outv]", "-an", "-c:v", "libvpx", "-deadline", "good",
+                    "-cpu-used", String(montageCpuUsed), "-crf", String(montageCrf),
+                    "-b:v", String(montageVideoBitsPerSecond), output]);
+                if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
+                const data = await ffmpeg.readFile(output);
+                resetMontage();
+                montageUrl = URL.createObjectURL(new Blob([data], { type: "video/webm" }));
+                montageVideo.src = montageUrl;
+                montageVideo.hidden = false;
+                montageEmpty.hidden = true;
+                montageStatus.textContent = `${clips.length}区間を、表情の接続差が小さい順につなぎました。`;
+                montageVideo.play().catch(() => { });
+            } catch (error) {
+                console.error(error);
+                montageStatus.textContent = "結合映像を作成できませんでした。";
+            } finally {
+                if (ffmpeg) for (const name of [...inputFiles.values(), output])
+                    try { await ffmpeg.deleteFile(name); } catch { }
+                montageBusy = false;
+                montageProgress.hidden = true;
+                analyzeButton.disabled = Boolean(current?.analyzing || current?.analysisQueued);
+                saveButton.disabled = false;
+                updateMontageAvailability();
+            }
         }
 
         fileInput.addEventListener("change", () => addFiles(fileInput.files));
@@ -617,6 +823,7 @@
             if (interval) preview(analysis, interval);
         });
         analyzeButton.addEventListener("click", analyzeCurrent);
+        montageButton.addEventListener("click", buildMontage);
 
         saveButton.addEventListener("click", async () => {
             const analysis = current?.analysis;
@@ -625,15 +832,12 @@
             analyzeButton.disabled = true;
             progress.hidden = false;
             progress.value = 0;
+            montageButton.disabled = true;
+            ffmpegProgress = progress;
             try {
                 if (!ffmpeg) {
                     status.textContent = "処理エンジンを読み込み中…";
-                    ffmpeg = new FFmpegWASM.FFmpeg();
-                    ffmpeg.on("progress", ({ progress: ratio }) => progress.value = Math.max(0, Math.min(ratio, 1)));
-                    await ffmpeg.load({
-                        coreURL: new URL("../modules/ffmpeg/ffmpeg-core.js", location.href).href,
-                        wasmURL: new URL("../modules/ffmpeg/ffmpeg-core.wasm", location.href).href
-                    });
+                    await ensureFFmpeg();
                 }
                 status.textContent = "抽出映像を作成中…";
                 await ffmpeg.writeFile("input.webm", new Uint8Array(await current.videoBlob.arrayBuffer()));
@@ -657,8 +861,10 @@
                 progress.hidden = true;
                 saveButton.disabled = false;
                 analyzeButton.disabled = false;
+                updateMontageAvailability();
             }
         });
+        updateMontageAvailability();
     </script>
 </body>
 
