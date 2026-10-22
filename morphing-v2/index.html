@@ -552,6 +552,7 @@
                 video.preload = "auto";
                 video.muted = true;
                 video.playsInline = true;
+                video.addEventListener("seeked", () => { if (!playing) void renderFrame(); });
                 video.addEventListener("loadedmetadata", () => {
                     if (!Number.isFinite(video.duration) || video.duration <= 0) {
                         URL.revokeObjectURL(url);
@@ -664,9 +665,9 @@
             if (source.width !== WIDTH) source.width = WIDTH;
             if (source.height !== HEIGHT) source.height = HEIGHT;
             const sourceCtx = source.getContext("2d", { alpha: false });
+            if (clip.video.readyState < 2) return source;
             sourceCtx.fillStyle = "#000";
             sourceCtx.fillRect(0, 0, WIDTH, HEIGHT);
-            if (clip.video.readyState < 2) return source;
             const videoRatio = clip.video.videoWidth / clip.video.videoHeight;
             const outputRatio = WIDTH / HEIGHT;
             let sx = 0, sy = 0, sw = clip.video.videoWidth, sh = clip.video.videoHeight;
@@ -803,7 +804,7 @@
             currentTime = clamp(time, 0, totalDuration());
             completedLoops = 0;
             previousFrameAt = performance.now();
-            seekVideos(currentTime, true); updatePlayhead(); requestAnimationFrame(() => void renderFrame());
+            seekVideos(currentTime, true); updatePlayhead();
         }
         function updatePlayhead() {
             const loopDuration = totalDuration();
@@ -843,10 +844,6 @@
             morph.style.left = `${start * scale}px`;
             morph.style.width = `${Math.max(18, duration * scale)}px`;
             morph.title = `${from.name} → ${to.name}`;
-            morph.addEventListener("click", (event) => {
-                event.stopPropagation();
-                setCurrentTime(start + duration / 2);
-            });
             return morph;
         }
         function renderTimeline() {
@@ -864,7 +861,7 @@
                 block.className = "timelineClip"; block.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
                 block.style.left = `${item.start * scale}px`; block.style.top = `${30 + index % 2 * 58}px`; block.style.width = `${Math.max(34, (item.end - item.start) * scale)}px`;
                 block.innerHTML = `<span></span><small>${formatTime(item.clip.duration / playbackSpeed())}</small>`; block.querySelector("span").textContent = item.clip.name;
-                block.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start); }); timeline.appendChild(block);
+                timeline.appendChild(block);
                 if (index > 0) {
                     timeline.appendChild(createMorphRegion(
                         item.start,
@@ -946,9 +943,17 @@
         monoInput.addEventListener("change", () => canvas.classList.toggle("monochrome", monoInput.checked));
         zoomInput.addEventListener("input", renderTimeline);
         exportButton.addEventListener("click", startExport);
+        const seekFromPointer = (event) => {
+            const rect = timeline.getBoundingClientRect();
+            setCurrentTime((event.clientX - rect.left) / pxPerSecond());
+        };
         timeline.addEventListener("pointerdown", (event) => {
-            if (event.target.closest(".timelineClip,.morphRegion")) return;
-            const rect = timeline.getBoundingClientRect(); setCurrentTime((event.clientX - rect.left) / pxPerSecond());
+            if (!clips.length || event.button !== 0) return;
+            timeline.setPointerCapture(event.pointerId);
+            seekFromPointer(event);
+        });
+        timeline.addEventListener("pointermove", (event) => {
+            if (timeline.hasPointerCapture(event.pointerId)) seekFromPointer(event);
         });
         window.addEventListener("resize", renderTimeline);
         window.addEventListener("beforeunload", () => clips.forEach((clip) => URL.revokeObjectURL(clip.url)));
