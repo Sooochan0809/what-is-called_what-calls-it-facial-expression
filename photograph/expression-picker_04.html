@@ -129,7 +129,7 @@
 <body>
     <main>
         <h1>感情フレームランキング</h1>
-        <p>複数の動画を一括解析し、感情スコア上位をフレーム画像または前後を含む動画で切り出します。</p>
+        <p>複数の動画を一括解析し、感情スコア上位を画像、前後・前・後を含む動画で切り出します。</p>
         <div class="controls">
             <label>動画（複数選択可）
                 <input id="file" type="file" accept="video/webm,video/*" multiple>
@@ -152,6 +152,8 @@
                 <select id="outputMode">
                     <option value="image" selected>フレーム画像</option>
                     <option value="video">前後を含む動画</option>
+                    <option value="before">前を含む</option>
+                    <option value="after">後を含む</option>
                 </select>
             </label>
             <label>前後（秒）
@@ -180,6 +182,7 @@
             const progress = $("progress");
             const results = $("results");
             const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: .35 });
+            const emotions = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
             const resultUrls = [];
             let modelsReady = false;
             let busy = false;
@@ -187,10 +190,44 @@
             const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
             const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
             const rankFrames = (frames, limit) => frames
-                .sort((a, b) => b.score - a.score || a.index - b.index)
+                .sort((a, b) => (b.rankScore ?? b.score) - (a.rankScore ?? a.score) || a.index - b.index)
                 .slice(0, limit);
+            const clipRange = (timestamp, duration, padding, mode) => [
+                clamp(timestamp - (mode === "after" ? 0 : padding), 0, duration),
+                clamp(timestamp + (mode === "before" ? 0 : padding), 0, duration),
+            ];
+            const expressionDifference = (left, right) => emotions
+                .reduce((sum, name) => sum + Math.abs(left[name] - right[name]), 0) / 2;
+            function closestFrame(frames, timestamp) {
+                let low = 0;
+                let high = frames.length - 1;
+                while (low < high) {
+                    const middle = Math.floor((low + high) / 2);
+                    if (frames[middle].timestamp < timestamp) low = middle + 1;
+                    else high = middle;
+                }
+                const next = frames[low];
+                const previous = frames[Math.max(0, low - 1)];
+                return Math.abs(previous.timestamp - timestamp) <= Math.abs(next.timestamp - timestamp) ? previous : next;
+            }
+            function scoreFrames(frames, duration, padding, mode) {
+                if (mode !== "before" && mode !== "after") return frames;
+                return frames.map((frame) => {
+                    const [start, end] = clipRange(frame.timestamp, duration, padding, mode);
+                    const edge = closestFrame(frames, mode === "before" ? start : end);
+                    const difference = expressionDifference(frame.expressions, edge.expressions);
+                    const coverage = Math.min(1, (end - start) / padding);
+                    return { ...frame, difference, coverage, rankScore: frame.score + difference * coverage };
+                });
+            }
             console.assert(rankFrames([{ index: 0, score: .2 }, { index: 1, score: .8 }], 1)[0].index === 1,
                 "frame ranking is invalid");
+            console.assert(clipRange(5, 10, 1, "before").join() === "4,5"
+                && clipRange(5, 10, 1, "after").join() === "5,6", "clip range is invalid");
+            console.assert(expressionDifference(
+                { neutral: 1, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 },
+                { neutral: 0, happy: 1, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 }
+            ) === 1, "expression difference is invalid");
 
             function setBusy(value) {
                 busy = value;
@@ -241,8 +278,10 @@
                             media.preload = "metadata";
                         }
                         const details = document.createElement("span");
-                        const range = mode === "video" ? ` · ${formatTime(pick.start)}–${formatTime(pick.end)}` : "";
-                        details.textContent = `${index + 1}位 · ${emotion} ${pick.score.toFixed(4)} · ${formatTime(pick.timestamp)}${range}`;
+                        const range = mode !== "image" ? ` · ${formatTime(pick.start)}–${formatTime(pick.end)}` : "";
+                        const bonus = mode === "before" || mode === "after"
+                            ? ` · 表情差 ${pick.difference.toFixed(4)} · 評価 ${pick.rankScore.toFixed(4)}` : "";
+                        details.textContent = `${index + 1}位 · ${emotion} ${pick.score.toFixed(4)}${bonus} · ${formatTime(pick.timestamp)}${range}`;
                         const download = document.createElement("a");
                         download.href = url;
                         const extension = mode === "image" ? "png" : "webm";
@@ -307,13 +346,12 @@
                 return new Blob([target.buffer], { type: "video/webm" });
             }
 
-            async function extractClips(file, picks, duration, fileNumber, fileCount, padding) {
+            async function extractClips(file, picks, duration, fileNumber, fileCount, padding, mode) {
                 progress.max = picks.length;
                 progress.value = 0;
                 for (let index = 0; index < picks.length; index += 1) {
                     const pick = picks[index];
-                    pick.start = clamp(pick.timestamp - padding, 0, duration);
-                    pick.end = clamp(pick.timestamp + padding, pick.start, duration);
+                    [pick.start, pick.end] = clipRange(pick.timestamp, duration, padding, mode);
                     status.textContent = `動画を切り出し中 (${fileNumber}/${fileCount}): ${file.name} · ${index + 1}/${picks.length}`;
                     pick.blob = await cutSegment(file, pick.start, pick.end);
                     progress.value = index + 1;
@@ -333,7 +371,12 @@
                     let index = 0;
                     for await (const frame of sink.canvases()) {
                         const detection = await faceapi.detectSingleFace(frame.canvas, detectorOptions).withFaceExpressions();
-                        if (detection) frames.push({ index, timestamp: frame.timestamp, score: detection.expressions[emotion] || 0 });
+                        if (detection) frames.push({
+                            index,
+                            timestamp: frame.timestamp,
+                            score: detection.expressions[emotion] || 0,
+                            expressions: Object.fromEntries(emotions.map((name) => [name, detection.expressions[name] || 0])),
+                        });
                         index += 1;
                         progress.value = frame.timestamp;
                         status.textContent = `解析中 (${fileIndex + 1}/${fileCount}): ${file.name} · ${index} frames / ${formatTime(frame.timestamp)} · 顔検出 ${frames.length}`;
@@ -356,7 +399,7 @@
                     const rankings = analyses.map((analysis, index) => ({
                         ...analysis,
                         file: files[index],
-                        picks: rankFrames(analysis.frames, limit),
+                        picks: rankFrames(scoreFrames(analysis.frames, analysis.duration, padding, mode), limit),
                     }));
                     const totalPicks = rankings.reduce((sum, { picks }) => sum + picks.length, 0);
                     if (!totalPicks) throw new Error("どの動画からも顔を検出できませんでした");
@@ -366,7 +409,7 @@
                         if (mode === "image") {
                             await extractImages(file, picks, totalFrames, index + 1, rankings.length);
                         } else {
-                            await extractClips(file, picks, duration, index + 1, rankings.length, padding);
+                            await extractClips(file, picks, duration, index + 1, rankings.length, padding, mode);
                         }
                     }
                     showResults(emotion, rankings, mode);
