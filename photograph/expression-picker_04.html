@@ -13,8 +13,13 @@
             --accent: #4f8cff;
         }
 
-        * { box-sizing: border-box; }
-        body { margin: 0; }
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+        }
 
         main {
             width: min(1100px, 100%);
@@ -78,13 +83,15 @@
             accent-color: var(--accent);
         }
 
-        progress[hidden] { display: none; }
+        progress[hidden] {
+            display: none;
+        }
 
         #results {
             margin-top: 24px;
         }
 
-        .result-group + .result-group {
+        .result-group+.result-group {
             margin-top: 32px;
         }
 
@@ -122,7 +129,9 @@
             padding: 10px 12px;
         }
 
-        figcaption a { color: var(--accent); }
+        figcaption a {
+            color: var(--accent);
+        }
     </style>
 </head>
 
@@ -146,18 +155,21 @@
                 </select>
             </label>
             <label>上位何位まで
-                <input id="limit" type="number" min="1" max="100" step="1" value="3">
+                <input id="limit" type="number" min="1" max="100" step="1" value="4">
             </label>
             <label>出力形式
                 <select id="outputMode">
-                    <option value="image" selected>フレーム画像</option>
-                    <option value="video">前後を含む動画</option>
-                    <option value="before">前を含む</option>
+                    <option value="image">フレーム画像</option>
+                    <option value="video">前後を含む</option>
+                    <option value="before" selected>前を含む</option>
                     <option value="after">後を含む</option>
                 </select>
             </label>
             <label>前後（秒）
-                <input id="padding" type="number" min="0.1" max="10" step="0.1" value="1.0" disabled>
+                <input id="padding" type="number" min="0.1" max="10" step="0.1" value="2.0" disabled>
+            </label>
+            <label>理想の変化位置（%）
+                <input id="targetRatio" type="number" min="0" max="100" step="5" value="25" disabled>
             </label>
             <button id="run" type="button" disabled>上位結果を抽出</button>
         </div>
@@ -177,6 +189,7 @@
             const limitInput = $("limit");
             const outputMode = $("outputMode");
             const paddingInput = $("padding");
+            const targetRatioInput = $("targetRatio");
             const runButton = $("run");
             const status = $("status");
             const progress = $("progress");
@@ -198,6 +211,7 @@
             ];
             const expressionDifference = (left, right) => emotions
                 .reduce((sum, name) => sum + Math.abs(left[name] - right[name]), 0) / 2;
+            const balanceScore = (ratio, target) => Math.max(0, 1 - 2 * Math.abs(ratio - target));
             function closestFrame(frames, timestamp) {
                 let low = 0;
                 let high = frames.length - 1;
@@ -210,14 +224,40 @@
                 const previous = frames[Math.max(0, low - 1)];
                 return Math.abs(previous.timestamp - timestamp) <= Math.abs(next.timestamp - timestamp) ? previous : next;
             }
-            function scoreFrames(frames, duration, padding, mode) {
+            function findChangeRatio(frames, start, end, from, to) {
+                // ponytail: 全候補×区間フレーム。長尺動画で遅ければ時刻インデックス化する。
+                const segment = frames.filter(({ timestamp }) => timestamp >= start && timestamp <= end);
+                let streak = 0;
+                for (let index = 0; index < segment.length; index += 1) {
+                    const expressions = segment[index].expressions;
+                    streak = expressionDifference(expressions, to) <= expressionDifference(expressions, from)
+                        ? streak + 1 : 0;
+                    if (streak === 3) {
+                        const timestamp = segment[index - 2].timestamp;
+                        return clamp((timestamp - start) / Math.max(.001, end - start), 0, 1);
+                    }
+                }
+                return 1;
+            }
+            function scoreFrames(frames, duration, padding, mode, targetRatio) {
                 if (mode !== "before" && mode !== "after") return frames;
                 return frames.map((frame) => {
                     const [start, end] = clipRange(frame.timestamp, duration, padding, mode);
                     const edge = closestFrame(frames, mode === "before" ? start : end);
                     const difference = expressionDifference(frame.expressions, edge.expressions);
                     const coverage = Math.min(1, (end - start) / padding);
-                    return { ...frame, difference, coverage, rankScore: frame.score + difference * coverage };
+                    const from = mode === "before" ? edge.expressions : frame.expressions;
+                    const to = mode === "before" ? frame.expressions : edge.expressions;
+                    const changeRatio = findChangeRatio(frames, start, end, from, to);
+                    const ratioBonus = .5 * balanceScore(changeRatio, targetRatio) * difference * coverage;
+                    return {
+                        ...frame,
+                        difference,
+                        coverage,
+                        changeRatio,
+                        ratioBonus,
+                        rankScore: frame.score + difference * coverage + ratioBonus,
+                    };
                 });
             }
             console.assert(rankFrames([{ index: 0, score: .2 }, { index: 1, score: .8 }], 1)[0].index === 1,
@@ -228,6 +268,8 @@
                 { neutral: 1, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 },
                 { neutral: 0, happy: 1, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 }
             ) === 1, "expression difference is invalid");
+            console.assert(balanceScore(.5, .5) === 1 && balanceScore(0, .5) === 0,
+                "balance score is invalid");
 
             function setBusy(value) {
                 busy = value;
@@ -236,6 +278,7 @@
                 limitInput.disabled = value;
                 outputMode.disabled = value;
                 paddingInput.disabled = value || outputMode.value === "image";
+                targetRatioInput.disabled = value || (outputMode.value !== "before" && outputMode.value !== "after");
                 runButton.disabled = value || !modelsReady || !fileInput.files.length;
             }
 
@@ -280,7 +323,7 @@
                         const details = document.createElement("span");
                         const range = mode !== "image" ? ` · ${formatTime(pick.start)}–${formatTime(pick.end)}` : "";
                         const bonus = mode === "before" || mode === "after"
-                            ? ` · 表情差 ${pick.difference.toFixed(4)} · 評価 ${pick.rankScore.toFixed(4)}` : "";
+                            ? ` · 表情差 ${pick.difference.toFixed(4)} · 変化位置 ${Math.round(pick.changeRatio * 100)}% · 比率加点 ${pick.ratioBonus.toFixed(4)} · 評価 ${pick.rankScore.toFixed(4)}` : "";
                         details.textContent = `${index + 1}位 · ${emotion} ${pick.score.toFixed(4)}${bonus} · ${formatTime(pick.timestamp)}${range}`;
                         const download = document.createElement("a");
                         download.href = url;
@@ -389,7 +432,7 @@
                 }
             }
 
-            async function analyze(files, emotion, limit, mode, padding) {
+            async function analyze(files, emotion, limit, mode, padding, targetRatio) {
                 progress.hidden = false;
                 try {
                     const analyses = [];
@@ -399,7 +442,7 @@
                     const rankings = analyses.map((analysis, index) => ({
                         ...analysis,
                         file: files[index],
-                        picks: rankFrames(scoreFrames(analysis.frames, analysis.duration, padding, mode), limit),
+                        picks: rankFrames(scoreFrames(analysis.frames, analysis.duration, padding, mode, targetRatio), limit),
                     }));
                     const totalPicks = rankings.reduce((sum, { picks }) => sum + picks.length, 0);
                     if (!totalPicks) throw new Error("どの動画からも顔を検出できませんでした");
@@ -435,9 +478,11 @@
                 try {
                     const limit = clamp(Math.trunc(Number(limitInput.value)) || 1, 1, 100);
                     const padding = clamp(Number(paddingInput.value) || .5, .1, 10);
+                    const targetRatio = clamp(Number(targetRatioInput.value) || 0, 0, 100);
                     limitInput.value = limit;
                     paddingInput.value = padding;
-                    await analyze([...fileInput.files], emotionInput.value, limit, outputMode.value, padding);
+                    targetRatioInput.value = targetRatio;
+                    await analyze([...fileInput.files], emotionInput.value, limit, outputMode.value, padding, targetRatio / 100);
                 } catch (error) {
                     console.error(error);
                     status.textContent = `処理できませんでした: ${error?.message || String(error)}`;
