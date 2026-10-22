@@ -15,7 +15,6 @@
             --ink: #192027;
             --muted: #747b84;
             --accent: #35c982;
-            --timeline: #20262d;
             --line: #2d2d36;
         }
 
@@ -346,6 +345,7 @@
             position: relative;
             min-width: 100%;
             height: 170px;
+            margin-left: 12px;
             cursor: pointer;
             background-image: linear-gradient(to right, var(--line) 1px, transparent 1px);
             background-size: var(--second-width, 100px) 100%;
@@ -545,39 +545,37 @@
         const TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
         const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 
-        const canvas = document.getElementById("morphCanvas");
+        const byId = (id) => document.getElementById(id);
+        const canvas = byId("morphCanvas");
         const ctx = canvas.getContext("2d", { alpha: false });
-        const stageBadge = document.getElementById("stageBadge");
-        const fileInput = document.getElementById("fileInput");
-        const clipList = document.getElementById("clipList");
-        const status = document.getElementById("status");
-        const clearButton = document.getElementById("clearButton");
-        const playButton = document.getElementById("playButton");
-        const rewindButton = document.getElementById("rewindButton");
-        const timecode = document.getElementById("timecode");
-        const timeline = document.getElementById("timeline");
-        const timelineScroller = document.getElementById("timelineScroller");
-        const playhead = document.getElementById("playhead");
-        const monoInput = document.getElementById("monoInput");
-        const zoomInput = document.getElementById("zoomInput");
-        const exportButton = document.getElementById("exportButton");
+        const stageBadge = byId("stageBadge");
+        const fileInput = byId("fileInput");
+        const clipList = byId("clipList");
+        const status = byId("status");
+        const clearButton = byId("clearButton");
+        const playButton = byId("playButton");
+        const rewindButton = byId("rewindButton");
+        const timecode = byId("timecode");
+        const timeline = byId("timeline");
+        const timelineScroller = byId("timelineScroller");
+        const playhead = byId("playhead");
+        const monoInput = byId("monoInput");
+        const zoomInput = byId("zoomInput");
+        const exportButton = byId("exportButton");
 
         let clips = [];
         let schedule = [];
-        let totalDuration = 0;
         let currentTime = 0;
         let playing = false;
-        let frameId = 0;
         let previousFrameAt = 0;
         let draggedId = null;
         let faceLandmarkerPromise = null;
-        let exporting = false;
         let recorder = null;
-        let recordedChunks = [];
 
-        const makeId = () => crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
         const pxPerSecond = () => Number(zoomInput.value);
+        const totalDuration = () => schedule.at(-1)?.end || 0;
+        const isExporting = () => recorder?.state === "recording";
         function formatTime(seconds) {
             const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
             const minutes = Math.floor(safe / 60);
@@ -599,7 +597,7 @@
                         return;
                     }
                     resolve({
-                        id: makeId(), name: file.name, url, video, duration: video.duration,
+                        id: crypto.randomUUID(), name: file.name, url, video, duration: video.duration,
                         transition: DEFAULT_TRANSITION, sourceCanvas: document.createElement("canvas"),
                         points: null, lastDetectionAt: -Infinity,
                     });
@@ -621,7 +619,7 @@
             void getFaceLandmarker();
         }
         function maxTransition(index) {
-            if (index <= 0 || !clips[index - 1] || !clips[index]) return 0;
+            if (!index) return 0;
             return Math.max(.1, Math.min(clips[index - 1].duration, clips[index].duration) / 2);
         }
         function normalizeTransitions() {
@@ -631,17 +629,17 @@
             buildSchedule();
         }
         function calculateSchedule(clipList) {
-            const result = [];
-            clipList.forEach((clip, index) => {
-                const start = index === 0 ? 0 : result[index - 1].end - clip.transition;
-                result.push({ clip, start, end: start + clip.duration });
+            let previousEnd = 0;
+            return clipList.map((clip, index) => {
+                const start = index ? previousEnd - clip.transition : 0;
+                const end = start + clip.duration;
+                previousEnd = end;
+                return { clip, start, end };
             });
-            return result;
         }
         function buildSchedule() {
             schedule = calculateSchedule(clips);
-            totalDuration = schedule.at(-1)?.end || 0;
-            currentTime = clamp(currentTime, 0, totalDuration);
+            currentTime = clamp(currentTime, 0, totalDuration());
         }
         function getActiveState(time) {
             const active = schedule.filter((item) => time >= item.start && time <= item.end + .001);
@@ -663,7 +661,6 @@
                 } else if (!video.paused) video.pause();
             });
         }
-        function pauseVideos() { clips.forEach((clip) => clip.video.pause()); }
         async function getFaceLandmarker() {
             if (!faceLandmarkerPromise) {
                 faceLandmarkerPromise = import(TASKS_URL).then(async ({ FaceLandmarker, FilesetResolver }) => {
@@ -743,13 +740,25 @@
             }
             return output;
         }
+        function clearOutput() {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = "#101316";
+            ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+        }
+        function drawOutput(source, alpha = 1) {
+            ctx.globalAlpha = alpha;
+            ctx.drawImage(source, 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+        }
         async function renderFrame(now = performance.now()) {
-            ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            clearOutput();
             const state = getActiveState(currentTime);
             if (!state.items.length) return;
             const sources = state.items.map((item) => drawVideoToSource(item.clip));
             if (state.items.length === 1) {
-                ctx.drawImage(sources[0], 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT); stageBadge.textContent = state.items[0].clip.name; return;
+                drawOutput(sources[0]);
+                stageBadge.textContent = state.items[0].clip.name;
+                return;
             }
             const [from, to] = state.items;
             stageBadge.textContent = `${from.clip.name} → ${to.clip.name} · モーフ ${Math.round(state.progress * 100)}%`;
@@ -760,44 +769,48 @@
                     point[1] + (toPoints[index][1] - point[1]) * state.progress,
                 ]);
                 const triangles = Delaunator.from(blended).triangles;
-                ctx.drawImage(renderWarp(sources[0], fromPoints, blended, triangles), 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
-                ctx.globalAlpha = state.progress;
-                ctx.drawImage(renderWarp(sources[1], toPoints, blended, triangles), 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+                drawOutput(renderWarp(sources[0], fromPoints, blended, triangles));
+                drawOutput(renderWarp(sources[1], toPoints, blended, triangles), state.progress);
             } else {
-                ctx.drawImage(sources[0], 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT); ctx.globalAlpha = state.progress; ctx.drawImage(sources[1], 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+                drawOutput(sources[0]);
+                drawOutput(sources[1], state.progress);
             }
             ctx.globalAlpha = 1;
         }
         function setPlaying(nextPlaying) {
-            playing = Boolean(nextPlaying && clips.length);
+            const next = Boolean(nextPlaying && clips.length);
+            if (playing === next) return;
+            playing = next;
             previousFrameAt = performance.now();
             playButton.textContent = playing ? "❚❚ 停止" : "▶ 再生";
             if (playing) {
-                if (currentTime >= totalDuration) currentTime = 0;
+                if (currentTime >= totalDuration()) currentTime = 0;
                 seekVideos(currentTime, true);
-                if (!frameId) frameId = requestAnimationFrame(tick);
-            } else pauseVideos();
+                requestAnimationFrame(tick);
+            } else clips.forEach((clip) => clip.video.pause());
         }
         async function tick(now) {
-            frameId = 0;
             if (playing) {
                 currentTime += (now - previousFrameAt) / 1000;
                 previousFrameAt = now;
-                if (currentTime >= totalDuration) {
-                    currentTime = totalDuration; setPlaying(false); if (exporting) finishExport();
+                if (currentTime >= totalDuration()) {
+                    currentTime = totalDuration();
+                    setPlaying(false);
+                    if (isExporting()) recorder.stop();
                 } else seekVideos(currentTime);
             }
-            await renderFrame(now); updatePlayhead();
-            if (playing) frameId = requestAnimationFrame(tick);
+            await renderFrame(now);
+            updatePlayhead();
+            if (playing) requestAnimationFrame(tick);
         }
         function setCurrentTime(time) {
-            currentTime = clamp(time, 0, totalDuration);
+            currentTime = clamp(time, 0, totalDuration());
             previousFrameAt = performance.now();
             seekVideos(currentTime, true); updatePlayhead(); requestAnimationFrame(() => void renderFrame());
         }
         function updatePlayhead() {
             playhead.style.left = `${currentTime * pxPerSecond()}px`;
-            timecode.textContent = `${formatTime(currentTime)} / ${formatTime(totalDuration)}`;
+            timecode.textContent = `${formatTime(currentTime)} / ${formatTime(totalDuration())}`;
         }
         function createClipCard(clip, index) {
             const card = document.createElement("article");
@@ -833,7 +846,7 @@
         function renderClipList() { clipList.replaceChildren(...clips.map(createClipCard)); }
         function renderTimeline() {
             const scale = pxPerSecond();
-            const width = Math.max(timelineScroller.clientWidth, totalDuration * scale + 80);
+            const width = Math.max(timelineScroller.clientWidth, totalDuration() * scale + 80);
             timeline.style.width = `${width}px`; timeline.style.setProperty("--second-width", `${scale}px`);
             timeline.querySelectorAll(":scope > :not(.playhead)").forEach((element) => element.remove());
             const marks = Math.ceil(width / scale);
@@ -859,8 +872,8 @@
         function updateControls() {
             const hasClips = clips.length > 0;
             playButton.disabled = !hasClips; rewindButton.disabled = !hasClips;
-            exportButton.disabled = !hasClips || !window.MediaRecorder || exporting; clearButton.disabled = !hasClips;
-            status.textContent = `${clips.length}クリップ · 全体 ${formatTime(totalDuration)}`;
+            exportButton.disabled = !hasClips || !window.MediaRecorder || isExporting(); clearButton.disabled = !hasClips;
+            status.textContent = `${clips.length}クリップ · 全体 ${formatTime(totalDuration())}`;
             if (!hasClips) stageBadge.textContent = "";
             updatePlayhead();
         }
@@ -871,24 +884,23 @@
             normalizeTransitions(); setPlaying(false); currentTime = 0; renderAll(); seekVideos(0, true);
         }
         function clearClips() {
-            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url)); clips = []; schedule = []; totalDuration = 0; currentTime = 0;
-            ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT); renderAll();
+            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url)); clips = []; schedule = []; currentTime = 0;
+            clearOutput(); renderAll();
         }
         function startExport() {
-            if (exporting || !clips.length || !window.MediaRecorder) return;
+            if (isExporting() || !clips.length || !window.MediaRecorder) return;
             const stream = canvas.captureStream(30);
             const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
-            recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 }); recordedChunks = [];
-            recorder.addEventListener("dataavailable", (event) => { if (event.data.size) recordedChunks.push(event.data); });
+            const chunks = [];
+            recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+            recorder.addEventListener("dataavailable", (event) => { if (event.data.size) chunks.push(event.data); });
             recorder.addEventListener("stop", () => {
-                const blob = new Blob(recordedChunks, { type: recorder.mimeType }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
+                const blob = new Blob(chunks, { type: recorder.mimeType }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
                 anchor.href = url; anchor.download = `morph-sequence-${new Date().toISOString().replaceAll(":", "-")}.webm`; anchor.click();
-                setTimeout(() => URL.revokeObjectURL(url), 1000); exporting = false; exportButton.textContent = "WebM書出し"; updateControls();
+                setTimeout(() => URL.revokeObjectURL(url), 1000); recorder = null; exportButton.textContent = "WebM書出し"; updateControls();
             }, { once: true });
-            exporting = true; exportButton.textContent = "書出し中…"; recorder.start(); setCurrentTime(0); setPlaying(true); updateControls();
+            exportButton.textContent = "書出し中…"; recorder.start(); setCurrentTime(0); setPlaying(true); updateControls();
         }
-        function finishExport() { if (exporting && recorder && recorder.state !== "inactive") recorder.stop(); }
-
         fileInput.addEventListener("change", async (event) => { await addFiles(event.target.files); event.target.value = ""; });
         playButton.addEventListener("click", () => setPlaying(!playing));
         rewindButton.addEventListener("click", () => setCurrentTime(0));
