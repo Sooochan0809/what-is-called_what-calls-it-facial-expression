@@ -295,13 +295,36 @@
         }
 
         .transport {
-            display: flex;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
             min-height: 52px;
-            flex-wrap: wrap;
             align-items: center;
             gap: 9px;
             padding: 8px 14px;
             border-bottom: 1px solid var(--line);
+        }
+
+        .transportGroup {
+            min-width: 0;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 9px;
+        }
+
+        .transportEnd {
+            justify-content: flex-end;
+        }
+
+        .playbackControls {
+            position: relative;
+        }
+
+        .playbackControls .timecode {
+            position: absolute;
+            top: 50%;
+            left: calc(100% + 9px);
+            transform: translateY(-50%);
         }
 
         .transport button {
@@ -326,10 +349,7 @@
             font-size: .76rem;
             font-variant-numeric: tabular-nums;
             color: #c9cfd5;
-        }
-
-        .transportSpacer {
-            flex: 1;
+            white-space: nowrap;
         }
 
         .operationStatus {
@@ -536,7 +556,7 @@
             <footer class="sidebarFooter">
                 <div class="footerRow"><span class="status" id="status">0クリップ</span><button class="smallButton"
                         id="clearButton" type="button" disabled>すべて削除</button></div>
-                <label class="fileButton">＋ 動画を追加<input id="fileInput" type="file" accept="video/*" multiple></label>
+                <label class="fileButton">動画を追加<input id="fileInput" type="file" accept="video/*" multiple></label>
             </footer>
             <div class="alignmentPanel">
                 <div class="alignmentActions">
@@ -554,22 +574,25 @@
         </aside>
         <section class="timelinePanel" aria-label="シーケンス">
             <div class="transport">
-                <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0" step="0.1"
-                        value="1" inputmode="decimal">秒</label>
-                <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
-                        step="0.1" value="0.5" inputmode="decimal">倍</label>
-                <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1" value="10"
-                        inputmode="numeric">回</label>
-                <label class="toggleLabel">モノクロ<input id="monoInput" type="checkbox" checked></label>
-                <span class="operationStatus" id="operationStatus"></span>
-                <div class="transportSpacer"></div>
-                <button class="playButton" id="playButton" type="button" disabled>▶</button>
-                <button id="rewindButton" type="button" disabled>先頭</button>
-                <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
-                <div class="transportSpacer"></div>
-                <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
-                        value="110"></label>
-                <button id="exportButton" type="button" disabled>書き出し</button>
+                <div class="transportGroup">
+                    <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0" step="0.1"
+                            value="1" inputmode="decimal">秒</label>
+                    <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
+                            step="0.1" value="0.5" inputmode="decimal">倍</label>
+                    <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1"
+                            value="10" inputmode="numeric">回</label>
+                    <label class="toggleLabel">モノクロ<input id="monoInput" type="checkbox" checked></label>
+                    <span class="operationStatus" id="operationStatus"></span>
+                </div>
+                <div class="playbackControls">
+                    <button class="playButton" id="playButton" type="button" disabled>▶</button>
+                    <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
+                </div>
+                <div class="transportGroup transportEnd">
+                    <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
+                            value="110"></label>
+                    <button id="exportButton" type="button" disabled>書き出し</button>
+                </div>
             </div>
             <div class="timelineScroller" id="timelineScroller">
                 <div class="timeline" id="timeline">
@@ -611,7 +634,6 @@
             scale: byId("manualScaleInput"),
         };
         const playButton = byId("playButton");
-        const rewindButton = byId("rewindButton");
         const timecode = byId("timecode");
         const transitionInput = byId("transitionInput");
         const playbackSpeedInput = byId("playbackSpeedInput");
@@ -1162,7 +1184,6 @@
             const locked = analysisRunning || isExporting();
             const analysisReady = hasClips && clips.every((clip) => ["done", "failed"].includes(clip.analysis.status));
             playButton.disabled = !hasClips || locked || overlapErrors.length > 0;
-            rewindButton.disabled = !hasClips || locked;
             clearButton.disabled = !hasClips || locked;
             fileInput.disabled = locked;
             transitionInput.disabled = locked; playbackSpeedInput.disabled = locked; loopCountInput.disabled = locked;
@@ -1253,7 +1274,6 @@
 
         fileInput.addEventListener("change", async (event) => { await addFiles(event.target.files); event.target.value = ""; });
         playButton.addEventListener("click", () => setPlaying(!playing));
-        rewindButton.addEventListener("click", () => setCurrentTime(0));
         autoAlignButton.addEventListener("click", autoAlignClips);
         Object.entries(manualInputs).forEach(([key, input]) => input.addEventListener("input", () => {
             globalManual[key] = key === "scale"
