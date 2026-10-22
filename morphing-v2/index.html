@@ -332,7 +332,6 @@
             flex: 1;
         }
 
-        .connectionTime,
         .operationStatus {
             color: #8eddb7;
             font-size: .68rem;
@@ -555,11 +554,10 @@
         </aside>
         <section class="timelinePanel" aria-label="シーケンス">
             <div class="transport">
-                <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0.01" step="0.1"
+                <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0" step="0.1"
                         value="1" inputmode="decimal">秒</label>
                 <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
                         step="0.1" value="0.5" inputmode="decimal">倍</label>
-                <span class="connectionTime" id="connectionTime">接続 2.00秒</span>
                 <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1" value="10"
                         inputmode="numeric">回</label>
                 <label class="toggleLabel">モノクロ<input id="monoInput" type="checkbox" checked></label>
@@ -617,7 +615,6 @@
         const timecode = byId("timecode");
         const transitionInput = byId("transitionInput");
         const playbackSpeedInput = byId("playbackSpeedInput");
-        const connectionTime = byId("connectionTime");
         const loopCountInput = byId("loopCountInput");
         const timeline = byId("timeline");
         const timelineScroller = byId("timelineScroller");
@@ -652,7 +649,6 @@
         const isExporting = () => Boolean(exportJob);
         const playbackSpeed = () => clamp(Number(playbackSpeedInput.value) || 1, .1, 2);
         const sourceOverlap = () => Math.max(.01, Number(transitionInput.value) || 1);
-        const outputConnection = () => sourceOverlap() / playbackSpeed();
         const loopCount = () => Math.max(0, Math.floor(Number(loopCountInput.value) || 0));
         const identityTransform = () => ({ scale: 1, rotation: 0, x: 0, y: 0 });
         function formatTime(seconds) {
@@ -853,7 +849,6 @@
         function buildSchedule() {
             schedule = calculateSchedule(clips, sourceOverlap(), playbackSpeed());
             currentTime = clamp(currentTime, 0, totalDuration());
-            connectionTime.textContent = `接続 ${outputConnection().toFixed(2)}秒`;
         }
         function overlapIssues() {
             return clips.map((clip) => ({ clip, shortage: sourceOverlap() * 2 - clip.duration }))
