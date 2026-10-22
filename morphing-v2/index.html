@@ -291,7 +291,7 @@
             flex: 1;
         }
 
-        .transitionSetting,
+        .transportSetting,
         .toggleLabel,
         .zoomLabel {
             display: flex;
@@ -306,7 +306,7 @@
             accent-color: var(--accent);
         }
 
-        .transitionSetting input {
+        .transportSetting input {
             width: 52px;
             height: 28px;
             padding: 0 5px;
@@ -506,8 +506,10 @@
                 <button class="playButton" id="playButton" type="button" disabled>▶ 再生</button>
                 <button id="rewindButton" type="button" disabled>先頭へ</button>
                 <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
-                <label class="transitionSetting">モーフ<input id="transitionInput" type="number" min="0.1"
-                        step="0.1" value="1" inputmode="decimal">秒</label>
+                <label class="transportSetting">モーフ<input id="transitionInput" type="number" min="0.1" step="0.1"
+                        value="0.5" inputmode="decimal">秒</label>
+                <label class="transportSetting">再生速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
+                        step="0.1" value="0.5" inputmode="decimal">倍</label>
                 <div class="transportSpacer"></div>
                 <label class="toggleLabel"><input id="monoInput" type="checkbox">モノクロ</label>
                 <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
@@ -546,6 +548,7 @@
         const rewindButton = byId("rewindButton");
         const timecode = byId("timecode");
         const transitionInput = byId("transitionInput");
+        const playbackSpeedInput = byId("playbackSpeedInput");
         const timeline = byId("timeline");
         const timelineScroller = byId("timelineScroller");
         const playhead = byId("playhead");
@@ -566,6 +569,7 @@
         const pxPerSecond = () => Number(zoomInput.value);
         const totalDuration = () => schedule.at(-1)?.end || 0;
         const isExporting = () => recorder?.state === "recording";
+        const playbackSpeed = () => clamp(Number(playbackSpeedInput.value) || 1, .1, 2);
         function formatTime(seconds) {
             const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
             const minutes = Math.floor(safe / 60);
@@ -638,6 +642,7 @@
             schedule.forEach((item) => {
                 const localTime = clamp(time - item.start, 0, Math.max(0, item.clip.duration - .001));
                 const video = item.clip.video;
+                video.playbackRate = playbackSpeed();
                 if (activeIds.has(item.clip.id)) {
                     if (force || Math.abs(video.currentTime - localTime) > .18) video.currentTime = localTime;
                     if (playing && video.paused) video.play().catch(() => { });
@@ -774,7 +779,7 @@
         }
         async function tick(now) {
             if (playing) {
-                currentTime += (now - previousFrameAt) / 1000;
+                currentTime += (now - previousFrameAt) / 1000 * playbackSpeed();
                 previousFrameAt = now;
                 if (currentTime >= totalDuration()) {
                     currentTime = totalDuration();
@@ -886,6 +891,10 @@
             renderTimeline();
             updateControls();
             setCurrentTime(currentTime);
+        });
+        playbackSpeedInput.addEventListener("change", () => {
+            playbackSpeedInput.value = playbackSpeed().toFixed(1);
+            seekVideos(currentTime);
         });
         clearButton.addEventListener("click", clearClips);
         monoInput.addEventListener("change", () => canvas.classList.toggle("monochrome", monoInput.checked));
