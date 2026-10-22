@@ -144,7 +144,8 @@
             border: 1px solid var(--line);
             border-left: 4px solid var(--clip-color);
             border-radius: 9px;
-            background: #fff;
+            background: var(--previewArea);
+            color: #fff;
             cursor: grab;
         }
 
@@ -179,31 +180,6 @@
         .clipMeta {
             color: var(--muted);
             font-size: .7rem;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .transitionControl {
-            display: grid;
-            grid-template-columns: auto minmax(0, 1fr) 48px;
-            gap: 6px;
-            align-items: center;
-            color: var(--muted);
-            font-size: .68rem;
-        }
-
-        .transitionControl input[type="range"] {
-            width: 100%;
-            accent-color: var(--accent);
-        }
-
-        .transitionControl input[type="number"] {
-            width: 48px;
-            height: 25px;
-            padding: 0 4px;
-            border: 1px solid var(--line);
-            border-radius: 5px;
-            color: var(--ink);
-            font-size: .72rem;
             font-variant-numeric: tabular-nums;
         }
 
@@ -315,6 +291,7 @@
             flex: 1;
         }
 
+        .transitionSetting,
         .toggleLabel,
         .zoomLabel {
             display: flex;
@@ -327,6 +304,17 @@
 
         .toggleLabel input {
             accent-color: var(--accent);
+        }
+
+        .transitionSetting input {
+            width: 52px;
+            height: 28px;
+            padding: 0 5px;
+            border: 1px solid #454d56;
+            border-radius: 5px;
+            background: #2b323a;
+            color: #fff;
+            font-size: .72rem;
         }
 
         .zoomLabel input {
@@ -518,6 +506,8 @@
                 <button class="playButton" id="playButton" type="button" disabled>▶ 再生</button>
                 <button id="rewindButton" type="button" disabled>先頭へ</button>
                 <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
+                <label class="transitionSetting">モーフ<input id="transitionInput" type="number" min="0.1"
+                        step="0.1" value="1" inputmode="decimal">秒</label>
                 <div class="transportSpacer"></div>
                 <label class="toggleLabel"><input id="monoInput" type="checkbox">モノクロ</label>
                 <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
@@ -538,7 +528,6 @@
         const OUTPUT_HEIGHT = 1920;
         const WIDTH = 540;
         const HEIGHT = 960;
-        const DEFAULT_TRANSITION = 1;
         const DETECTION_INTERVAL = 90;
         const COLORS = ["#5278d8", "#d85d76", "#8b63d7", "#d98245", "#397f91", "#647c45"];
         const MEDIAPIPE_VERSION = "1.1.0";
@@ -556,6 +545,7 @@
         const playButton = byId("playButton");
         const rewindButton = byId("rewindButton");
         const timecode = byId("timecode");
+        const transitionInput = byId("transitionInput");
         const timeline = byId("timeline");
         const timelineScroller = byId("timelineScroller");
         const playhead = byId("playhead");
@@ -598,7 +588,7 @@
                     }
                     resolve({
                         id: crypto.randomUUID(), name: file.name, url, video, duration: video.duration,
-                        transition: DEFAULT_TRANSITION, sourceCanvas: document.createElement("canvas"),
+                        sourceCanvas: document.createElement("canvas"),
                         points: null, lastDetectionAt: -Infinity,
                     });
                 }, { once: true });
@@ -612,33 +602,26 @@
             const added = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
             if (added.length !== files.length) alert("読み込めない動画がありました。ブラウザで再生できるMP4、WebMなどを使用してください。");
             clips.push(...added);
-            normalizeTransitions();
+            buildSchedule();
             currentTime = 0;
             renderAll();
             seekVideos(0, true);
             void getFaceLandmarker();
         }
-        function maxTransition(index) {
-            if (!index) return 0;
-            return Math.max(.1, Math.min(clips[index - 1].duration, clips[index].duration) / 2);
-        }
-        function normalizeTransitions() {
-            clips.forEach((clip, index) => {
-                clip.transition = index === 0 ? 0 : clamp(clip.transition || DEFAULT_TRANSITION, .1, maxTransition(index));
-            });
-            buildSchedule();
-        }
-        function calculateSchedule(clipList) {
+        function calculateSchedule(clipList, requestedTransition = 1) {
             let previousEnd = 0;
             return clipList.map((clip, index) => {
-                const start = index ? previousEnd - clip.transition : 0;
+                const transition = index
+                    ? Math.min(requestedTransition, Math.max(.1, Math.min(clipList[index - 1].duration, clip.duration) / 2))
+                    : 0;
+                const start = previousEnd - transition;
                 const end = start + clip.duration;
                 previousEnd = end;
-                return { clip, start, end };
+                return { clip, start, end, transition };
             });
         }
         function buildSchedule() {
-            schedule = calculateSchedule(clips);
+            schedule = calculateSchedule(clips, Math.max(.1, Number(transitionInput.value) || 1));
             currentTime = clamp(currentTime, 0, totalDuration());
         }
         function getActiveState(time) {
@@ -820,16 +803,9 @@
                 <div class="clipBody">
                     <div class="clipTitle"></div>
                     <div class="clipMeta">${formatTime(clip.duration)} · クリップ ${index + 1}</div>
-                    ${index ? `<label class="transitionControl"><span>前とのモーフ</span><input data-transition-range type="range" min="0.1" max="${maxTransition(index)}" step="0.1" value="${clip.transition}"><input data-transition-number type="number" min="0.1" max="${maxTransition(index)}" step="0.1" value="${clip.transition.toFixed(1)}" aria-label="前の動画とのモーフ秒数"></label>` : ""}
                 </div>
                 <button class="removeButton" type="button" title="削除">×</button>`;
             card.querySelector(".clipTitle").textContent = clip.name;
-            const setTransition = (value) => {
-                clip.transition = clamp(Number(value) || .1, .1, maxTransition(index));
-                buildSchedule(); renderClipList(); renderTimeline(); updateControls(); setCurrentTime(currentTime);
-            };
-            card.querySelector("[data-transition-range]")?.addEventListener("change", (event) => setTransition(event.target.value));
-            card.querySelector("[data-transition-number]")?.addEventListener("change", (event) => setTransition(event.target.value));
             card.querySelector(".removeButton").addEventListener("click", () => removeClip(clip.id));
             card.querySelectorAll("button,input").forEach((control) => control.addEventListener("pointerdown", (event) => event.stopPropagation()));
             card.addEventListener("dragstart", () => { draggedId = clip.id; card.classList.add("dragging"); });
@@ -839,7 +815,7 @@
                 event.preventDefault();
                 const from = clips.findIndex((item) => item.id === draggedId), to = clips.findIndex((item) => item.id === clip.id);
                 if (from < 0 || to < 0 || from === to) return;
-                clips.splice(to, 0, clips.splice(from, 1)[0]); normalizeTransitions(); setCurrentTime(0); renderAll();
+                clips.splice(to, 0, clips.splice(from, 1)[0]); buildSchedule(); setCurrentTime(0); renderAll();
             });
             return card;
         }
@@ -862,9 +838,9 @@
                 block.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start); }); timeline.appendChild(block);
                 if (index > 0) {
                     const morph = document.createElement("div");
-                    morph.className = "morphRegion"; morph.style.left = `${item.start * scale}px`; morph.style.width = `${Math.max(18, item.clip.transition * scale)}px`;
-                    morph.innerHTML = `<span>モーフ ${item.clip.transition.toFixed(1)}秒</span>`; morph.title = `${schedule[index - 1].clip.name} → ${item.clip.name}`;
-                    morph.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start + item.clip.transition / 2); }); timeline.appendChild(morph);
+                    morph.className = "morphRegion"; morph.style.left = `${item.start * scale}px`; morph.style.width = `${Math.max(18, item.transition * scale)}px`;
+                    morph.innerHTML = `<span>モーフ ${item.transition.toFixed(1)}秒</span>`; morph.title = `${schedule[index - 1].clip.name} → ${item.clip.name}`;
+                    morph.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start + item.transition / 2); }); timeline.appendChild(morph);
                 }
             });
             timeline.appendChild(playhead); updatePlayhead();
@@ -881,7 +857,7 @@
         function removeClip(id) {
             const index = clips.findIndex((clip) => clip.id === id); if (index < 0) return;
             const [removed] = clips.splice(index, 1); removed.video.pause(); URL.revokeObjectURL(removed.url);
-            normalizeTransitions(); setPlaying(false); currentTime = 0; renderAll(); seekVideos(0, true);
+            buildSchedule(); setPlaying(false); currentTime = 0; renderAll(); seekVideos(0, true);
         }
         function clearClips() {
             setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url)); clips = []; schedule = []; currentTime = 0;
@@ -904,6 +880,13 @@
         fileInput.addEventListener("change", async (event) => { await addFiles(event.target.files); event.target.value = ""; });
         playButton.addEventListener("click", () => setPlaying(!playing));
         rewindButton.addEventListener("click", () => setCurrentTime(0));
+        transitionInput.addEventListener("change", () => {
+            transitionInput.value = Math.max(.1, Number(transitionInput.value) || 1).toFixed(1);
+            buildSchedule();
+            renderTimeline();
+            updateControls();
+            setCurrentTime(currentTime);
+        });
         clearButton.addEventListener("click", clearClips);
         monoInput.addEventListener("change", () => canvas.classList.toggle("monochrome", monoInput.checked));
         zoomInput.addEventListener("input", renderTimeline);
