@@ -475,6 +475,8 @@
                             aria-pressed="false">トリミング</button>
                         <button class="stageToggleButton monoToggleButton" id="monoToggleButton" type="button"
                             aria-pressed="true">モノクロ</button>
+                        <button class="stageToggleButton" id="faceAlignmentButton" type="button"
+                            aria-pressed="true" disabled>顔位置補正</button>
                         <button class="stageToggleButton sequenceToggleButton is-off" id="sequenceToggleButton"
                             type="button" aria-pressed="false" disabled>自動切替</button>
                         <label class="sequenceSpeedControl" hidden>
@@ -565,6 +567,7 @@
         const cropHeightInput = document.getElementById("cropHeightInput");
         const cropShowButton = document.getElementById("cropShowButton");
         const monoToggleButton = document.getElementById("monoToggleButton");
+        const faceAlignmentButton = document.getElementById("faceAlignmentButton");
         const recordingButton = document.getElementById("recordingButton");
         const sequenceToggleButton = document.getElementById("sequenceToggleButton");
         const sequenceSpeedInput = document.getElementById("sequenceSpeedInput");
@@ -577,6 +580,7 @@
         let draggedId = null;
         let faceLandmarkerPromise = null;
         let monochromeEnabled = true;
+        let faceAlignmentEnabled = true;
         let runtimeActive = true;
         let sequenceEnabled = false;
         let sequenceFrameId = null;
@@ -1003,14 +1007,56 @@
             ctx.restore();
         }
 
+        function getAlignedPoints(morphLayers) {
+            if (!faceAlignmentEnabled || morphLayers.length < 2) {
+                return new Map(morphLayers.map((layer) => [layer.id, layer.morph.points]));
+            }
+
+            const faces = morphLayers.map((layer) => {
+                const points = layer.morph.points.slice(0, -4);
+                const xs = points.map(([x]) => x);
+                const ys = points.map(([, y]) => y);
+                const left = Math.min(...xs);
+                const right = Math.max(...xs);
+                const top = Math.min(...ys);
+                const bottom = Math.max(...ys);
+                return {
+                    layer,
+                    centerX: (left + right) / 2,
+                    centerY: (top + bottom) / 2,
+                    size: Math.hypot(right - left, bottom - top),
+                };
+            });
+            const target = faces.reduce(
+                (sum, face) => ({
+                    centerX: sum.centerX + face.centerX / faces.length,
+                    centerY: sum.centerY + face.centerY / faces.length,
+                    size: sum.size + face.size / faces.length,
+                }),
+                { centerX: 0, centerY: 0, size: 0 },
+            );
+
+            return new Map(faces.map((face) => {
+                const scale = target.size / face.size;
+                const alignedFacePoints = face.layer.morph.points.slice(0, -4).map(([x, y]) => [
+                    target.centerX + (x - face.centerX) * scale,
+                    target.centerY + (y - face.centerY) * scale,
+                ]);
+                return [
+                    face.layer.id,
+                    [...alignedFacePoints, ...face.layer.morph.points.slice(-4)],
+                ];
+            }));
+        }
+
         function blendPoints(weightedLayers) {
-            const pointCount = weightedLayers[0].layer.morph.points.length;
+            const pointCount = weightedLayers[0].points.length;
             const points = [];
 
             for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
                 const point = weightedLayers.reduce(
                     (sum, item) => {
-                        const sourcePoint = item.layer.morph.points[pointIndex];
+                        const sourcePoint = item.points[pointIndex];
                         return [
                             sum[0] + sourcePoint[0] * item.weight,
                             sum[1] + sourcePoint[1] * item.weight,
@@ -1061,17 +1107,20 @@
             return { width: source.width, height: source.height };
         }
 
-        function createRecordingLayerData(layer, width, height, gl) {
+        function createRecordingLayerData(layer, destinationPoints, width, height, gl) {
             const outputCrop = getCenteredCropRect(layer.width, layer.height, width / height);
             const analysisCrop = getCenteredCropRect(layer.width, layer.height, MORPH_RATIO);
             const sourcePoints = [];
-            const points = layer.morph.points.slice(0, -4).map(([x, y]) => {
-                const sourceX = analysisCrop.sx + x * analysisCrop.sw / MORPH_WIDTH;
-                const sourceY = analysisCrop.sy + y * analysisCrop.sh / MORPH_HEIGHT;
+            const points = destinationPoints.slice(0, -4).map(([x, y], index) => {
+                const [sourcePointX, sourcePointY] = layer.morph.points[index];
+                const sourceX = analysisCrop.sx + sourcePointX * analysisCrop.sw / MORPH_WIDTH;
+                const sourceY = analysisCrop.sy + sourcePointY * analysisCrop.sh / MORPH_HEIGHT;
                 sourcePoints.push(sourceX / layer.width, sourceY / layer.height);
+                const destinationX = analysisCrop.sx + x * analysisCrop.sw / MORPH_WIDTH;
+                const destinationY = analysisCrop.sy + y * analysisCrop.sh / MORPH_HEIGHT;
                 return [
-                    (sourceX - outputCrop.sx) * width / outputCrop.sw,
-                    (sourceY - outputCrop.sy) * height / outputCrop.sh,
+                    (destinationX - outputCrop.sx) * width / outputCrop.sw,
+                    (destinationY - outputCrop.sy) * height / outputCrop.sh,
                 ];
             });
             points.push([0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]);
@@ -1282,6 +1331,7 @@
 
             const morphLayers = getMorphLayers();
             const recordingSize = getRecordingSize(morphLayers);
+            const alignedPoints = getAlignedPoints(morphLayers);
             const encoderConfig = {
                 codec: "vp8",
                 width: recordingSize.width,
@@ -1304,6 +1354,7 @@
                     layer.id,
                     createRecordingLayerData(
                         layer,
+                        alignedPoints.get(layer.id),
                         recordingSize.width,
                         recordingSize.height,
                         recordingRenderer.gl,
@@ -1994,9 +2045,11 @@
         function renderMorphStage() {
             const morphLayers = getMorphLayers();
             const normalizedWeights = getNormalizedMorphWeights(morphLayers);
+            const alignedPoints = getAlignedPoints(morphLayers);
             const activeMorphLayers = morphLayers
                 .map((layer) => ({
                     layer,
+                    points: alignedPoints.get(layer.id),
                     weight: normalizedWeights.get(layer.id) || 0,
                 }))
                 .filter((item) => item.weight > 0);
@@ -2209,6 +2262,8 @@
             status.textContent = String(layers.length);
             clearButton.disabled = layers.length === 0;
             syncToggleButton(monoToggleButton, monochromeEnabled);
+            faceAlignmentButton.disabled = getMorphLayers().length < 2 || isRecording();
+            syncToggleButton(faceAlignmentButton, faceAlignmentEnabled);
             recordingButton.disabled = getMorphLayers().length === 0 || recordingStopping;
             recordingButton.textContent = isRecording() ? "録画停止" : "録画";
             syncToggleButton(recordingButton, isRecording());
@@ -2241,6 +2296,11 @@
 
         monoToggleButton.addEventListener("click", () => {
             monochromeEnabled = !monochromeEnabled;
+            render();
+        });
+
+        faceAlignmentButton.addEventListener("click", () => {
+            faceAlignmentEnabled = !faceAlignmentEnabled;
             render();
         });
 
