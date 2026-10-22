@@ -9,7 +9,8 @@
     <style>
         :root {
             color-scheme: light;
-            --bg: #1e1e29;
+            --bg: #0b0a11;
+            --previewArea: #1e1e29;
             --panel: #14141b;
             --ink: #192027;
             --muted: #747b84;
@@ -58,6 +59,7 @@
             display: grid;
             grid-template-columns: 340px minmax(0, 1fr);
             grid-template-rows: minmax(0, 1fr) 224px;
+            column-gap: 12px;
         }
 
         .previewArea {
@@ -68,6 +70,7 @@
             display: grid;
             place-items: center;
             padding: 24px;
+            background-color: var(--previewArea);
         }
 
         .stage {
@@ -272,7 +275,7 @@
             grid-column: 2;
             display: grid;
             grid-template-rows: 52px minmax(0, 1fr);
-            background: var(--bg);
+            background: var(--previewArea);
             border: 1px solid var(--line);
             color: #fff;
         }
