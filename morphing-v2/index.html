@@ -13,11 +13,9 @@
             --panel: #14141b;
             --ink: #192027;
             --muted: #747b84;
-            --line: #d8dce1;
             --accent: #35c982;
-            --accent-dark: #168653;
             --timeline: #20262d;
-            --line: #353c44;
+            --line: #2d2d36;
         }
 
         * {
@@ -121,7 +119,7 @@
             grid-row: 1 / 3;
             grid-column: 1;
             display: grid;
-            grid-template-rows: minmax(0, 1fr) auto;
+            grid-template-rows: auto minmax(0, 1fr);
             border-right: 1px solid var(--line);
             background: var(--panel);
         }
@@ -225,7 +223,7 @@
             display: grid;
             gap: 10px;
             padding: 12px;
-            border-top: 1px solid var(--line);
+            border-bottom: 1px solid var(--line);
         }
 
         .fileButton {
@@ -239,11 +237,6 @@
             color: #4e565f;
             font-size: .82rem;
             cursor: pointer;
-        }
-
-        .fileButton:hover {
-            border-color: var(--accent-dark);
-            color: var(--accent-dark);
         }
 
         .fileButton input {
@@ -269,6 +262,7 @@
             height: 32px;
             padding: 0 11px;
             font-size: .74rem;
+            color: var(--muted);
         }
 
         .timelinePanel {
@@ -279,7 +273,7 @@
             display: grid;
             grid-template-rows: 52px minmax(0, 1fr);
             background: var(--bg);
-            border: 1px solid #2d2d36;
+            border: 1px solid var(--line);
             color: #fff;
         }
 
@@ -509,12 +503,12 @@
             </div>
         </main>
         <aside class="sidebar" aria-label="動画クリップ">
-            <div class="clipList" id="clipList"></div>
             <footer class="sidebarFooter">
-                <label class="fileButton">＋ 動画を追加<input id="fileInput" type="file" accept="video/*" multiple></label>
                 <div class="footerRow"><span class="status" id="status">0クリップ</span><button class="smallButton"
                         id="clearButton" type="button" disabled>すべて削除</button></div>
+                <label class="fileButton">＋ 動画を追加<input id="fileInput" type="file" accept="video/*" multiple></label>
             </footer>
+            <div class="clipList" id="clipList"></div>
         </aside>
         <section class="timelinePanel" aria-label="シーケンス">
             <div class="transport">
