@@ -91,17 +91,13 @@
             height: 100%;
         }
 
-        #morphCanvas.monochrome {
-            filter: grayscale(1);
-        }
-
         .sidebar {
             min-width: 0;
             min-height: 0;
             grid-row: 1 / 3;
             grid-column: 1;
             display: grid;
-            grid-template-rows: auto minmax(0, 1fr);
+            grid-template-rows: auto auto minmax(0, 1fr);
             border-right: 1px solid var(--line);
             background: var(--panel);
         }
@@ -161,6 +157,18 @@
             color: var(--muted);
             font-size: .7rem;
             font-variant-numeric: tabular-nums;
+        }
+
+        .clipAnalysis {
+            overflow: hidden;
+            color: #8eddb7;
+            font-size: .66rem;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .clipAnalysis.warning {
+            color: #ffb46c;
         }
 
         .removeButton {
@@ -223,13 +231,64 @@
             color: var(--muted);
         }
 
+        .alignmentPanel {
+            display: grid;
+            gap: 9px;
+            padding: 11px 12px;
+            border-bottom: 1px solid var(--line);
+            color: #c9cfd5;
+        }
+
+        .alignmentActions,
+        .manualGrid {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .alignmentActions button {
+            height: 30px;
+            padding: 0 9px;
+            color: #c9cfd5;
+            font-size: .7rem;
+        }
+
+        .alignmentLabel {
+            color: var(--muted);
+            font-size: .68rem;
+        }
+
+        .manualGrid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .manualGrid label {
+            display: grid;
+            gap: 3px;
+            color: var(--muted);
+            font-size: .62rem;
+        }
+
+        .manualGrid input {
+            width: 100%;
+            min-width: 0;
+            height: 27px;
+            padding: 0 4px;
+            border: 1px solid #454d56;
+            border-radius: 5px;
+            background: #24242e;
+            color: #fff;
+            font-size: .68rem;
+        }
+
         .timelinePanel {
             min-width: 0;
             min-height: 0;
             grid-row: 2;
             grid-column: 2;
             display: grid;
-            grid-template-rows: 52px minmax(0, 1fr);
+            grid-template-rows: auto minmax(0, 1fr);
             background: var(--previewArea);
             border: 1px solid var(--line);
             color: #fff;
@@ -237,6 +296,8 @@
 
         .transport {
             display: flex;
+            min-height: 52px;
+            flex-wrap: wrap;
             align-items: center;
             gap: 9px;
             padding: 8px 14px;
@@ -253,7 +314,7 @@
         }
 
         .transport .playButton {
-            min-width: 74px;
+            min-width: 48px;
             background: var(--accent);
             border-color: var(--accent);
             color: #10251b;
@@ -269,6 +330,21 @@
 
         .transportSpacer {
             flex: 1;
+        }
+
+        .connectionTime,
+        .operationStatus {
+            color: #8eddb7;
+            font-size: .68rem;
+            white-space: nowrap;
+        }
+
+        .operationStatus.warning {
+            color: #ffb46c;
+        }
+
+        .operationStatus:empty {
+            display: none;
         }
 
         .transportSetting,
@@ -463,24 +539,39 @@
                         id="clearButton" type="button" disabled>すべて削除</button></div>
                 <label class="fileButton">＋ 動画を追加<input id="fileInput" type="file" accept="video/*" multiple></label>
             </footer>
+            <div class="alignmentPanel">
+                <div class="alignmentActions">
+                    <button id="autoAlignButton" type="button" disabled>自動位置合わせ</button>
+                    <span class="alignmentLabel">全素材共通補正</span>
+                </div>
+                <div class="manualGrid">
+                    <label>X<input class="manualInput" id="manualXInput" type="number" step="1" value="0"></label>
+                    <label>Y<input class="manualInput" id="manualYInput" type="number" step="1" value="0"></label>
+                    <label>倍率<input class="manualInput" id="manualScaleInput" type="number" min="0.5" max="2"
+                            step="0.01" value="1"></label>
+                </div>
+            </div>
             <div class="clipList" id="clipList"></div>
         </aside>
         <section class="timelinePanel" aria-label="シーケンス">
             <div class="transport">
-                <button class="playButton" id="playButton" type="button" disabled>▶ 再生</button>
-                <button id="rewindButton" type="button" disabled>先頭へ</button>
-                <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
-                <label class="transportSetting">モーフ<input id="transitionInput" type="number" min="0.1" step="0.1"
-                        value="0.5" inputmode="decimal">秒</label>
+                <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0.01" step="0.1"
+                        value="1" inputmode="decimal">秒</label>
                 <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
                         step="0.1" value="0.5" inputmode="decimal">倍</label>
+                <span class="connectionTime" id="connectionTime">接続 2.00秒</span>
                 <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1" value="10"
                         inputmode="numeric">回</label>
-                <div class="transportSpacer"></div>
                 <label class="toggleLabel">モノクロ<input id="monoInput" type="checkbox" checked></label>
+                <span class="operationStatus" id="operationStatus"></span>
+                <div class="transportSpacer"></div>
+                <button class="playButton" id="playButton" type="button" disabled>▶</button>
+                <button id="rewindButton" type="button" disabled>先頭</button>
+                <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
+                <div class="transportSpacer"></div>
                 <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
                         value="110"></label>
-                <button id="exportButton" type="button" disabled>WebM書出し</button>
+                <button id="exportButton" type="button" disabled>書き出し</button>
             </div>
             <div class="timelineScroller" id="timelineScroller">
                 <div class="timeline" id="timeline">
@@ -491,13 +582,20 @@
     </div>
     <script type="module">
         import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
+        import {
+            BufferTarget, CanvasSource, Output, Quality, WebMOutputFormat,
+            getFirstEncodableVideoCodec,
+        } from "https://cdn.jsdelivr.net/npm/mediabunny@1.62.0/+esm";
 
         const OUTPUT_WIDTH = 1080;
         const OUTPUT_HEIGHT = 1920;
-        const WIDTH = 540;
-        const HEIGHT = 960;
-        const DETECTION_INTERVAL = 90;
+        const OUTPUT_FPS = 60;
+        const ANALYSIS_STEP = .2;
+        const MAX_INTERPOLATION_GAP = .6;
+        const FRAME_TOLERANCE = 1 / OUTPUT_FPS;
         const COLORS = ["#5278d8", "#d85d76", "#8b63d7", "#d98245", "#397f91", "#647c45"];
+        const EYE_LEFT = [33, 133];
+        const EYE_RIGHT = [362, 263];
         const MEDIAPIPE_VERSION = "1.1.0";
         const TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
         const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
@@ -509,18 +607,27 @@
         const clipList = byId("clipList");
         const status = byId("status");
         const clearButton = byId("clearButton");
+        const autoAlignButton = byId("autoAlignButton");
+        const manualInputs = {
+            x: byId("manualXInput"), y: byId("manualYInput"),
+            scale: byId("manualScaleInput"),
+        };
         const playButton = byId("playButton");
         const rewindButton = byId("rewindButton");
         const timecode = byId("timecode");
         const transitionInput = byId("transitionInput");
         const playbackSpeedInput = byId("playbackSpeedInput");
+        const connectionTime = byId("connectionTime");
         const loopCountInput = byId("loopCountInput");
         const timeline = byId("timeline");
         const timelineScroller = byId("timelineScroller");
         const playhead = byId("playhead");
         const monoInput = byId("monoInput");
         const zoomInput = byId("zoomInput");
+        const operationStatus = byId("operationStatus");
         const exportButton = byId("exportButton");
+        const warpCanvases = [document.createElement("canvas"), document.createElement("canvas")];
+        warpCanvases.forEach((item) => { item.width = OUTPUT_WIDTH; item.height = OUTPUT_HEIGHT; });
 
         let clips = [];
         let schedule = [];
@@ -529,121 +636,104 @@
         let playing = false;
         let previousFrameAt = 0;
         let draggedId = null;
+        let sharedEyeTarget = null;
+        let globalManual = { scale: 1, rotation: 0, x: 0, y: 0 };
         let faceLandmarkerPromise = null;
-        let recorder = null;
+        let analysisRunning = false;
+        let exportProfile = null;
+        let exportProbeDone = false;
+        let exportJob = null;
+        let previewGeneration = 0;
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+        const smoothstep = (value) => value * value * (3 - 2 * value);
         const pxPerSecond = () => Number(zoomInput.value);
         const totalDuration = () => schedule.at(-1)?.end || 0;
-        const isExporting = () => recorder?.state === "recording";
+        const isExporting = () => Boolean(exportJob);
         const playbackSpeed = () => clamp(Number(playbackSpeedInput.value) || 1, .1, 2);
+        const sourceOverlap = () => Math.max(.01, Number(transitionInput.value) || 1);
+        const outputConnection = () => sourceOverlap() / playbackSpeed();
         const loopCount = () => Math.max(0, Math.floor(Number(loopCountInput.value) || 0));
+        const identityTransform = () => ({ scale: 1, rotation: 0, x: 0, y: 0 });
         function formatTime(seconds) {
             const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
             const minutes = Math.floor(safe / 60);
             const rest = safe - minutes * 60;
             return `${String(minutes).padStart(2, "0")}:${rest.toFixed(2).padStart(5, "0")}`;
         }
+        function median(values) {
+            const sorted = [...values].sort((a, b) => a - b);
+            const middle = Math.floor(sorted.length / 2);
+            return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+        }
+        function createCanvas() {
+            const result = document.createElement("canvas");
+            result.width = OUTPUT_WIDTH; result.height = OUTPUT_HEIGHT;
+            return result;
+        }
         function loadVideo(file) {
             return new Promise((resolve, reject) => {
                 const url = URL.createObjectURL(file);
                 const video = document.createElement("video");
-                video.src = url;
-                video.preload = "auto";
-                video.muted = true;
-                video.playsInline = true;
-                video.addEventListener("seeked", () => { if (!playing) void renderFrame(); });
+                video.src = url; video.preload = "auto"; video.muted = true; video.playsInline = true;
                 video.addEventListener("loadedmetadata", () => {
                     if (!Number.isFinite(video.duration) || video.duration <= 0) {
-                        URL.revokeObjectURL(url);
-                        reject(new Error("動画の長さを取得できません"));
-                        return;
+                        URL.revokeObjectURL(url); reject(new Error("動画の長さを取得できません")); return;
                     }
                     resolve({
                         id: crypto.randomUUID(), name: file.name, url, video, duration: video.duration,
-                        sourceCanvas: document.createElement("canvas"),
-                        points: null, lastDetectionAt: -Infinity,
+                        rawCanvas: createCanvas(), sourceCanvas: createCanvas(),
+                        analysis: { status: "pending", progress: 0, samples: [], gaps: [], error: "" },
+                        representative: null, auto: identityTransform(),
                     });
                 }, { once: true });
-                video.addEventListener("error", () => { URL.revokeObjectURL(url); reject(new Error("動画を読み込めません")); }, { once: true });
+                video.addEventListener("error", () => {
+                    URL.revokeObjectURL(url); reject(new Error("動画を読み込めません"));
+                }, { once: true });
             });
         }
-        async function addFiles(fileList) {
-            const files = [...fileList].filter((file) => file.type.startsWith("video/"));
-            if (!files.length) return;
-            const results = await Promise.allSettled(files.map(loadVideo));
-            const added = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
-            if (added.length !== files.length) alert("読み込めない動画がありました。ブラウザで再生できるMP4、WebMなどを使用してください。");
-            clips.push(...added);
-            buildSchedule();
-            currentTime = 0;
-            completedLoops = 0;
-            renderAll();
-            seekVideos(0, true);
-            void getFaceLandmarker();
-        }
-        function transitionBetween(from, to, requested, speed) {
-            return Math.min(requested, Math.max(.001, Math.min(from.duration, to.duration) / speed / 2));
-        }
-        function calculateSchedule(clipList, requestedTransition = 1, speed = 1) {
-            if (!clipList.length) return [];
-            const loopTransition = clipList.length > 1
-                ? transitionBetween(clipList.at(-1), clipList[0], requestedTransition, speed)
-                : 0;
-            let previousEnd = clipList[0].duration / speed - loopTransition;
-            return clipList.map((clip, index) => {
-                if (!index) return { clip, start: 0, end: previousEnd, transition: 0, offset: loopTransition };
-                const transition = transitionBetween(clipList[index - 1], clip, requestedTransition, speed);
-                const start = previousEnd - transition;
-                const end = start + clip.duration / speed;
-                previousEnd = end;
-                return { clip, start, end, transition, offset: 0 };
+        function waitForVideoFrame(video, time) {
+            const target = clamp(time, 0, Math.max(0, video.duration - 1 / OUTPUT_FPS));
+            return new Promise((resolve, reject) => {
+                let finished = false;
+                const timeout = setTimeout(() => done(new Error("動画フレームの取得がタイムアウトしました")), 8000);
+                const cleanup = () => {
+                    clearTimeout(timeout);
+                    video.removeEventListener("seeked", frameReady);
+                    video.removeEventListener("error", failed);
+                };
+                const done = (error) => {
+                    if (finished) return;
+                    finished = true; cleanup(); error ? reject(error) : resolve();
+                };
+                const frameReady = () => {
+                    if (video.requestVideoFrameCallback) {
+                        const fallback = setTimeout(() => done(), 250);
+                        video.requestVideoFrameCallback(() => { clearTimeout(fallback); done(); });
+                    } else requestAnimationFrame(() => done());
+                };
+                const failed = () => done(new Error("動画フレームを取得できません"));
+                video.addEventListener("error", failed, { once: true });
+                if (Math.abs(video.currentTime - target) < .0005 && video.readyState >= 2) frameReady();
+                else {
+                    video.addEventListener("seeked", frameReady, { once: true });
+                    video.currentTime = target;
+                }
             });
         }
-        function buildSchedule() {
-            schedule = calculateSchedule(
-                clips,
-                Math.max(.1, Number(transitionInput.value) || 1),
-                playbackSpeed(),
-            );
-            currentTime = clamp(currentTime, 0, totalDuration());
-        }
-        function getActiveState(time) {
-            const active = schedule.filter((item) => time >= item.start && time < item.end);
-            const loopTransition = schedule[0]?.offset || 0;
-            if (loopTransition && time >= totalDuration() - loopTransition) {
-                active.push({
-                    clip: clips[0],
-                    start: totalDuration() - loopTransition,
-                    end: totalDuration(),
-                    offset: 0,
-                });
-            }
-            if (!active.length) return { items: [], progress: 0 };
-            if (active.length === 1) return { items: active, progress: 0 };
-            const from = active[0];
-            const to = active[1];
-            const duration = Math.max(.001, from.end - to.start);
-            return { items: [from, to], progress: clamp((time - to.start) / duration, 0, 1) };
-        }
-        function seekVideos(time, force = false) {
-            const activeTimes = new Map(getActiveState(time).items.map((item) => [
-                item.clip.id,
-                clamp(
-                    (time - item.start + (item.offset || 0)) * playbackSpeed(),
-                    0,
-                    Math.max(0, item.clip.duration - .001),
-                ),
-            ]));
-            clips.forEach((clip) => {
-                const video = clip.video;
-                video.playbackRate = playbackSpeed();
-                if (activeTimes.has(clip.id)) {
-                    const localTime = activeTimes.get(clip.id);
-                    if (force || Math.abs(video.currentTime - localTime) > .18) video.currentTime = localTime;
-                    if (playing && video.paused) video.play().catch(() => { });
-                } else if (!video.paused) video.pause();
-            });
+        function drawBaseFrame(clip) {
+            const target = clip.rawCanvas;
+            const targetCtx = target.getContext("2d", { alpha: false });
+            const { video } = clip;
+            if (video.readyState < 2) return target;
+            const videoRatio = video.videoWidth / video.videoHeight;
+            const outputRatio = OUTPUT_WIDTH / OUTPUT_HEIGHT;
+            let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
+            if (videoRatio > outputRatio) { sw = sh * outputRatio; sx = (video.videoWidth - sw) / 2; }
+            else { sh = sw / outputRatio; sy = (video.videoHeight - sh) / 2; }
+            targetCtx.fillStyle = "#000"; targetCtx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            targetCtx.drawImage(video, sx, sy, sw, sh, 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            return target;
         }
         async function getFaceLandmarker() {
             if (!faceLandmarkerPromise) {
@@ -652,42 +742,241 @@
                     return FaceLandmarker.createFromOptions(vision, {
                         baseOptions: { modelAssetPath: MODEL_URL }, runningMode: "IMAGE", numFaces: 1,
                     });
-                }).catch((error) => {
-                    console.warn("顔検出を初期化できませんでした。クロスフェードで再生します。", error);
-                    faceLandmarkerPromise = null;
-                    return null;
                 });
             }
             return faceLandmarkerPromise;
         }
+        function eyeMetrics(points) {
+            const center = (indices) => [
+                (points[indices[0]][0] + points[indices[1]][0]) / 2,
+                (points[indices[0]][1] + points[indices[1]][1]) / 2,
+            ];
+            const left = center(EYE_LEFT), right = center(EYE_RIGHT);
+            const dx = right[0] - left[0], dy = right[1] - left[1];
+            return {
+                x: (left[0] + right[0]) / 2, y: (left[1] + right[1]) / 2,
+                distance: Math.hypot(dx, dy), angle: Math.atan2(dy, dx),
+            };
+        }
+        function representativeMetrics(samples) {
+            const values = samples.filter((sample) => sample.points).map((sample) => eyeMetrics(sample.points));
+            if (!values.length) return null;
+            return {
+                x: median(values.map((item) => item.x)), y: median(values.map((item) => item.y)),
+                distance: median(values.map((item) => item.distance)), angle: median(values.map((item) => item.angle)),
+            };
+        }
+        function missingGaps(samples) {
+            const gaps = [];
+            for (let index = 0; index < samples.length;) {
+                if (samples[index].points) { index += 1; continue; }
+                const first = index;
+                while (index < samples.length && !samples[index].points) index += 1;
+                const start = samples[Math.max(0, first - 1)].time;
+                const end = samples[Math.min(samples.length - 1, index)].time;
+                gaps.push({ start, end, duration: end - start });
+            }
+            return gaps;
+        }
+        function updateClipAnalysisUI(clip) {
+            const element = clipList.querySelector(`[data-clip-id="${clip.id}"] .clipAnalysis`);
+            if (!element) return;
+            element.textContent = analysisLabel(clip);
+            element.classList.toggle("warning", clip.analysis.status === "failed" || fallbackGaps(clip).length > 0);
+        }
+        function analysisLabel(clip) {
+            if (clip.analysis.status === "pending") return "解析待ち";
+            if (clip.analysis.status === "analyzing") return `解析 ${Math.round(clip.analysis.progress * 100)}%`;
+            if (clip.analysis.status === "failed") return `⚠ ${clip.analysis.error || "顔未検出"}・クロスフェード`;
+            const gaps = fallbackGaps(clip);
+            return gaps.length ? `⚠ 欠落 ${gaps.map(formatGap).join(", ")}・クロスフェード` : "解析完了";
+        }
+        const formatGap = (gap) => `${gap.start.toFixed(1)}–${gap.end.toFixed(1)}秒`;
+        const fallbackGaps = (clip) => clip.analysis.gaps.filter((gap) => gap.duration > MAX_INTERPOLATION_GAP + 1e-6);
+        async function analyzeClip(clip) {
+            clip.analysis = { status: "analyzing", progress: 0, samples: [], gaps: [], error: "" };
+            updateClipAnalysisUI(clip);
+            try {
+                const detector = await getFaceLandmarker();
+                const lastTime = Math.max(0, clip.duration - 1 / OUTPUT_FPS);
+                const count = Math.max(2, Math.ceil(lastTime / ANALYSIS_STEP) + 1);
+                for (let index = 0; index < count; index += 1) {
+                    const time = lastTime * index / (count - 1);
+                    await waitForVideoFrame(clip.video, time);
+                    drawBaseFrame(clip);
+                    const landmarks = detector.detect(clip.rawCanvas).faceLandmarks?.[0] || null;
+                    const points = landmarks?.map((point) => [point.x * OUTPUT_WIDTH, point.y * OUTPUT_HEIGHT]) || null;
+                    clip.analysis.samples.push({ time, points });
+                    clip.analysis.progress = (index + 1) / count;
+                    updateClipAnalysisUI(clip);
+                }
+                clip.analysis.gaps = missingGaps(clip.analysis.samples);
+                clip.representative = representativeMetrics(clip.analysis.samples);
+                clip.analysis.status = clip.representative ? "done" : "failed";
+                if (!clip.representative) clip.analysis.error = "素材全体で顔未検出";
+            } catch (error) {
+                clip.analysis.status = "failed";
+                clip.analysis.error = error.message || "解析失敗";
+                clip.representative = null;
+            }
+            updateClipAnalysisUI(clip);
+        }
+        async function analyzeClips(targets) {
+            analysisRunning = true; setPlaying(false); updateControls();
+            for (const clip of targets) await analyzeClip(clip);
+            analysisRunning = false;
+            autoAlignClips();
+            renderClipList(); updateControls(); setCurrentTime(currentTime);
+        }
+        async function addFiles(fileList) {
+            const files = [...fileList].filter((file) => file.type.startsWith("video/"));
+            if (!files.length) return;
+            const results = await Promise.allSettled(files.map(loadVideo));
+            const added = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+            if (added.length !== files.length) alert("読み込めない動画がありました。ブラウザで再生できるMP4、WebMなどを使用してください。");
+            clips.push(...added);
+            buildSchedule(); currentTime = 0; completedLoops = 0; renderAll();
+            if (added.length) await analyzeClips(added);
+        }
+        function calculateSchedule(clipList, overlap = 1, speed = 1) {
+            if (!clipList.length) return [];
+            const connection = clipList.length > 1 ? overlap / speed : 0;
+            let previousEnd = clipList[0].duration / speed - connection;
+            return clipList.map((clip, index) => {
+                if (!index) return { clip, start: 0, end: previousEnd, transition: 0, offset: connection };
+                const start = previousEnd - connection;
+                const end = start + clip.duration / speed;
+                previousEnd = end;
+                return { clip, start, end, transition: connection, offset: 0 };
+            });
+        }
+        function buildSchedule() {
+            schedule = calculateSchedule(clips, sourceOverlap(), playbackSpeed());
+            currentTime = clamp(currentTime, 0, totalDuration());
+            connectionTime.textContent = `接続 ${outputConnection().toFixed(2)}秒`;
+        }
+        function overlapIssues() {
+            return clips.map((clip) => ({ clip, shortage: sourceOverlap() * 2 - clip.duration }))
+                .filter((item) => item.shortage > 1e-6);
+        }
+        function blockingOverlapIssues() {
+            return overlapIssues().filter((item) => item.shortage > FRAME_TOLERANCE + 1e-6);
+        }
+        function sourceTimeForItem(time, item) {
+            return clamp(
+                (time - item.start + (item.offset || 0)) * playbackSpeed(),
+                0,
+                Math.max(0, item.clip.duration - 1 / OUTPUT_FPS),
+            );
+        }
+        function getActiveState(time) {
+            if (!schedule.length) return { items: [], progress: 0 };
+            const safeTime = clamp(time, 0, Math.max(0, totalDuration() - 1 / OUTPUT_FPS));
+            const active = schedule.filter((item) => safeTime >= item.start && safeTime < item.end);
+            const loopTransition = schedule[0]?.offset || 0;
+            if (loopTransition && safeTime >= totalDuration() - loopTransition) {
+                active.push({ clip: clips[0], start: totalDuration() - loopTransition, end: totalDuration(), offset: 0 });
+            }
+            const items = active.slice(0, 2).map((item) => ({ ...item, sourceTime: sourceTimeForItem(safeTime, item) }));
+            if (items.length < 2) return { items, progress: 0 };
+            const linear = clamp((safeTime - items[1].start) / Math.max(.001, items[0].end - items[1].start), 0, 1);
+            return { items, progress: smoothstep(linear) };
+        }
+        function seekVideos(time, force = false) {
+            const activeTimes = new Map(getActiveState(time).items.map((item) => [item.clip.id, item.sourceTime]));
+            clips.forEach((clip) => {
+                const video = clip.video;
+                video.playbackRate = playbackSpeed();
+                if (activeTimes.has(clip.id)) {
+                    const localTime = activeTimes.get(clip.id);
+                    if (force || Math.abs(video.currentTime - localTime) > .12) video.currentTime = localTime;
+                    if (playing && video.paused) video.play().catch(() => { });
+                } else if (!video.paused) video.pause();
+            });
+        }
+        function combineAlignment(clip) {
+            const auto = clip.auto;
+            const pivot = sharedEyeTarget || { x: OUTPUT_WIDTH / 2, y: OUTPUT_HEIGHT * .4 };
+            return {
+                scale: auto.scale * globalManual.scale,
+                rotation: auto.rotation,
+                x: globalManual.scale * (auto.x - pivot.x) + pivot.x + globalManual.x,
+                y: globalManual.scale * (auto.y - pivot.y) + pivot.y + globalManual.y,
+            };
+        }
+        function transformPoint(point, transform) {
+            const cos = Math.cos(transform.rotation), sin = Math.sin(transform.rotation);
+            return [
+                transform.scale * (cos * point[0] - sin * point[1]) + transform.x,
+                transform.scale * (sin * point[0] + cos * point[1]) + transform.y,
+            ];
+        }
+        function autoAlignClips() {
+            const valid = clips.filter((clip) => clip.representative);
+            if (!valid.length) { sharedEyeTarget = null; updateControls(); return; }
+            sharedEyeTarget = {
+                x: median(valid.map((clip) => clip.representative.x)),
+                y: median(valid.map((clip) => clip.representative.y)),
+                distance: median(valid.map((clip) => clip.representative.distance)),
+                angle: median(valid.map((clip) => clip.representative.angle)),
+            };
+            valid.forEach((clip) => {
+                const metric = clip.representative;
+                const scale = sharedEyeTarget.distance / metric.distance;
+                const rotation = sharedEyeTarget.angle - metric.angle;
+                const cos = Math.cos(rotation), sin = Math.sin(rotation);
+                clip.auto = {
+                    scale, rotation,
+                    x: sharedEyeTarget.x - scale * (cos * metric.x - sin * metric.y),
+                    y: sharedEyeTarget.y - scale * (sin * metric.x + cos * metric.y),
+                };
+            });
+            syncAlignmentPanel(); setCurrentTime(currentTime);
+        }
         function drawVideoToSource(clip) {
+            const raw = drawBaseFrame(clip);
             const source = clip.sourceCanvas;
-            if (source.width !== WIDTH) source.width = WIDTH;
-            if (source.height !== HEIGHT) source.height = HEIGHT;
             const sourceCtx = source.getContext("2d", { alpha: false });
-            if (clip.video.readyState < 2) return source;
-            sourceCtx.fillStyle = "#000";
-            sourceCtx.fillRect(0, 0, WIDTH, HEIGHT);
-            const videoRatio = clip.video.videoWidth / clip.video.videoHeight;
-            const outputRatio = WIDTH / HEIGHT;
-            let sx = 0, sy = 0, sw = clip.video.videoWidth, sh = clip.video.videoHeight;
-            if (videoRatio > outputRatio) { sw = sh * outputRatio; sx = (clip.video.videoWidth - sw) / 2; }
-            else { sh = sw / outputRatio; sy = (clip.video.videoHeight - sh) / 2; }
-            sourceCtx.drawImage(clip.video, sx, sy, sw, sh, 0, 0, WIDTH, HEIGHT);
+            const transform = combineAlignment(clip);
+            const cos = Math.cos(transform.rotation), sin = Math.sin(transform.rotation);
+            sourceCtx.setTransform(1, 0, 0, 1, 0, 0);
+            sourceCtx.fillStyle = "#000"; sourceCtx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            sourceCtx.setTransform(
+                transform.scale * cos, transform.scale * sin,
+                -transform.scale * sin, transform.scale * cos,
+                transform.x, transform.y,
+            );
+            sourceCtx.drawImage(raw, 0, 0);
+            sourceCtx.setTransform(1, 0, 0, 1, 0, 0);
             return source;
         }
-        async function detectPoints(clip, now) {
-            if (now - clip.lastDetectionAt < DETECTION_INTERVAL) return clip.points;
-            clip.lastDetectionAt = now;
-            const detector = await getFaceLandmarker();
-            if (!detector) return null;
-            try {
-                const landmarks = detector.detect(clip.sourceCanvas).faceLandmarks?.[0];
-                if (!landmarks) return clip.points;
-                clip.points = landmarks.map((point) => [point.x * WIDTH, point.y * HEIGHT]);
-                clip.points.push([0, 0], [WIDTH - 1, 0], [WIDTH - 1, HEIGHT - 1], [0, HEIGHT - 1]);
-            } catch (error) { console.warn("顔検出をスキップしました", error); }
-            return clip.points;
+        function rawLandmarksAt(clip, time) {
+            const valid = clip.analysis.samples.filter((sample) => sample.points);
+            if (!valid.length) return null;
+            let before = null, after = null;
+            for (const sample of valid) {
+                if (sample.time <= time) before = sample;
+                if (sample.time >= time) { after = sample; break; }
+            }
+            if (!before || !after) {
+                const nearest = before || after;
+                return nearest && Math.abs(nearest.time - time) <= ANALYSIS_STEP * 1.5 ? nearest.points : null;
+            }
+            if (after.time - before.time > MAX_INTERPOLATION_GAP + 1e-6) return null;
+            if (after === before || after.time === before.time) return before.points;
+            const ratio = (time - before.time) / (after.time - before.time);
+            return before.points.map((point, index) => [
+                point[0] + (after.points[index][0] - point[0]) * ratio,
+                point[1] + (after.points[index][1] - point[1]) * ratio,
+            ]);
+        }
+        function landmarksAt(clip, time) {
+            const points = rawLandmarksAt(clip, time);
+            if (!points) return null;
+            const transform = combineAlignment(clip);
+            const transformed = points.map((point) => transformPoint(point, transform));
+            transformed.push([0, 0], [OUTPUT_WIDTH - 1, 0], [OUTPUT_WIDTH - 1, OUTPUT_HEIGHT - 1], [0, OUTPUT_HEIGHT - 1]);
+            return transformed;
         }
         function expandTriangle(triangle, amount = .7) {
             const centerX = (triangle[0][0] + triangle[1][0] + triangle[2][0]) / 3;
@@ -698,8 +987,7 @@
             });
         }
         function drawTriangle(target, image, sourceTriangle, destinationTriangle) {
-            const [s0, s1, s2] = sourceTriangle;
-            const [d0, d1, d2] = destinationTriangle;
+            const [s0, s1, s2] = sourceTriangle, [d0, d1, d2] = destinationTriangle;
             const denominator = s0[0] * (s1[1] - s2[1]) + s1[0] * (s2[1] - s0[1]) + s2[0] * (s0[1] - s1[1]);
             if (Math.abs(denominator) < .0001) return;
             const a = (d0[0] * (s1[1] - s2[1]) + d1[0] * (s2[1] - s0[1]) + d2[0] * (s0[1] - s1[1])) / denominator;
@@ -709,15 +997,13 @@
             const e = (d0[0] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[0] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[0] * (s0[0] * s1[1] - s1[0] * s0[1])) / denominator;
             const f = (d0[1] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[1] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[1] * (s0[0] * s1[1] - s1[0] * s0[1])) / denominator;
             const expanded = expandTriangle(destinationTriangle);
-            target.save();
-            target.beginPath();
-            target.moveTo(...expanded[0]); target.lineTo(...expanded[1]); target.lineTo(...expanded[2]);
-            target.closePath(); target.clip(); target.setTransform(a, b, c, d, e, f); target.drawImage(image, 0, 0); target.restore();
+            target.save(); target.beginPath(); target.moveTo(...expanded[0]);
+            target.lineTo(...expanded[1]); target.lineTo(...expanded[2]); target.closePath(); target.clip();
+            target.setTransform(a, b, c, d, e, f); target.drawImage(image, 0, 0); target.restore();
         }
-        function renderWarp(source, sourcePoints, destinationPoints, triangles) {
-            const output = document.createElement("canvas");
-            output.width = WIDTH; output.height = HEIGHT;
+        function renderWarp(source, sourcePoints, destinationPoints, triangles, output) {
             const outputCtx = output.getContext("2d");
+            outputCtx.setTransform(1, 0, 0, 1, 0, 0); outputCtx.clearRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
             for (let index = 0; index < triangles.length; index += 3) {
                 const ids = [triangles[index], triangles[index + 1], triangles[index + 2]];
                 drawTriangle(outputCtx, source, ids.map((id) => sourcePoints[id]), ids.map((id) => destinationPoints[id]));
@@ -725,86 +1011,75 @@
             return output;
         }
         function clearOutput() {
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = "#101316";
-            ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = "none";
+            ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
         }
         function drawOutput(source, alpha = 1) {
-            ctx.globalAlpha = alpha;
-            ctx.drawImage(source, 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            ctx.globalAlpha = alpha; ctx.filter = monoInput.checked ? "grayscale(1)" : "none";
+            ctx.drawImage(source, 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT); ctx.filter = "none";
         }
-        async function renderFrame(now = performance.now()) {
+        function renderState(state, useActualTimes = false) {
             clearOutput();
-            const state = getActiveState(currentTime);
             if (!state.items.length) return;
             const sources = state.items.map((item) => drawVideoToSource(item.clip));
-            if (state.items.length === 1) {
-                drawOutput(sources[0]);
-                return;
-            }
-            const [from, to] = state.items;
-            const [fromPoints, toPoints] = await Promise.all([detectPoints(from.clip, now), detectPoints(to.clip, now)]);
-            if (fromPoints && toPoints && fromPoints.length === toPoints.length) {
-                const blended = fromPoints.map((point, index) => [
-                    point[0] + (toPoints[index][0] - point[0]) * state.progress,
-                    point[1] + (toPoints[index][1] - point[1]) * state.progress,
-                ]);
-                const triangles = Delaunator.from(blended).triangles;
-                drawOutput(renderWarp(sources[0], fromPoints, blended, triangles));
-                drawOutput(renderWarp(sources[1], toPoints, blended, triangles), state.progress);
-            } else {
-                drawOutput(sources[0]);
-                drawOutput(sources[1], state.progress);
+            if (state.items.length === 1) drawOutput(sources[0]);
+            else {
+                const [from, to] = state.items;
+                const fromTime = useActualTimes ? from.clip.video.currentTime : from.sourceTime;
+                const toTime = useActualTimes ? to.clip.video.currentTime : to.sourceTime;
+                const fromPoints = landmarksAt(from.clip, fromTime), toPoints = landmarksAt(to.clip, toTime);
+                if (fromPoints && toPoints && fromPoints.length === toPoints.length) {
+                    const blended = fromPoints.map((point, index) => [
+                        point[0] + (toPoints[index][0] - point[0]) * state.progress,
+                        point[1] + (toPoints[index][1] - point[1]) * state.progress,
+                    ]);
+                    const triangles = Delaunator.from(blended).triangles;
+                    drawOutput(renderWarp(sources[0], fromPoints, blended, triangles, warpCanvases[0]));
+                    drawOutput(renderWarp(sources[1], toPoints, blended, triangles, warpCanvases[1]), state.progress);
+                } else {
+                    drawOutput(sources[0]); drawOutput(sources[1], state.progress);
+                }
             }
             ctx.globalAlpha = 1;
         }
+        function renderFrame() { renderState(getActiveState(currentTime), playing); }
+        async function seekAndRender(time) {
+            const generation = ++previewGeneration;
+            const state = getActiveState(time);
+            try {
+                await Promise.all(state.items.map((item) => waitForVideoFrame(item.clip.video, item.sourceTime)));
+                if (generation === previewGeneration && !playing && !isExporting()) renderState(state);
+            } catch (error) { console.warn("プレビューのシークに失敗しました", error); }
+        }
         function setPlaying(nextPlaying) {
-            const next = Boolean(nextPlaying && clips.length);
+            const blocked = blockingOverlapIssues().length || analysisRunning || isExporting();
+            const next = Boolean(nextPlaying && clips.length && !blocked);
             if (playing === next) return;
-            playing = next;
-            previousFrameAt = performance.now();
+            playing = next; previousFrameAt = performance.now();
             playButton.textContent = playing ? "❚❚ 停止" : "▶ 再生";
             if (playing) {
-                if (currentTime >= totalDuration()) {
-                    currentTime = 0;
-                    completedLoops = 0;
-                }
-                seekVideos(currentTime, true);
-                requestAnimationFrame(tick);
+                if (currentTime >= totalDuration()) { currentTime = 0; completedLoops = 0; }
+                seekVideos(currentTime, true); requestAnimationFrame(tick);
             } else clips.forEach((clip) => clip.video.pause());
         }
-        async function tick(now) {
+        function tick(now) {
             if (playing) {
-                currentTime += (now - previousFrameAt) / 1000;
-                previousFrameAt = now;
+                currentTime += (now - previousFrameAt) / 1000; previousFrameAt = now;
                 if (currentTime >= totalDuration()) {
                     completedLoops += Math.floor(currentTime / totalDuration());
-                    const targetLoops = loopCount() || (isExporting() ? 1 : 0);
-                    if (targetLoops && completedLoops >= targetLoops) {
-                        if (isExporting()) recorder.stop();
-                        if (loopCount()) {
-                            completedLoops = targetLoops - 1;
-                            currentTime = totalDuration();
-                            setPlaying(false);
-                        } else {
-                            currentTime %= totalDuration();
-                        }
-                    } else {
-                        currentTime %= totalDuration();
-                    }
+                    if (loopCount() && completedLoops >= loopCount()) {
+                        completedLoops = loopCount() - 1; currentTime = totalDuration(); setPlaying(false);
+                    } else currentTime %= totalDuration();
                 }
                 seekVideos(currentTime);
             }
-            await renderFrame(now);
-            updatePlayhead();
+            renderFrame(); updatePlayhead();
             if (playing) requestAnimationFrame(tick);
         }
         function setCurrentTime(time) {
-            currentTime = clamp(time, 0, totalDuration());
-            completedLoops = 0;
-            previousFrameAt = performance.now();
-            seekVideos(currentTime, true); updatePlayhead();
+            currentTime = clamp(time, 0, totalDuration()); completedLoops = 0;
+            previousFrameAt = performance.now(); updatePlayhead();
+            if (!playing && !isExporting()) void seekAndRender(currentTime);
         }
         function updatePlayhead() {
             const loopDuration = totalDuration();
@@ -814,23 +1089,28 @@
             timecode.textContent = `${formatTime(elapsed)} / ${total}`;
         }
         function createClipCard(clip, index) {
+            const locked = analysisRunning || isExporting();
             const card = document.createElement("article");
-            card.className = "clipCard"; card.draggable = true; card.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
+            card.className = "clipCard";
+            card.dataset.clipId = clip.id; card.draggable = !locked; card.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
             card.innerHTML = `
                 <video class="clipThumb" src="${clip.url}" muted preload="metadata"></video>
                 <div class="clipBody">
                     <div class="clipTitle"></div>
                     <div class="clipMeta">実再生 ${formatTime(clip.duration / playbackSpeed())} · クリップ ${index + 1}</div>
+                    <div class="clipAnalysis"></div>
                 </div>
-                <button class="removeButton" type="button" title="削除">×</button>`;
+                <button class="removeButton" type="button" title="削除" ${locked ? "disabled" : ""}>×</button>`;
             card.querySelector(".clipTitle").textContent = clip.name;
-            card.querySelector(".removeButton").addEventListener("click", () => removeClip(clip.id));
-            card.querySelectorAll("button,input").forEach((control) => control.addEventListener("pointerdown", (event) => event.stopPropagation()));
+            card.querySelector(".clipAnalysis").textContent = analysisLabel(clip);
+            card.querySelector(".clipAnalysis").classList.toggle("warning", clip.analysis.status === "failed" || fallbackGaps(clip).length > 0);
+            card.querySelector(".removeButton").addEventListener("click", (event) => { event.stopPropagation(); removeClip(clip.id); });
             card.addEventListener("dragstart", () => { draggedId = clip.id; card.classList.add("dragging"); });
             card.addEventListener("dragend", () => { draggedId = null; card.classList.remove("dragging"); });
             card.addEventListener("dragover", (event) => event.preventDefault());
             card.addEventListener("drop", (event) => {
                 event.preventDefault();
+                if (locked) return;
                 const from = clips.findIndex((item) => item.id === draggedId), to = clips.findIndex((item) => item.id === clip.id);
                 if (from < 0 || to < 0 || from === to) return;
                 clips.splice(to, 0, clips.splice(from, 1)[0]); buildSchedule(); setCurrentTime(0); renderAll();
@@ -838,12 +1118,17 @@
             return card;
         }
         function renderClipList() { clipList.replaceChildren(...clips.map(createClipCard)); }
+        function syncAlignmentPanel() {
+            const locked = !clips.length || analysisRunning || isExporting();
+            Object.entries(manualInputs).forEach(([key, input]) => {
+                input.disabled = locked;
+                input.value = String(globalManual[key]);
+            });
+        }
         function createMorphRegion(start, duration, from, to, scale) {
             const morph = document.createElement("div");
-            morph.className = "morphRegion";
-            morph.style.left = `${start * scale}px`;
-            morph.style.width = `${Math.max(18, duration * scale)}px`;
-            morph.title = `${from.name} → ${to.name}`;
+            morph.className = "morphRegion"; morph.style.left = `${start * scale}px`;
+            morph.style.width = `${Math.max(18, duration * scale)}px`; morph.title = `${from.name} → ${to.name}`;
             return morph;
         }
         function renderTimeline() {
@@ -851,126 +1136,173 @@
             const width = Math.max(timelineScroller.clientWidth, totalDuration() * scale + 80);
             timeline.style.width = `${width}px`; timeline.style.setProperty("--second-width", `${scale}px`);
             timeline.querySelectorAll(":scope > :not(.playhead)").forEach((element) => element.remove());
-            const marks = Math.ceil(width / scale);
-            for (let second = 0; second <= marks; second += 1) {
+            for (let second = 0; second <= Math.ceil(width / scale); second += 1) {
                 const mark = document.createElement("span");
                 mark.className = "rulerMark"; mark.style.left = `${second * scale}px`; mark.textContent = `${second}s`; timeline.appendChild(mark);
             }
             schedule.forEach((item, index) => {
                 const block = document.createElement("div");
                 block.className = "timelineClip"; block.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
-                block.style.left = `${item.start * scale}px`; block.style.top = `${30 + index % 2 * 58}px`; block.style.width = `${Math.max(34, (item.end - item.start) * scale)}px`;
-                block.innerHTML = `<span></span><small>${formatTime(item.clip.duration / playbackSpeed())}</small>`; block.querySelector("span").textContent = item.clip.name;
-                timeline.appendChild(block);
-                if (index > 0) {
-                    timeline.appendChild(createMorphRegion(
-                        item.start,
-                        item.transition,
-                        schedule[index - 1].clip,
-                        item.clip,
-                        scale,
-                    ));
-                }
+                block.style.left = `${item.start * scale}px`; block.style.top = `${30 + index % 2 * 58}px`;
+                block.style.width = `${Math.max(34, (item.end - item.start) * scale)}px`;
+                block.innerHTML = `<span></span><small>${formatTime(item.clip.duration / playbackSpeed())}</small>`;
+                block.querySelector("span").textContent = item.clip.name; timeline.appendChild(block);
+                if (index > 0) timeline.appendChild(createMorphRegion(item.start, item.transition, schedule[index - 1].clip, item.clip, scale));
             });
             const loopTransition = schedule[0]?.offset || 0;
-            if (loopTransition) {
-                timeline.appendChild(createMorphRegion(
-                    totalDuration() - loopTransition,
-                    loopTransition,
-                    schedule.at(-1).clip,
-                    schedule[0].clip,
-                    scale,
-                ));
-            }
+            if (loopTransition) timeline.appendChild(createMorphRegion(
+                totalDuration() - loopTransition, loopTransition, schedule.at(-1).clip, schedule[0].clip, scale,
+            ));
             timeline.appendChild(playhead); updatePlayhead();
+        }
+        function fallbackWarnings() {
+            return clips.flatMap((clip) => {
+                if (clip.analysis.status === "failed") return [`${clip.name}: ${clip.analysis.error || "顔未検出"}`];
+                return fallbackGaps(clip).map((gap) => `${clip.name}: ${formatGap(gap)}`);
+            });
         }
         function updateControls() {
             const hasClips = clips.length > 0;
-            playButton.disabled = !hasClips; rewindButton.disabled = !hasClips;
-            exportButton.disabled = !hasClips || !window.MediaRecorder || isExporting(); clearButton.disabled = !hasClips;
-            status.textContent = `${clips.length}クリップ · 全体 ${formatTime(totalDuration())}`;
-            updatePlayhead();
+            const overlapErrors = blockingOverlapIssues();
+            const locked = analysisRunning || isExporting();
+            const analysisReady = hasClips && clips.every((clip) => ["done", "failed"].includes(clip.analysis.status));
+            playButton.disabled = !hasClips || locked || overlapErrors.length > 0;
+            rewindButton.disabled = !hasClips || locked;
+            clearButton.disabled = !hasClips || locked;
+            fileInput.disabled = locked;
+            transitionInput.disabled = locked; playbackSpeedInput.disabled = locked; loopCountInput.disabled = locked;
+            monoInput.disabled = locked; zoomInput.disabled = locked;
+            autoAlignButton.disabled = locked || !clips.some((clip) => clip.representative);
+            exportButton.disabled = isExporting() ? false : !analysisReady || !exportProfile || !loopCount() || overlapErrors.length > 0;
+            exportButton.textContent = isExporting() ? "キャンセル" : "書き出し";
+            status.textContent = `${clips.length}クリップ · 1周 ${formatTime(totalDuration())}`;
+            operationStatus.classList.toggle("warning", Boolean(overlapErrors.length || fallbackWarnings().length));
+            if (isExporting()) operationStatus.textContent = exportJob.message;
+            else if (analysisRunning) operationStatus.textContent = "顔ランドマークを事前解析中…";
+            else if (overlapErrors.length) operationStatus.textContent = `重なり不足: ${overlapErrors.map((item) => `${item.clip.name} ${item.shortage.toFixed(3)}秒`).join(" / ")}`;
+            else if (overlapIssues().length) operationStatus.textContent = "1フレーム以内の不足は端フレームで補完";
+            else if (fallbackWarnings().length) operationStatus.textContent = "⚠ 欠落区間はクロスフェード（書出し前に確認）";
+            else operationStatus.textContent = exportProbeDone && !exportProfile ? "WebM書き出し非対応" : "";
+            syncAlignmentPanel(); updatePlayhead();
         }
-        function renderAll() { renderClipList(); renderTimeline(); updateControls(); void renderFrame(); }
+        function renderAll() { renderClipList(); renderTimeline(); updateControls(); setCurrentTime(currentTime); }
         function removeClip(id) {
+            if (analysisRunning || isExporting()) return;
             const index = clips.findIndex((clip) => clip.id === id); if (index < 0) return;
             const [removed] = clips.splice(index, 1); removed.video.pause(); URL.revokeObjectURL(removed.url);
-            buildSchedule(); setPlaying(false); currentTime = 0; renderAll(); seekVideos(0, true);
+            buildSchedule(); autoAlignClips(); setPlaying(false); currentTime = 0; renderAll();
         }
         function clearClips() {
-            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url)); clips = []; schedule = []; currentTime = 0; completedLoops = 0;
+            if (analysisRunning || isExporting()) return;
+            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url));
+            clips = []; schedule = []; sharedEyeTarget = null; globalManual = identityTransform(); currentTime = 0; completedLoops = 0;
             clearOutput(); renderAll();
         }
-        function startExport() {
-            if (isExporting() || !clips.length || !window.MediaRecorder) return;
-            const stream = canvas.captureStream(30);
-            const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
-            const chunks = [];
-            recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
-            recorder.addEventListener("dataavailable", (event) => { if (event.data.size) chunks.push(event.data); });
-            recorder.addEventListener("stop", () => {
-                const blob = new Blob(chunks, { type: recorder.mimeType }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
-                anchor.href = url; anchor.download = `morph-sequence-${new Date().toISOString().replaceAll(":", "-")}.webm`; anchor.click();
-                setTimeout(() => URL.revokeObjectURL(url), 1000); recorder = null; exportButton.textContent = "WebM書出し"; updateControls();
-            }, { once: true });
-            exportButton.textContent = "書出し中…"; recorder.start(); setCurrentTime(0); setPlaying(true); updateControls();
+        async function probeExportSupport() {
+            const quality = new Quality({ bitrate: 14_000_000 });
+            const options = { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT, frameRate: OUTPUT_FPS, quality };
+            const codec = await getFirstEncodableVideoCodec(["vp9", "vp8"], options).catch(() => null);
+            if (codec) exportProfile = {
+                extension: "webm", codec, quality,
+                makeFormat: () => new WebMOutputFormat(),
+            };
+            exportProbeDone = true;
+            updateControls();
         }
+        async function startExport() {
+            if (isExporting()) { exportJob.cancelled = true; exportJob.message = "キャンセル中…"; updateControls(); return; }
+            const warnings = fallbackWarnings();
+            if (warnings.length && !confirm(`次の区間は通常モーフではなくクロスフェードになります。\n\n${warnings.join("\n")}\n\n書き出しを続けますか？`)) return;
+            if (!exportProfile || !clips.length || !loopCount() || blockingOverlapIssues().length) return;
+            setPlaying(false);
+            const resumeTime = currentTime;
+            const loopDuration = totalDuration();
+            const totalFrames = Math.round(loopDuration * loopCount() * OUTPUT_FPS);
+            const target = new BufferTarget();
+            const output = new Output({ format: exportProfile.makeFormat(), target });
+            const source = new CanvasSource(canvas, { codec: exportProfile.codec, quality: exportProfile.quality });
+            output.addVideoTrack(source);
+            exportJob = { cancelled: false, output, message: `0 / ${totalFrames}フレーム` };
+            renderClipList(); updateControls();
+            try {
+                await output.start();
+                for (let frame = 0; frame < totalFrames; frame += 1) {
+                    if (exportJob.cancelled) { await output.cancel(); return; }
+                    const outputTime = frame / OUTPUT_FPS;
+                    const loopTime = outputTime % loopDuration;
+                    const state = getActiveState(loopTime);
+                    await Promise.all(state.items.map((item) => waitForVideoFrame(item.clip.video, item.sourceTime)));
+                    renderState(state);
+                    await source.add(outputTime, 1 / OUTPUT_FPS, { keyFrame: frame % (OUTPUT_FPS * 2) === 0 });
+                    currentTime = loopTime; completedLoops = Math.floor(outputTime / loopDuration);
+                    if (frame % 6 === 0 || frame === totalFrames - 1) {
+                        exportJob.message = `${frame + 1} / ${totalFrames}フレーム (${Math.round((frame + 1) / totalFrames * 100)}%)`;
+                        operationStatus.textContent = exportJob.message; updatePlayhead();
+                    }
+                }
+                await output.finalize();
+                const blob = new Blob([target.buffer], { type: await output.getMimeType() });
+                const url = URL.createObjectURL(blob), anchor = document.createElement("a");
+                anchor.href = url; anchor.download = `morph-sequence-${new Date().toISOString().replaceAll(":", "-")}.${exportProfile.extension}`;
+                anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (error) {
+                if (!exportJob.cancelled) {
+                    console.error(error); alert(`書き出しに失敗しました: ${error.message || error}`);
+                    if (["pending", "started"].includes(output.state)) await output.cancel();
+                }
+            } finally {
+                exportJob = null; currentTime = resumeTime; completedLoops = 0;
+                renderClipList(); updateControls(); setCurrentTime(resumeTime);
+            }
+        }
+
         fileInput.addEventListener("change", async (event) => { await addFiles(event.target.files); event.target.value = ""; });
         playButton.addEventListener("click", () => setPlaying(!playing));
         rewindButton.addEventListener("click", () => setCurrentTime(0));
-        transitionInput.addEventListener("change", () => {
-            transitionInput.value = Math.max(.1, Number(transitionInput.value) || 1).toFixed(1);
-            buildSchedule();
-            renderTimeline();
-            updateControls();
+        autoAlignButton.addEventListener("click", autoAlignClips);
+        Object.entries(manualInputs).forEach(([key, input]) => input.addEventListener("input", () => {
+            globalManual[key] = key === "scale"
+                ? clamp(Number(input.value) || 1, .5, 2)
+                : Number(input.value) || 0;
             setCurrentTime(currentTime);
+        }));
+        transitionInput.addEventListener("change", () => {
+            transitionInput.value = sourceOverlap().toFixed(2); buildSchedule(); renderTimeline(); updateControls(); setCurrentTime(currentTime);
         });
         playbackSpeedInput.addEventListener("change", () => {
             const progress = currentTime / (totalDuration() || 1);
-            playbackSpeedInput.value = playbackSpeed().toFixed(1);
-            buildSchedule();
-            setCurrentTime(progress * totalDuration());
-            renderClipList();
-            renderTimeline();
-            updateControls();
+            playbackSpeedInput.value = playbackSpeed().toFixed(1); buildSchedule(); currentTime = progress * totalDuration();
+            renderClipList(); renderTimeline(); updateControls(); setCurrentTime(currentTime);
         });
         loopCountInput.addEventListener("change", () => {
-            loopCountInput.value = String(loopCount());
-            completedLoops = 0;
-            updatePlayhead();
+            loopCountInput.value = String(loopCount()); completedLoops = 0; updateControls();
         });
         clearButton.addEventListener("click", clearClips);
-        monoInput.addEventListener("change", () => canvas.classList.toggle("monochrome", monoInput.checked));
+        monoInput.addEventListener("change", () => renderFrame());
         zoomInput.addEventListener("input", renderTimeline);
         exportButton.addEventListener("click", startExport);
         const seekFromPointer = (event) => {
-            const rect = timeline.getBoundingClientRect();
-            setCurrentTime((event.clientX - rect.left) / pxPerSecond());
+            const rect = timeline.getBoundingClientRect(); setCurrentTime((event.clientX - rect.left) / pxPerSecond());
         };
         timeline.addEventListener("pointerdown", (event) => {
-            if (!clips.length || event.button !== 0) return;
-            timeline.setPointerCapture(event.pointerId);
-            seekFromPointer(event);
+            if (!clips.length || event.button !== 0 || analysisRunning || isExporting()) return;
+            timeline.setPointerCapture(event.pointerId); seekFromPointer(event);
         });
         timeline.addEventListener("pointermove", (event) => {
             if (timeline.hasPointerCapture(event.pointerId)) seekFromPointer(event);
         });
         window.addEventListener("resize", renderTimeline);
         window.addEventListener("beforeunload", () => clips.forEach((clip) => URL.revokeObjectURL(clip.url)));
-        const sequenceCheck = calculateSchedule([
-            { duration: 2 }, { duration: 2 }, { duration: 2 },
-        ]);
-        console.assert(
-            sequenceCheck[0].offset === 1 && sequenceCheck[1].start === 0
-            && sequenceCheck[2].start === 1 && sequenceCheck[2].end === 3,
-            "ループシーケンスの計算が正しくありません",
-        );
-        console.assert(
-            calculateSchedule([{ duration: 2 }, { duration: 2 }, { duration: 2 }], 1, 2).at(-1).end === 1.5,
-            "再生速度を反映した実時間の計算が正しくありません",
-        );
-        canvas.classList.toggle("monochrome", monoInput.checked);
-        renderAll();
+
+        const sixClips = Array.from({ length: 6 }, () => ({ duration: 2 }));
+        const scheduleCheck = calculateSchedule(sixClips, 1, .5);
+        console.assert(scheduleCheck.at(-1).end === 12, "2秒×6本・0.5倍・接続2秒は1周12秒です");
+        console.assert(Math.round(scheduleCheck.at(-1).end * 3 * OUTPUT_FPS) === 2160, "3周は36秒・2160フレームです");
+        console.assert(smoothstep(.5) === .5 && smoothstep(0) === 0 && smoothstep(1) === 1, "smoothstepが不正です");
+        const fixed = { scale: 1.1, rotation: .1, x: 3, y: 4 };
+        console.assert(JSON.stringify(transformPoint([10, 20], fixed)) === JSON.stringify(transformPoint([10, 20], fixed)), "固定位置合わせが変化しています");
+
+        buildSchedule(); renderAll(); void probeExportSupport();
     </script>
 </body>
 
