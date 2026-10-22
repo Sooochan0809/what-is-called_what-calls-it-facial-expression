@@ -396,26 +396,11 @@
             top: 28px;
             height: 110px;
             z-index: 4;
-            display: grid;
-            place-items: end center;
             border: 1px solid rgba(83, 241, 162, .9);
             border-radius: 6px;
             background: repeating-linear-gradient(135deg, rgba(53, 201, 130, .32) 0 8px, rgba(53, 201, 130, .13) 8px 16px);
-            color: #baffda;
             cursor: pointer;
             pointer-events: auto;
-        }
-
-        .morphRegion span {
-            max-width: 100%;
-            margin-bottom: 5px;
-            padding: 2px 5px;
-            overflow: hidden;
-            border-radius: 4px;
-            background: rgba(9, 30, 20, .78);
-            font-size: .6rem;
-            text-overflow: ellipsis;
-            white-space: nowrap;
         }
 
         .playhead {
@@ -508,8 +493,10 @@
                 <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
                 <label class="transportSetting">モーフ<input id="transitionInput" type="number" min="0.1" step="0.1"
                         value="0.5" inputmode="decimal">秒</label>
-                <label class="transportSetting">再生速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
+                <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
                         step="0.1" value="0.5" inputmode="decimal">倍</label>
+                <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1"
+                        value="10" inputmode="numeric">回</label>
                 <div class="transportSpacer"></div>
                 <label class="toggleLabel"><input id="monoInput" type="checkbox">モノクロ</label>
                 <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
@@ -549,6 +536,7 @@
         const timecode = byId("timecode");
         const transitionInput = byId("transitionInput");
         const playbackSpeedInput = byId("playbackSpeedInput");
+        const loopCountInput = byId("loopCountInput");
         const timeline = byId("timeline");
         const timelineScroller = byId("timelineScroller");
         const playhead = byId("playhead");
@@ -559,6 +547,7 @@
         let clips = [];
         let schedule = [];
         let currentTime = 0;
+        let completedLoops = 0;
         let playing = false;
         let previousFrameAt = 0;
         let draggedId = null;
@@ -570,6 +559,7 @@
         const totalDuration = () => schedule.at(-1)?.end || 0;
         const isExporting = () => recorder?.state === "recording";
         const playbackSpeed = () => clamp(Number(playbackSpeedInput.value) || 1, .1, 2);
+        const loopCount = () => Math.max(0, Math.floor(Number(loopCountInput.value) || 0));
         function formatTime(seconds) {
             const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
             const minutes = Math.floor(safe / 60);
@@ -608,20 +598,27 @@
             clips.push(...added);
             buildSchedule();
             currentTime = 0;
+            completedLoops = 0;
             renderAll();
             seekVideos(0, true);
             void getFaceLandmarker();
         }
+        function transitionBetween(from, to, requested) {
+            return Math.min(requested, Math.max(.1, Math.min(from.duration, to.duration) / 2));
+        }
         function calculateSchedule(clipList, requestedTransition = 1) {
-            let previousEnd = 0;
+            if (!clipList.length) return [];
+            const loopTransition = clipList.length > 1
+                ? transitionBetween(clipList.at(-1), clipList[0], requestedTransition)
+                : 0;
+            let previousEnd = clipList[0].duration - loopTransition;
             return clipList.map((clip, index) => {
-                const transition = index
-                    ? Math.min(requestedTransition, Math.max(.1, Math.min(clipList[index - 1].duration, clip.duration) / 2))
-                    : 0;
+                if (!index) return { clip, start: 0, end: previousEnd, transition: 0, offset: loopTransition };
+                const transition = transitionBetween(clipList[index - 1], clip, requestedTransition);
                 const start = previousEnd - transition;
                 const end = start + clip.duration;
                 previousEnd = end;
-                return { clip, start, end, transition };
+                return { clip, start, end, transition, offset: 0 };
             });
         }
         function buildSchedule() {
@@ -629,7 +626,16 @@
             currentTime = clamp(currentTime, 0, totalDuration());
         }
         function getActiveState(time) {
-            const active = schedule.filter((item) => time >= item.start && time <= item.end + .001);
+            const active = schedule.filter((item) => time >= item.start && time < item.end);
+            const loopTransition = schedule[0]?.offset || 0;
+            if (loopTransition && time >= totalDuration() - loopTransition) {
+                active.push({
+                    clip: clips[0],
+                    start: totalDuration() - loopTransition,
+                    end: totalDuration(),
+                    offset: 0,
+                });
+            }
             if (!active.length) return { items: [], progress: 0 };
             if (active.length === 1) return { items: active, progress: 0 };
             const from = active[0];
@@ -638,12 +644,15 @@
             return { items: [from, to], progress: clamp((time - to.start) / duration, 0, 1) };
         }
         function seekVideos(time, force = false) {
-            const activeIds = new Set(getActiveState(time).items.map((item) => item.clip.id));
-            schedule.forEach((item) => {
-                const localTime = clamp(time - item.start, 0, Math.max(0, item.clip.duration - .001));
-                const video = item.clip.video;
+            const activeTimes = new Map(getActiveState(time).items.map((item) => [
+                item.clip.id,
+                clamp(time - item.start + (item.offset || 0), 0, Math.max(0, item.clip.duration - .001)),
+            ]));
+            clips.forEach((clip) => {
+                const video = clip.video;
                 video.playbackRate = playbackSpeed();
-                if (activeIds.has(item.clip.id)) {
+                if (activeTimes.has(clip.id)) {
+                    const localTime = activeTimes.get(clip.id);
                     if (force || Math.abs(video.currentTime - localTime) > .18) video.currentTime = localTime;
                     if (playing && video.paused) video.play().catch(() => { });
                 } else if (!video.paused) video.pause();
@@ -772,7 +781,10 @@
             previousFrameAt = performance.now();
             playButton.textContent = playing ? "❚❚ 停止" : "▶ 再生";
             if (playing) {
-                if (currentTime >= totalDuration()) currentTime = 0;
+                if (currentTime >= totalDuration()) {
+                    currentTime = 0;
+                    completedLoops = 0;
+                }
                 seekVideos(currentTime, true);
                 requestAnimationFrame(tick);
             } else clips.forEach((clip) => clip.video.pause());
@@ -782,10 +794,21 @@
                 currentTime += (now - previousFrameAt) / 1000 * playbackSpeed();
                 previousFrameAt = now;
                 if (currentTime >= totalDuration()) {
-                    currentTime = totalDuration();
-                    setPlaying(false);
-                    if (isExporting()) recorder.stop();
-                } else seekVideos(currentTime);
+                    completedLoops += Math.floor(currentTime / totalDuration());
+                    const targetLoops = loopCount() || (isExporting() ? 1 : 0);
+                    if (targetLoops && completedLoops >= targetLoops) {
+                        if (isExporting()) recorder.stop();
+                        if (loopCount()) {
+                            currentTime = totalDuration();
+                            setPlaying(false);
+                        } else {
+                            currentTime %= totalDuration();
+                        }
+                    } else {
+                        currentTime %= totalDuration();
+                    }
+                }
+                seekVideos(currentTime);
             }
             await renderFrame(now);
             updatePlayhead();
@@ -793,6 +816,7 @@
         }
         function setCurrentTime(time) {
             currentTime = clamp(time, 0, totalDuration());
+            completedLoops = 0;
             previousFrameAt = performance.now();
             seekVideos(currentTime, true); updatePlayhead(); requestAnimationFrame(() => void renderFrame());
         }
@@ -825,6 +849,18 @@
             return card;
         }
         function renderClipList() { clipList.replaceChildren(...clips.map(createClipCard)); }
+        function createMorphRegion(start, duration, from, to, scale) {
+            const morph = document.createElement("div");
+            morph.className = "morphRegion";
+            morph.style.left = `${start * scale}px`;
+            morph.style.width = `${Math.max(18, duration * scale)}px`;
+            morph.title = `${from.name} → ${to.name}`;
+            morph.addEventListener("click", (event) => {
+                event.stopPropagation();
+                setCurrentTime(start + duration / 2);
+            });
+            return morph;
+        }
         function renderTimeline() {
             const scale = pxPerSecond();
             const width = Math.max(timelineScroller.clientWidth, totalDuration() * scale + 80);
@@ -838,16 +874,29 @@
             schedule.forEach((item, index) => {
                 const block = document.createElement("div");
                 block.className = "timelineClip"; block.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
-                block.style.left = `${item.start * scale}px`; block.style.top = `${30 + index % 2 * 58}px`; block.style.width = `${Math.max(34, item.clip.duration * scale)}px`;
+                block.style.left = `${item.start * scale}px`; block.style.top = `${30 + index % 2 * 58}px`; block.style.width = `${Math.max(34, (item.end - item.start) * scale)}px`;
                 block.innerHTML = `<span></span><small>${formatTime(item.clip.duration)}</small>`; block.querySelector("span").textContent = item.clip.name;
                 block.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start); }); timeline.appendChild(block);
                 if (index > 0) {
-                    const morph = document.createElement("div");
-                    morph.className = "morphRegion"; morph.style.left = `${item.start * scale}px`; morph.style.width = `${Math.max(18, item.transition * scale)}px`;
-                    morph.innerHTML = `<span>モーフ ${item.transition.toFixed(1)}秒</span>`; morph.title = `${schedule[index - 1].clip.name} → ${item.clip.name}`;
-                    morph.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start + item.transition / 2); }); timeline.appendChild(morph);
+                    timeline.appendChild(createMorphRegion(
+                        item.start,
+                        item.transition,
+                        schedule[index - 1].clip,
+                        item.clip,
+                        scale,
+                    ));
                 }
             });
+            const loopTransition = schedule[0]?.offset || 0;
+            if (loopTransition) {
+                timeline.appendChild(createMorphRegion(
+                    totalDuration() - loopTransition,
+                    loopTransition,
+                    schedule.at(-1).clip,
+                    schedule[0].clip,
+                    scale,
+                ));
+            }
             timeline.appendChild(playhead); updatePlayhead();
         }
         function updateControls() {
@@ -865,7 +914,7 @@
             buildSchedule(); setPlaying(false); currentTime = 0; renderAll(); seekVideos(0, true);
         }
         function clearClips() {
-            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url)); clips = []; schedule = []; currentTime = 0;
+            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url)); clips = []; schedule = []; currentTime = 0; completedLoops = 0;
             clearOutput(); renderAll();
         }
         function startExport() {
@@ -896,6 +945,10 @@
             playbackSpeedInput.value = playbackSpeed().toFixed(1);
             seekVideos(currentTime);
         });
+        loopCountInput.addEventListener("change", () => {
+            loopCountInput.value = String(loopCount());
+            completedLoops = 0;
+        });
         clearButton.addEventListener("click", clearClips);
         monoInput.addEventListener("change", () => canvas.classList.toggle("monochrome", monoInput.checked));
         zoomInput.addEventListener("input", renderTimeline);
@@ -907,11 +960,12 @@
         window.addEventListener("resize", renderTimeline);
         window.addEventListener("beforeunload", () => clips.forEach((clip) => URL.revokeObjectURL(clip.url)));
         const sequenceCheck = calculateSchedule([
-            { duration: 2, transition: 0 }, { duration: 2, transition: 1 }, { duration: 2, transition: 1 },
+            { duration: 2 }, { duration: 2 }, { duration: 2 },
         ]);
         console.assert(
-            sequenceCheck[1].start === 1 && sequenceCheck[2].start === 2 && sequenceCheck[2].end === 4,
-            "2秒×3クリップ、1秒モーフのシーケンス計算が正しくありません",
+            sequenceCheck[0].offset === 1 && sequenceCheck[1].start === 0
+                && sequenceCheck[2].start === 1 && sequenceCheck[2].end === 3,
+            "ループシーケンスの計算が正しくありません",
         );
         renderAll();
     </script>
