@@ -183,6 +183,21 @@
             gap: 10px;
         }
 
+        .speed-control {
+            margin-top: 16px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .speed-control label {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .speed-control input {
+            width: 100%;
+        }
+
         progress {
             width: 100%;
             margin-top: 14px;
@@ -258,6 +273,11 @@
         <section id="montage">
             <h2>結合結果</h2>
             <video id="montageVideo" controls playsinline hidden></video>
+            <div id="montageControls" class="speed-control" hidden>
+                <label for="montageSpeed">再生速度 <output id="montageSpeedValue">1.0倍</output></label>
+                <input id="montageSpeed" type="range" min="0.1" max="2" step="0.1" value="1">
+                <button id="montageDownloadButton">調整後の映像をダウンロード</button>
+            </div>
             <p id="montageEmpty">解析された区間を、近い表情が隣り合うようにつなぎます。</p>
             <div class="actions">
                 <button id="montageButton" class="primary" disabled>抽出区間をつなぐ</button>
@@ -270,9 +290,11 @@
     <script>
         const $ = (id) => document.getElementById(id);
         const [fileInput, drop, list, empty, editor, title, video, motionGraph, analyzeButton, saveButton, progress, status,
-            montageVideo, montageEmpty, montageButton, montageProgress, montageStatus] =
+            montageVideo, montageControls, montageSpeed, montageSpeedValue, montageDownloadButton,
+            montageEmpty, montageButton, montageProgress, montageStatus] =
             ["files", "drop", "list", "empty", "editor", "title", "video", "motionGraph", "analyzeButton", "saveButton", "progress", "status",
-                "montageVideo", "montageEmpty", "montageButton", "montageProgress", "montageStatus"].map($);
+                "montageVideo", "montageControls", "montageSpeed", "montageSpeedValue", "montageDownloadButton",
+                "montageEmpty", "montageButton", "montageProgress", "montageStatus"].map($);
         const decoder = new TextDecoder();
         const ANALYSIS_MAX_SIZE = 480;
         let analysisFps = 10;
@@ -292,6 +314,7 @@
         let sourceUrl = "";
         let outputUrl = "";
         let montageUrl = "";
+        let montageBlob = null;
         let ffmpegProgress = progress;
         let montageBusy = false;
         let ffmpeg = null;
@@ -511,8 +534,10 @@
         function resetMontage() {
             if (montageUrl) URL.revokeObjectURL(montageUrl);
             montageUrl = "";
+            montageBlob = null;
             montageVideo.removeAttribute("src");
             montageVideo.hidden = true;
+            montageControls.hidden = true;
             montageEmpty.hidden = false;
         }
 
@@ -742,14 +767,50 @@
             });
         }
 
-        async function buildMontage() {
-            const clips = orderClips(extractedClips());
-            if (!clips.length) return;
+        async function encodeMontage(clips, output) {
             const inputFiles = new Map();
             clips.forEach(({ recording }) => {
                 if (!inputFiles.has(recording)) inputFiles.set(recording, `montage-input-${inputFiles.size}.webm`);
             });
-            const output = "montage-output.webm";
+            const recordingsByInput = [...inputFiles.keys()];
+            try {
+                for (const [recording, name] of inputFiles)
+                    await ffmpeg.writeFile(name, new Uint8Array(await recording.videoBlob.arrayBuffer()));
+                const inputArgs = [...inputFiles.values()].flatMap((name) => ["-i", name]);
+                const filters = clips.map((clip, index) =>
+                    `[${recordingsByInput.indexOf(clip.recording)}:v]trim=start=${clip.start}:end=${clip.end},` +
+                    `setpts=PTS-STARTPTS[v${index}]`);
+                filters.push(clips.length === 1 ? "[v0]null[outv]" :
+                    `${clips.map((_, index) => `[v${index}]`).join("")}concat=n=${clips.length}:v=1:a=0[outv]`);
+                const exitCode = await ffmpeg.exec([...inputArgs, "-filter_complex", filters.join(";"),
+                    "-map", "[outv]", "-an", "-c:v", "libvpx", "-deadline", "good",
+                    "-cpu-used", String(montageCpuUsed), "-crf", String(montageCrf),
+                    "-b:v", String(montageVideoBitsPerSecond), output]);
+                if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
+                return new Blob([await ffmpeg.readFile(output)], { type: "video/webm" });
+            } finally {
+                for (const name of [...inputFiles.values(), output])
+                    try { await ffmpeg.deleteFile(name); } catch { }
+            }
+        }
+
+        async function retimeMontage(blob, speed) {
+            const input = "montage-speed-input.webm";
+            const output = "montage-speed-output.webm";
+            await ffmpeg.writeFile(input, new Uint8Array(await blob.arrayBuffer()));
+            try {
+                const exitCode = await ffmpeg.exec(["-itsscale", String(1 / speed), "-i", input,
+                    "-map", "0:v:0", "-c", "copy", "-avoid_negative_ts", "make_zero", output]);
+                if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
+                return new Blob([await ffmpeg.readFile(output)], { type: "video/webm" });
+            } finally {
+                for (const name of [input, output]) try { await ffmpeg.deleteFile(name); } catch { }
+            }
+        }
+
+        async function buildMontage() {
+            const clips = orderClips(extractedClips());
+            if (!clips.length) return;
             montageBusy = true;
             montageButton.disabled = true;
             analyzeButton.disabled = true;
@@ -761,36 +822,68 @@
                 if (!ffmpeg) montageStatus.textContent = "処理エンジンを読み込み中…";
                 await ensureFFmpeg();
                 montageStatus.textContent = `${clips.length}区間を表情の近い順につないでいます…`;
-                for (const [recording, name] of inputFiles)
-                    await ffmpeg.writeFile(name, new Uint8Array(await recording.videoBlob.arrayBuffer()));
-                const inputArgs = [...inputFiles.values()].flatMap((name) => ["-i", name]);
-                const filters = clips.map((clip, index) => {
-                    const input = [...inputFiles.keys()].indexOf(clip.recording);
-                    return `[${input}:v]trim=start=${clip.start}:end=${clip.end},setpts=PTS-STARTPTS[v${index}]`;
-                });
-                filters.push(clips.length === 1 ? "[v0]null[outv]" :
-                    `${clips.map((_, index) => `[v${index}]`).join("")}concat=n=${clips.length}:v=1:a=0[outv]`);
-                const exitCode = await ffmpeg.exec([...inputArgs, "-filter_complex", filters.join(";"),
-                    "-map", "[outv]", "-an", "-c:v", "libvpx", "-deadline", "good",
-                    "-cpu-used", String(montageCpuUsed), "-crf", String(montageCrf),
-                    "-b:v", String(montageVideoBitsPerSecond), output]);
-                if (exitCode) throw new Error(`FFmpeg exited with ${exitCode}`);
-                const data = await ffmpeg.readFile(output);
+                const blob = await encodeMontage(clips, "montage-output.webm");
                 resetMontage();
-                montageUrl = URL.createObjectURL(new Blob([data], { type: "video/webm" }));
+                montageBlob = blob;
+                montageUrl = URL.createObjectURL(blob);
                 montageVideo.src = montageUrl;
                 montageVideo.hidden = false;
+                montageControls.hidden = false;
                 montageEmpty.hidden = true;
+                updateMontageSpeed();
                 montageStatus.textContent = `${clips.length}区間を、表情の接続差が小さい順につなぎました。`;
                 montageVideo.play().catch(() => { });
             } catch (error) {
                 console.error(error);
                 montageStatus.textContent = "結合映像を作成できませんでした。";
             } finally {
-                if (ffmpeg) for (const name of [...inputFiles.values(), output])
-                    try { await ffmpeg.deleteFile(name); } catch { }
                 montageBusy = false;
                 montageProgress.hidden = true;
+                analyzeButton.disabled = Boolean(current?.analyzing || current?.analysisQueued);
+                saveButton.disabled = false;
+                updateMontageAvailability();
+            }
+        }
+
+        function updateMontageSpeed() {
+            const speed = Number(montageSpeed.value);
+            montageSpeedValue.value = `${speed.toFixed(1)}倍`;
+            montageVideo.playbackRate = speed;
+        }
+
+        async function downloadAdjustedMontage() {
+            if (!montageBlob) return;
+            const speed = Number(montageSpeed.value);
+            montageBusy = true;
+            montageButton.disabled = true;
+            montageDownloadButton.disabled = true;
+            analyzeButton.disabled = true;
+            saveButton.disabled = true;
+            montageProgress.hidden = speed === 1;
+            montageProgress.value = 0;
+            ffmpegProgress = montageProgress;
+            try {
+                let blob = montageBlob;
+                if (speed !== 1) {
+                    if (!ffmpeg) montageStatus.textContent = "処理エンジンを読み込み中…";
+                    await ensureFFmpeg();
+                    montageStatus.textContent = `${speed.toFixed(1)}倍速に調整しています…`;
+                    blob = await retimeMontage(montageBlob, speed);
+                }
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = `expression-montage-${speed.toFixed(1)}x.webm`;
+                anchor.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                montageStatus.textContent = `${speed.toFixed(1)}倍速の結合映像を保存しました。`;
+            } catch (error) {
+                console.error(error);
+                montageStatus.textContent = "速度調整した映像を作成できませんでした。";
+            } finally {
+                montageBusy = false;
+                montageProgress.hidden = true;
+                montageDownloadButton.disabled = false;
                 analyzeButton.disabled = Boolean(current?.analyzing || current?.analysisQueued);
                 saveButton.disabled = false;
                 updateMontageAvailability();
@@ -824,6 +917,8 @@
         });
         analyzeButton.addEventListener("click", analyzeCurrent);
         montageButton.addEventListener("click", buildMontage);
+        montageSpeed.addEventListener("input", updateMontageSpeed);
+        montageDownloadButton.addEventListener("click", downloadAdjustedMontage);
 
         saveButton.addEventListener("click", async () => {
             const analysis = current?.analysis;

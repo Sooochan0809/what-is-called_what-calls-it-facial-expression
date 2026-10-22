@@ -1,7 +1,7 @@
 {
   "maximumDurationMs": 30000,
   "frameRate": 30,
-  "minimumMotionThreshold": 0.016,
+  "minimumMotionThreshold": 0.012,
   "minimumActivityMs": 300,
   "maximumGapMs": 600,
   "paddingMs": 200,
