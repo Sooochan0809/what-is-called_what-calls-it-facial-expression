@@ -95,26 +95,6 @@
             filter: grayscale(1);
         }
 
-        .stageBadge {
-            position: absolute;
-            top: 12px;
-            left: 12px;
-            max-width: calc(100% - 24px);
-            padding: 6px 9px;
-            overflow: hidden;
-            border-radius: 6px;
-            background: rgba(10, 13, 16, .72);
-            color: #fff;
-            font-size: .76rem;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            pointer-events: none;
-        }
-
-        .stageBadge:empty {
-            display: none;
-        }
-
         .sidebar {
             min-width: 0;
             min-height: 0;
@@ -475,7 +455,6 @@
         <main class="previewArea">
             <div class="stage" aria-label="動画モーフィングプレビュー">
                 <canvas id="morphCanvas" width="1080" height="1920"></canvas>
-                <div class="stageBadge" id="stageBadge"></div>
             </div>
         </main>
         <aside class="sidebar" aria-label="動画クリップ">
@@ -495,10 +474,10 @@
                         value="0.5" inputmode="decimal">秒</label>
                 <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
                         step="0.1" value="0.5" inputmode="decimal">倍</label>
-                <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1"
-                        value="10" inputmode="numeric">回</label>
+                <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1" value="10"
+                        inputmode="numeric">回</label>
                 <div class="transportSpacer"></div>
-                <label class="toggleLabel"><input id="monoInput" type="checkbox">モノクロ</label>
+                <label class="toggleLabel">モノクロ<input id="monoInput" type="checkbox" checked></label>
                 <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
                         value="110"></label>
                 <button id="exportButton" type="button" disabled>WebM書出し</button>
@@ -526,7 +505,6 @@
         const byId = (id) => document.getElementById(id);
         const canvas = byId("morphCanvas");
         const ctx = canvas.getContext("2d", { alpha: false });
-        const stageBadge = byId("stageBadge");
         const fileInput = byId("fileInput");
         const clipList = byId("clipList");
         const status = byId("status");
@@ -603,26 +581,30 @@
             seekVideos(0, true);
             void getFaceLandmarker();
         }
-        function transitionBetween(from, to, requested) {
-            return Math.min(requested, Math.max(.1, Math.min(from.duration, to.duration) / 2));
+        function transitionBetween(from, to, requested, speed) {
+            return Math.min(requested, Math.max(.001, Math.min(from.duration, to.duration) / speed / 2));
         }
-        function calculateSchedule(clipList, requestedTransition = 1) {
+        function calculateSchedule(clipList, requestedTransition = 1, speed = 1) {
             if (!clipList.length) return [];
             const loopTransition = clipList.length > 1
-                ? transitionBetween(clipList.at(-1), clipList[0], requestedTransition)
+                ? transitionBetween(clipList.at(-1), clipList[0], requestedTransition, speed)
                 : 0;
-            let previousEnd = clipList[0].duration - loopTransition;
+            let previousEnd = clipList[0].duration / speed - loopTransition;
             return clipList.map((clip, index) => {
                 if (!index) return { clip, start: 0, end: previousEnd, transition: 0, offset: loopTransition };
-                const transition = transitionBetween(clipList[index - 1], clip, requestedTransition);
+                const transition = transitionBetween(clipList[index - 1], clip, requestedTransition, speed);
                 const start = previousEnd - transition;
-                const end = start + clip.duration;
+                const end = start + clip.duration / speed;
                 previousEnd = end;
                 return { clip, start, end, transition, offset: 0 };
             });
         }
         function buildSchedule() {
-            schedule = calculateSchedule(clips, Math.max(.1, Number(transitionInput.value) || 1));
+            schedule = calculateSchedule(
+                clips,
+                Math.max(.1, Number(transitionInput.value) || 1),
+                playbackSpeed(),
+            );
             currentTime = clamp(currentTime, 0, totalDuration());
         }
         function getActiveState(time) {
@@ -646,7 +628,11 @@
         function seekVideos(time, force = false) {
             const activeTimes = new Map(getActiveState(time).items.map((item) => [
                 item.clip.id,
-                clamp(time - item.start + (item.offset || 0), 0, Math.max(0, item.clip.duration - .001)),
+                clamp(
+                    (time - item.start + (item.offset || 0)) * playbackSpeed(),
+                    0,
+                    Math.max(0, item.clip.duration - .001),
+                ),
             ]));
             clips.forEach((clip) => {
                 const video = clip.video;
@@ -754,11 +740,9 @@
             const sources = state.items.map((item) => drawVideoToSource(item.clip));
             if (state.items.length === 1) {
                 drawOutput(sources[0]);
-                stageBadge.textContent = state.items[0].clip.name;
                 return;
             }
             const [from, to] = state.items;
-            stageBadge.textContent = `${from.clip.name} → ${to.clip.name} · モーフ ${Math.round(state.progress * 100)}%`;
             const [fromPoints, toPoints] = await Promise.all([detectPoints(from.clip, now), detectPoints(to.clip, now)]);
             if (fromPoints && toPoints && fromPoints.length === toPoints.length) {
                 const blended = fromPoints.map((point, index) => [
@@ -791,7 +775,7 @@
         }
         async function tick(now) {
             if (playing) {
-                currentTime += (now - previousFrameAt) / 1000 * playbackSpeed();
+                currentTime += (now - previousFrameAt) / 1000;
                 previousFrameAt = now;
                 if (currentTime >= totalDuration()) {
                     completedLoops += Math.floor(currentTime / totalDuration());
@@ -799,6 +783,7 @@
                     if (targetLoops && completedLoops >= targetLoops) {
                         if (isExporting()) recorder.stop();
                         if (loopCount()) {
+                            completedLoops = targetLoops - 1;
                             currentTime = totalDuration();
                             setPlaying(false);
                         } else {
@@ -821,8 +806,11 @@
             seekVideos(currentTime, true); updatePlayhead(); requestAnimationFrame(() => void renderFrame());
         }
         function updatePlayhead() {
+            const loopDuration = totalDuration();
+            const elapsed = completedLoops * loopDuration + currentTime;
+            const total = !loopDuration ? formatTime(0) : loopCount() ? formatTime(loopDuration * loopCount()) : "∞";
             playhead.style.left = `${currentTime * pxPerSecond()}px`;
-            timecode.textContent = `${formatTime(currentTime)} / ${formatTime(totalDuration())}`;
+            timecode.textContent = `${formatTime(elapsed)} / ${total}`;
         }
         function createClipCard(clip, index) {
             const card = document.createElement("article");
@@ -831,7 +819,7 @@
                 <video class="clipThumb" src="${clip.url}" muted preload="metadata"></video>
                 <div class="clipBody">
                     <div class="clipTitle"></div>
-                    <div class="clipMeta">${formatTime(clip.duration)} · クリップ ${index + 1}</div>
+                    <div class="clipMeta">実再生 ${formatTime(clip.duration / playbackSpeed())} · クリップ ${index + 1}</div>
                 </div>
                 <button class="removeButton" type="button" title="削除">×</button>`;
             card.querySelector(".clipTitle").textContent = clip.name;
@@ -875,7 +863,7 @@
                 const block = document.createElement("div");
                 block.className = "timelineClip"; block.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
                 block.style.left = `${item.start * scale}px`; block.style.top = `${30 + index % 2 * 58}px`; block.style.width = `${Math.max(34, (item.end - item.start) * scale)}px`;
-                block.innerHTML = `<span></span><small>${formatTime(item.clip.duration)}</small>`; block.querySelector("span").textContent = item.clip.name;
+                block.innerHTML = `<span></span><small>${formatTime(item.clip.duration / playbackSpeed())}</small>`; block.querySelector("span").textContent = item.clip.name;
                 block.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start); }); timeline.appendChild(block);
                 if (index > 0) {
                     timeline.appendChild(createMorphRegion(
@@ -904,7 +892,6 @@
             playButton.disabled = !hasClips; rewindButton.disabled = !hasClips;
             exportButton.disabled = !hasClips || !window.MediaRecorder || isExporting(); clearButton.disabled = !hasClips;
             status.textContent = `${clips.length}クリップ · 全体 ${formatTime(totalDuration())}`;
-            if (!hasClips) stageBadge.textContent = "";
             updatePlayhead();
         }
         function renderAll() { renderClipList(); renderTimeline(); updateControls(); void renderFrame(); }
@@ -942,12 +929,18 @@
             setCurrentTime(currentTime);
         });
         playbackSpeedInput.addEventListener("change", () => {
+            const progress = currentTime / (totalDuration() || 1);
             playbackSpeedInput.value = playbackSpeed().toFixed(1);
-            seekVideos(currentTime);
+            buildSchedule();
+            setCurrentTime(progress * totalDuration());
+            renderClipList();
+            renderTimeline();
+            updateControls();
         });
         loopCountInput.addEventListener("change", () => {
             loopCountInput.value = String(loopCount());
             completedLoops = 0;
+            updatePlayhead();
         });
         clearButton.addEventListener("click", clearClips);
         monoInput.addEventListener("change", () => canvas.classList.toggle("monochrome", monoInput.checked));
@@ -964,9 +957,14 @@
         ]);
         console.assert(
             sequenceCheck[0].offset === 1 && sequenceCheck[1].start === 0
-                && sequenceCheck[2].start === 1 && sequenceCheck[2].end === 3,
+            && sequenceCheck[2].start === 1 && sequenceCheck[2].end === 3,
             "ループシーケンスの計算が正しくありません",
         );
+        console.assert(
+            calculateSchedule([{ duration: 2 }, { duration: 2 }, { duration: 2 }], 1, 2).at(-1).end === 1.5,
+            "再生速度を反映した実時間の計算が正しくありません",
+        );
+        canvas.classList.toggle("monochrome", monoInput.checked);
         renderAll();
     </script>
 </body>
