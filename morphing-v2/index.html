@@ -3,19 +3,21 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>表情モーフィング</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>動画モーフィングシーケンサー</title>
     <style>
         :root {
-            --bg: #f0f0f0;
-            --ink: #1b2026;
-            --muted: #6d737b;
-            --line: #d9dde2;
-            --panel: #ffffff;
-            --accent: #42d392;
+            color-scheme: light;
+            --bg: #1e1e29;
+            --panel: #14141b;
+            --ink: #192027;
+            --muted: #747b84;
+            --line: #d8dce1;
+            --accent: #35c982;
+            --accent-dark: #168653;
+            --timeline: #20262d;
+            --line: #353c44;
         }
 
         * {
@@ -24,7 +26,7 @@
 
         html,
         body {
-            min-height: 100dvh;
+            min-height: 100%;
         }
 
         body {
@@ -32,7 +34,7 @@
             overflow: hidden;
             background: var(--bg);
             color: var(--ink);
-            font-family: "Yu Gothic Medium", "Yu Gothic", sans-serif;
+            font-family: "Yu Gothic Medium", "Yu Gothic", system-ui, sans-serif;
         }
 
         button,
@@ -42,6 +44,7 @@
 
         button {
             border: 1px solid var(--line);
+            border-radius: 8px;
             background: var(--panel);
             color: var(--ink);
             cursor: pointer;
@@ -49,54 +52,198 @@
 
         button:disabled {
             cursor: not-allowed;
-            opacity: 0.42;
+            opacity: .42;
         }
 
         .app {
-            width: 100dvw;
             height: 100dvh;
             display: grid;
-            grid-template-columns: minmax(0, 1fr) 340px;
-            overflow: hidden;
+            grid-template-columns: 340px minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr) 224px;
         }
 
-        .workspace {
+        .previewArea {
             min-width: 0;
-            height: 100%;
+            min-height: 0;
+            grid-row: 1;
+            grid-column: 2;
             display: grid;
+            place-items: center;
+            padding: 24px;
         }
 
-        .status {
-            color: var(--muted);
-            font-size: 0.82rem;
-            font-variant-numeric: tabular-nums;
+        .stage {
+            position: relative;
+            width: auto;
+            height: min(100%, calc(100dvh - 272px));
+            max-width: 100%;
+            max-height: 100%;
+            aspect-ratio: 9 / 16;
+            overflow: hidden;
+            border-radius: 4px;
+            background: #101316;
+            box-shadow: 0 16px 44px rgba(24, 31, 38, .12);
+        }
+
+        #morphCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #morphCanvas.monochrome {
+            filter: grayscale(1);
+        }
+
+        .stageBadge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            max-width: calc(100% - 24px);
+            padding: 6px 9px;
+            overflow: hidden;
+            border-radius: 6px;
+            background: rgba(10, 13, 16, .72);
+            color: #fff;
+            font-size: .76rem;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+
+        .stageBadge:empty {
+            display: none;
+        }
+
+        .sidebar {
+            min-width: 0;
+            min-height: 0;
+            grid-row: 1 / 3;
+            grid-column: 1;
+            display: grid;
+            grid-template-rows: minmax(0, 1fr) auto;
+            border-right: 1px solid var(--line);
+            background: var(--panel);
+        }
+
+        .clipList {
+            min-height: 0;
+            display: grid;
+            align-content: start;
+            gap: 10px;
+            padding: 12px;
+            overflow: auto;
+        }
+
+        .clipCard {
+            position: relative;
+            display: grid;
+            grid-template-columns: 78px minmax(0, 1fr);
+            gap: 10px;
+            padding: 9px;
+            border: 1px solid var(--line);
+            border-left: 4px solid var(--clip-color);
+            border-radius: 9px;
+            background: #fff;
+            cursor: grab;
+        }
+
+        .clipCard.dragging {
+            opacity: .45;
+        }
+
+        .clipThumb {
+            width: 78px;
+            height: 58px;
+            object-fit: cover;
+            border-radius: 5px;
+            background: #15191e;
+            pointer-events: none;
+        }
+
+        .clipBody {
+            min-width: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        .clipTitle {
+            overflow: hidden;
+            padding-right: 24px;
+            font-size: .78rem;
+            font-weight: 700;
+            text-overflow: ellipsis;
             white-space: nowrap;
         }
 
-        .fileButton,
-        .textButton {
-            min-width: 36px;
-            display: inline-grid;
-            place-items: center;
-            border-radius: 8px;
+        .clipMeta {
+            color: var(--muted);
+            font-size: .7rem;
+            font-variant-numeric: tabular-nums;
         }
 
-        .textButton {
-            height: 36px;
-            padding: 0 12px;
+        .transitionControl {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) 48px;
+            gap: 6px;
+            align-items: center;
+            color: var(--muted);
+            font-size: .68rem;
+        }
+
+        .transitionControl input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+        }
+
+        .transitionControl input[type="number"] {
+            width: 48px;
+            height: 25px;
+            padding: 0 4px;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            color: var(--ink);
+            font-size: .72rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .removeButton {
+            position: absolute;
+            top: 7px;
+            right: 7px;
+            width: 22px;
+            height: 22px;
+            padding: 0;
             border: 0;
-            background: var(--ink);
-            color: #fff;
-            font-size: 0.88rem;
+            background: transparent;
+            color: #8a9199;
+            font-size: 17px;
+            line-height: 1;
+        }
+
+        .sidebarFooter {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            border-top: 1px solid var(--line);
         }
 
         .fileButton {
             position: relative;
-            width: 80px;
-            height: 80px;
-            padding: 0;
+            min-height: 42px;
+            display: grid;
+            place-items: center;
             overflow: hidden;
-            background: transparent;
+            border: 1px dashed #abb2ba;
+            border-radius: 9px;
+            color: #4e565f;
+            font-size: .82rem;
+            cursor: pointer;
+        }
+
+        .fileButton:hover {
+            border-color: var(--accent-dark);
+            color: var(--accent-dark);
         }
 
         .fileButton input {
@@ -106,357 +253,248 @@
             cursor: pointer;
         }
 
-        .stageWrap {
-            min-height: 0;
-            display: grid;
-            place-items: center;
-            padding: 24px;
-        }
-
-        .stage {
-            position: relative;
-            width: min(100%, calc((100dvh - 48px) * 1.333));
-            aspect-ratio: 4 / 3;
-            min-width: 280px;
-            min-height: 210px;
-            overflow: hidden;
-            border: 1px solid var(--line);
-            background:
-                linear-gradient(45deg, #dde1e6 25%, transparent 25%),
-                linear-gradient(-45deg, #dde1e6 25%, transparent 25%),
-                linear-gradient(45deg, transparent 75%, #dde1e6 75%),
-                linear-gradient(-45deg, transparent 75%, #dde1e6 75%);
-            background-color: #f8f9fa;
-            background-position: 0 0, 0 10px, 10px -10px, -10px 0;
-            background-size: 20px 20px;
-        }
-
-        .stageControls {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 5;
+        .footerRow {
             display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .stageToggleButton {
-            min-width: 76px;
-            height: 32px;
-            padding: 0 10px;
-            border: 0;
-            border-radius: 8px;
-            background: var(--ink);
-            color: #fff;
-            font-size: 0.78rem;
-        }
-
-        .stageToggleButton.is-off {
-            background: #7d858f;
-        }
-
-        .recordingButton:not(.is-off) {
-            background: #c9343c;
-        }
-
-        .stageToggleButton[hidden] {
-            display: none;
-        }
-
-        .sequenceSpeedControl {
-            display: grid;
-            grid-template-columns: auto 48px auto;
-            gap: 5px;
-            align-items: center;
-            padding: 6px 8px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.92);
-            font-size: 0.72rem;
-        }
-
-        .sequenceSpeedControl[hidden] {
-            display: none;
-        }
-
-        .sequenceSpeedControl input {
-            width: 48px;
-            height: 26px;
-            padding: 0 4px;
-            border: 1px solid var(--line);
-            border-radius: 5px;
-        }
-
-        .stage.is-cropping {
-            cursor: crosshair;
-        }
-
-        .stage.is-crop-moving {
-            cursor: move;
-        }
-
-        .cropSelection {
-            position: absolute;
-            z-index: 4;
-            border: 2px solid var(--accent);
-            background: rgba(66, 211, 146, 0.18);
-            pointer-events: none;
-        }
-
-        .cropSelection[hidden] {
-            display: none;
-        }
-
-        img {
-            display: block;
-        }
-
-        .morphCanvas.is-monochrome {
-            filter: grayscale(1);
-        }
-
-        .fileButton img {
-            width: 100%;
-            height: 100%;
-        }
-
-        .sidePanel {
-            min-width: 0;
-            height: 100dvh;
-            display: grid;
-            grid-template-rows: minmax(0, 1fr) auto;
-            border-left: 1px solid var(--line);
-            background: var(--panel);
-        }
-
-        .sideFooter {
-            min-height: 52px;
-            display: grid;
-            gap: 12px;
-            padding: 8px 12px 8px 14px;
-            border-top: 1px solid var(--line);
-        }
-
-        .footerMain {
-            display: flex;
-            align-items: center;
             justify-content: space-between;
-            gap: 12px;
-        }
-
-        .cropControls {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
-            gap: 6px;
-            align-items: end;
-        }
-
-        .cropControls[hidden] {
-            display: none;
-        }
-
-        .cropControl {
-            display: grid;
-            gap: 3px;
-            min-width: 0;
-            color: var(--muted);
-            font-size: 0.72rem;
-        }
-
-        .cropControl input {
-            width: 100%;
-            height: 30px;
-            min-width: 0;
-            padding: 0 6px;
-            border: 1px solid var(--line);
-            border-radius: 6px;
-            color: var(--ink);
-            font-size: 0.78rem;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .cropShowButton {
-            height: 30px;
-            padding: 0 10px;
-            border: 0;
-            border-radius: 6px;
-            background: var(--ink);
-            color: #fff;
-            font-size: 0.78rem;
-        }
-
-        .layerList {
-            min-height: 0;
-            display: grid;
-            grid-template-rows: auto;
-            place-content: center;
-            gap: 10px;
-            padding: 12px;
-            overflow: auto;
-        }
-
-        .layerList.has-layers {
-            grid-template-rows: auto auto;
-            align-content: start;
-            justify-content: stretch;
-        }
-
-        .addLayerSlot {
-            display: grid;
-            place-items: center;
-        }
-
-        .layers {
-            display: grid;
-            align-content: start;
-            gap: 10px;
-        }
-
-        .layer {
-            position: relative;
-            display: grid;
-            grid-template-columns: 74px minmax(0, 1fr);
-            gap: 10px;
-            padding: 10px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: #fff;
-            cursor: grab;
-        }
-
-        .layer.dragging {
-            opacity: 0.55;
-            cursor: grabbing;
-        }
-
-        .layerRemoveButton {
-            position: absolute;
-            top: -9px;
-            right: -9px;
-            width: 24px;
-            height: 24px;
-            display: grid;
-            place-items: center;
-            padding: 0;
-            border: 0;
-            border-radius: 50%;
-            background: transparent;
-            cursor: pointer;
-        }
-
-        .layerRemoveButton img {
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-        }
-
-        .layerThumb {
-            width: 74px;
-            height: 74px;
-            overflow: hidden;
-            border: 1px solid var(--line);
-            border-radius: 6px;
-            background: #f8f9fa;
-        }
-
-        .layerThumb img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            pointer-events: none;
-            user-select: none;
-        }
-
-        .layerBody {
-            min-width: 0;
-            display: grid;
+            align-items: center;
             gap: 8px;
         }
 
-        .layerTitle {
+        .status {
+            color: var(--muted);
+            font-size: .75rem;
+        }
+
+        .smallButton {
+            height: 32px;
+            padding: 0 11px;
+            font-size: .74rem;
+        }
+
+        .timelinePanel {
+            min-width: 0;
+            min-height: 0;
+            grid-row: 2;
+            grid-column: 2;
+            display: grid;
+            grid-template-rows: 52px minmax(0, 1fr);
+            background: var(--bg);
+            border: 1px solid #2d2d36;
+            color: #fff;
+        }
+
+        .transport {
             display: flex;
             align-items: center;
-            gap: 8px;
-            min-width: 0;
+            gap: 9px;
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--line);
         }
 
-        .fileName {
-            min-width: 0;
+        .transport button {
+            height: 34px;
+            padding: 0 12px;
+            border-color: #454d56;
+            background: #2b323a;
+            color: #fff;
+            font-size: .78rem;
+        }
+
+        .transport .playButton {
+            min-width: 74px;
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #10251b;
+            font-weight: 700;
+        }
+
+        .timecode {
+            min-width: 106px;
+            font-size: .76rem;
+            font-variant-numeric: tabular-nums;
+            color: #c9cfd5;
+        }
+
+        .transportSpacer {
             flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: 0.83rem;
         }
 
-        .rangeControl {
-            display: grid;
-            grid-template-columns: 1fr 3.2em;
-            gap: 8px;
+        .toggleLabel,
+        .zoomLabel {
+            display: flex;
             align-items: center;
+            gap: 6px;
+            color: #bec5cc;
+            font-size: .7rem;
+            white-space: nowrap;
         }
 
-        input[type="range"] {
-            width: 100%;
+        .toggleLabel input {
             accent-color: var(--accent);
         }
 
-        output {
-            color: var(--muted);
-            font-size: 0.78rem;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
+        .zoomLabel input {
+            width: 90px;
+            accent-color: var(--accent);
         }
 
-        .morphCanvas {
+        .timelineScroller {
+            min-width: 0;
+            min-height: 0;
+            overflow: auto hidden;
+            user-select: none;
+        }
+
+        .timeline {
+            position: relative;
+            min-width: 100%;
+            height: 170px;
+            cursor: pointer;
+            background-image: linear-gradient(to right, var(--line) 1px, transparent 1px);
+            background-size: var(--second-width, 100px) 100%;
+        }
+
+        .rulerMark {
+            position: absolute;
+            top: 0;
+            height: 24px;
+            padding: 5px 0 0 5px;
+            border-left: 1px solid #535b64;
+            color: #929aa3;
+            font-size: .62rem;
+            font-variant-numeric: tabular-nums;
+            pointer-events: none;
+        }
+
+        .timelineClip {
+            position: absolute;
+            height: 50px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, .3);
+            border-radius: 6px;
+            background: var(--clip-color);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, .2);
+            color: #fff;
+            cursor: pointer;
+        }
+
+        .timelineClip::after {
+            content: "";
             position: absolute;
             inset: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            pointer-events: none;
+            background: linear-gradient(90deg, rgba(255, 255, 255, .12), transparent 55%, rgba(0, 0, 0, .13));
+        }
+
+        .timelineClip span {
+            position: relative;
             z-index: 1;
+            display: block;
+            padding: 7px 8px;
+            overflow: hidden;
+            font-size: .72rem;
+            font-weight: 700;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
-        .morphCanvas[hidden] {
-            display: none;
+        .timelineClip small {
+            position: relative;
+            z-index: 1;
+            display: block;
+            padding: 0 8px;
+            font-size: .62rem;
+            opacity: .78;
         }
 
-        @media (max-width: 860px) {
+        .morphRegion {
+            position: absolute;
+            top: 28px;
+            height: 110px;
+            z-index: 4;
+            display: grid;
+            place-items: end center;
+            border: 1px solid rgba(83, 241, 162, .9);
+            border-radius: 6px;
+            background: repeating-linear-gradient(135deg, rgba(53, 201, 130, .32) 0 8px, rgba(53, 201, 130, .13) 8px 16px);
+            color: #baffda;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        .morphRegion span {
+            max-width: 100%;
+            margin-bottom: 5px;
+            padding: 2px 5px;
+            overflow: hidden;
+            border-radius: 4px;
+            background: rgba(9, 30, 20, .78);
+            font-size: .6rem;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .playhead {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            z-index: 8;
+            width: 2px;
+            background: #ff5e68;
+            pointer-events: none;
+        }
+
+        .playhead::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -5px;
+            border-top: 8px solid #ff5e68;
+            border-right: 6px solid transparent;
+            border-left: 6px solid transparent;
+        }
+
+        @media (max-width: 820px) {
             body {
                 overflow: auto;
             }
 
             .app {
-                min-height: 100dvh;
                 height: auto;
+                min-height: 100dvh;
                 grid-template-columns: 1fr;
-                grid-template-rows: minmax(420px, 58dvh) auto;
-                overflow: visible;
+                grid-template-rows: minmax(560px, 68dvh) auto 220px;
             }
 
-            .workspace {
-                min-height: 420px;
-            }
-
-            .stageWrap {
+            .previewArea {
+                grid-row: 1;
+                grid-column: 1;
                 padding: 12px;
             }
 
             .stage {
-                width: min(100%, calc((58dvh - 24px) * 1.333));
+                width: auto;
+                height: min(100%, calc(68dvh - 24px));
             }
 
-            .sidePanel {
-                height: auto;
-                min-height: 42dvh;
-                border-left: 0;
+            .sidebar {
+                grid-row: 2;
+                grid-column: 1;
+                min-height: 360px;
+                border: 0;
                 border-top: 1px solid var(--line);
             }
 
-            .layerList {
-                max-height: none;
-                overflow: visible;
+            .timelinePanel {
+                grid-row: 3;
+                grid-column: 1;
+            }
+
+            .clipList {
+                max-height: 420px;
+            }
+
+            .zoomLabel {
+                display: none;
             }
         }
     </style>
@@ -464,1920 +502,417 @@
 
 <body>
     <div class="app">
-        <main class="workspace">
-            <section class="stageWrap" aria-label="プレビュー">
-                <div class="stage" id="stage">
-                    <canvas class="morphCanvas" id="morphCanvas"></canvas>
-                    <canvas id="embeddedOutputCanvas" hidden></canvas>
-                    <div class="cropSelection" id="cropSelection" hidden></div>
-                    <div class="stageControls">
-                        <button class="stageToggleButton cropToggleButton is-off" id="cropToggleButton" type="button"
-                            aria-pressed="false">トリミング</button>
-                        <button class="stageToggleButton monoToggleButton" id="monoToggleButton" type="button"
-                            aria-pressed="true">モノクロ</button>
-                        <button class="stageToggleButton" id="faceAlignmentButton" type="button"
-                            aria-pressed="true" disabled>顔位置補正</button>
-                        <button class="stageToggleButton sequenceToggleButton is-off" id="sequenceToggleButton"
-                            type="button" aria-pressed="false" disabled>自動切替</button>
-                        <label class="sequenceSpeedControl" hidden>
-                            <span>切替</span>
-                            <input id="sequenceSpeedInput" type="number" min="0.1" step="0.1" value="15"
-                                inputmode="decimal" aria-label="画像を切り替える秒数">
-                            <span>秒</span>
-                        </label>
-                        <label class="sequenceSpeedControl" hidden>
-                            <span>折返し</span>
-                            <input id="sequencePeakInput" type="number" min="50" max="100" step="1" value="100"
-                                inputmode="numeric" aria-label="自動切替で折り返す割合">
-                            <span>%</span>
-                        </label>
-                        <button class="stageToggleButton recordingButton is-off" id="recordingButton" type="button"
-                            aria-pressed="false" disabled>録画</button>
-                    </div>
-                </div>
-            </section>
+        <main class="previewArea">
+            <div class="stage" aria-label="動画モーフィングプレビュー">
+                <canvas id="morphCanvas" width="1080" height="1920"></canvas>
+                <div class="stageBadge" id="stageBadge"></div>
+            </div>
         </main>
-
-        <aside class="sidePanel" aria-label="インポート素材">
-            <div class="layerList" id="layerList">
-                <div class="layers" id="layers"></div>
-                <div class="addLayerSlot">
-                    <label class="fileButton" aria-label="画像を追加">
-                        <img src="icon-plus.png" alt="">
-                        <input id="fileInput" type="file" accept="image/*" multiple>
-                    </label>
-                </div>
-            </div>
-            <div class="sideFooter">
-                <div class="cropControls" id="cropControls" hidden>
-                    <label class="cropControl">X<input id="cropXInput" type="number" min="0" step="1"></label>
-                    <label class="cropControl">Y<input id="cropYInput" type="number" min="0" step="1"></label>
-                    <label class="cropControl">W<input id="cropWidthInput" type="number" min="1" step="1"></label>
-                    <label class="cropControl">H<input id="cropHeightInput" type="number" min="1" step="1"></label>
-                    <button class="cropShowButton" id="cropShowButton" type="button">表示</button>
-                </div>
-                <div class="footerMain">
-                    <span class="status" id="status">0</span>
-                    <button class="textButton" id="clearButton" type="button" disabled>クリア</button>
-                </div>
-            </div>
+        <aside class="sidebar" aria-label="動画クリップ">
+            <div class="clipList" id="clipList"></div>
+            <footer class="sidebarFooter">
+                <label class="fileButton">＋ 動画を追加<input id="fileInput" type="file" accept="video/*" multiple></label>
+                <div class="footerRow"><span class="status" id="status">0クリップ</span><button class="smallButton"
+                        id="clearButton" type="button" disabled>すべて削除</button></div>
+            </footer>
         </aside>
+        <section class="timelinePanel" aria-label="シーケンス">
+            <div class="transport">
+                <button class="playButton" id="playButton" type="button" disabled>▶ 再生</button>
+                <button id="rewindButton" type="button" disabled>先頭へ</button>
+                <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
+                <div class="transportSpacer"></div>
+                <label class="toggleLabel"><input id="monoInput" type="checkbox">モノクロ</label>
+                <label class="zoomLabel">表示幅<input id="zoomInput" type="range" min="60" max="220" step="10"
+                        value="110"></label>
+                <button id="exportButton" type="button" disabled>WebM書出し</button>
+            </div>
+            <div class="timelineScroller" id="timelineScroller">
+                <div class="timeline" id="timeline">
+                    <div class="playhead" id="playhead"></div>
+                </div>
+            </div>
+        </section>
     </div>
     <script type="module">
         import Delaunator from "https://cdn.jsdelivr.net/npm/delaunator@5/+esm";
-        import { ArrayBufferTarget, Muxer } from "https://cdn.jsdelivr.net/npm/webm-muxer@5.1.4/+esm";
 
-        const DEFAULT_OUTPUT_FPS = 60;
-        const MORPH_WIDTH = 600;
-        const MORPH_HEIGHT = 800;
-        const MORPH_RATIO = MORPH_WIDTH / MORPH_HEIGHT;
-        const TRIANGLE_OVERDRAW_PX = 0.75;
+        const OUTPUT_WIDTH = 1080;
+        const OUTPUT_HEIGHT = 1920;
+        const WIDTH = 540;
+        const HEIGHT = 960;
+        const DEFAULT_TRANSITION = 1;
+        const DETECTION_INTERVAL = 90;
+        const COLORS = ["#5278d8", "#d85d76", "#8b63d7", "#d98245", "#397f91", "#647c45"];
         const MEDIAPIPE_VERSION = "1.1.0";
-        const MEDIAPIPE_TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
-        const FACE_MODEL_URL =
-            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
-        const MEDIAPIPE_WASM_URL = `${MEDIAPIPE_TASKS_URL}/wasm`;
-        const REMOVE_ICON_SRC = "icon-clause.png";
-        const DISPLAY_PARAMS = new URLSearchParams(window.location.search);
-        const DISPLAY_SOURCE_ID = DISPLAY_PARAMS.get("sourceId");
-        const DISPLAY_CANVAS_ID = DISPLAY_PARAMS.get("canvasId")?.trim() || null;
-        const IS_EMBEDDED = DISPLAY_PARAMS.get("embedded") === "1";
-        const requestedOutputFps = DISPLAY_PARAMS.has("outputFps")
-            ? Number(DISPLAY_PARAMS.get("outputFps"))
-            : Number.NaN;
-        const OUTPUT_FPS = Number.isFinite(requestedOutputFps)
-            ? Math.min(60, Math.max(1, requestedOutputFps))
-            : DEFAULT_OUTPUT_FPS;
-        const OUTPUT_FRAME_INTERVAL = 1000 / OUTPUT_FPS;
-        const CROP_POPUP_WINDOW_NAME = DISPLAY_SOURCE_ID
-            ? `canvas-popup-${DISPLAY_SOURCE_ID}`
-            : "canvas-popup";
-        const fileInput = document.getElementById("fileInput");
-        const clearButton = document.getElementById("clearButton");
-        const status = document.getElementById("status");
-        const stage = document.getElementById("stage");
-        const morphCanvas = document.getElementById("morphCanvas");
-        const embeddedOutputCanvas = document.getElementById("embeddedOutputCanvas");
-        const cropSelection = document.getElementById("cropSelection");
-        const cropToggleButton = document.getElementById("cropToggleButton");
-        const cropControls = document.getElementById("cropControls");
-        const cropXInput = document.getElementById("cropXInput");
-        const cropYInput = document.getElementById("cropYInput");
-        const cropWidthInput = document.getElementById("cropWidthInput");
-        const cropHeightInput = document.getElementById("cropHeightInput");
-        const cropShowButton = document.getElementById("cropShowButton");
-        const monoToggleButton = document.getElementById("monoToggleButton");
-        const faceAlignmentButton = document.getElementById("faceAlignmentButton");
-        const recordingButton = document.getElementById("recordingButton");
-        const sequenceToggleButton = document.getElementById("sequenceToggleButton");
-        const sequenceSpeedInput = document.getElementById("sequenceSpeedInput");
-        const sequencePeakInput = document.getElementById("sequencePeakInput");
-        const sequenceSettings = document.querySelectorAll(".sequenceSpeedControl");
-        const layerList = document.getElementById("layerList");
-        const layersContainer = document.getElementById("layers");
+        const TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
+        const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 
-        let layers = [];
+        const canvas = document.getElementById("morphCanvas");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const stageBadge = document.getElementById("stageBadge");
+        const fileInput = document.getElementById("fileInput");
+        const clipList = document.getElementById("clipList");
+        const status = document.getElementById("status");
+        const clearButton = document.getElementById("clearButton");
+        const playButton = document.getElementById("playButton");
+        const rewindButton = document.getElementById("rewindButton");
+        const timecode = document.getElementById("timecode");
+        const timeline = document.getElementById("timeline");
+        const timelineScroller = document.getElementById("timelineScroller");
+        const playhead = document.getElementById("playhead");
+        const monoInput = document.getElementById("monoInput");
+        const zoomInput = document.getElementById("zoomInput");
+        const exportButton = document.getElementById("exportButton");
+
+        let clips = [];
+        let schedule = [];
+        let totalDuration = 0;
+        let currentTime = 0;
+        let playing = false;
+        let frameId = 0;
+        let previousFrameAt = 0;
         let draggedId = null;
         let faceLandmarkerPromise = null;
-        let monochromeEnabled = true;
-        let faceAlignmentEnabled = true;
-        let runtimeActive = true;
-        let sequenceEnabled = false;
-        let sequenceFrameId = null;
-        let sequenceStartedAt = 0;
-        let sequenceFromIndex = 0;
-        let sequenceProgress = 0;
-        let sequenceDuration = Number(sequenceSpeedInput.value) * 1000;
-        let sequencePeak = Number(sequencePeakInput.value) / 100;
-        const recordingCanvas = document.createElement("canvas");
-        let recordingActive = false;
-        let recordingStopping = false;
-        let recordingEncoder = null;
-        let recordingMuxer = null;
-        let recordingTarget = null;
-        let recordingTimerId = null;
-        let recordingRenderer = null;
-        let recordingLayerData = new Map();
-        let recordingFrameCount = 0;
-        let recordingStartedAt = 0;
-        let recordingSequenceStartIndex = 0;
-        let recordingSequenceStartProgress = 0;
-        let cropEnabled = false;
-        let cropDrag = null;
-        let activeCropRect = null;
-        let activeCropRatio = null;
-        let cropPopup = null;
-        let cropPopupCanvas = null;
-        let cropPopupFrameId = null;
-        let cropPopupCanvasId = DISPLAY_CANVAS_ID || "canvas";
-        const outputFpsStats = {
-            sampleStartedAt: performance.now(),
-            frameCount: 0,
-            measuredFps: 0,
-            lastFrameAt: 0,
-        };
-        let devicePixelRatioQuery = null;
-        let devicePixelRatioListener = null;
+        let exporting = false;
+        let recorder = null;
+        let recordedChunks = [];
 
-        const createId = () => {
-            if (crypto.randomUUID) return crypto.randomUUID();
-            return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        };
-
-        function resetOutputFpsStats() {
-            outputFpsStats.sampleStartedAt = performance.now();
-            outputFpsStats.frameCount = 0;
-            outputFpsStats.measuredFps = 0;
-            outputFpsStats.lastFrameAt = 0;
+        const makeId = () => crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+        const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+        const pxPerSecond = () => Number(zoomInput.value);
+        function formatTime(seconds) {
+            const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+            const minutes = Math.floor(safe / 60);
+            const rest = safe - minutes * 60;
+            return `${String(minutes).padStart(2, "0")}:${rest.toFixed(2).padStart(5, "0")}`;
         }
-
-        function recordOutputFrame(timestamp) {
-            outputFpsStats.frameCount += 1;
-            outputFpsStats.lastFrameAt = timestamp;
-            const sampleDuration = timestamp - outputFpsStats.sampleStartedAt;
-            if (sampleDuration < 1000) return;
-
-            outputFpsStats.measuredFps =
-                (outputFpsStats.frameCount * 1000) / sampleDuration;
-            outputFpsStats.frameCount = 0;
-            outputFpsStats.sampleStartedAt = timestamp;
-        }
-
-        function loadImage(src) {
+        function loadVideo(file) {
             return new Promise((resolve, reject) => {
-                const image = new Image();
-                image.onload = () => resolve(image);
-                image.onerror = reject;
-                image.src = src;
+                const url = URL.createObjectURL(file);
+                const video = document.createElement("video");
+                video.src = url;
+                video.preload = "auto";
+                video.muted = true;
+                video.playsInline = true;
+                video.addEventListener("loadedmetadata", () => {
+                    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+                        URL.revokeObjectURL(url);
+                        reject(new Error("動画の長さを取得できません"));
+                        return;
+                    }
+                    resolve({
+                        id: makeId(), name: file.name, url, video, duration: video.duration,
+                        transition: DEFAULT_TRANSITION, sourceCanvas: document.createElement("canvas"),
+                        points: null, lastDetectionAt: -Infinity,
+                    });
+                }, { once: true });
+                video.addEventListener("error", () => { URL.revokeObjectURL(url); reject(new Error("動画を読み込めません")); }, { once: true });
             });
         }
-
-        function readFileAsDataUrl(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
+        async function addFiles(fileList) {
+            const files = [...fileList].filter((file) => file.type.startsWith("video/"));
+            if (!files.length) return;
+            const results = await Promise.allSettled(files.map(loadVideo));
+            const added = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+            if (added.length !== files.length) alert("読み込めない動画がありました。ブラウザで再生できるMP4、WebMなどを使用してください。");
+            clips.push(...added);
+            normalizeTransitions();
+            currentTime = 0;
+            renderAll();
+            seekVideos(0, true);
+            void getFaceLandmarker();
+        }
+        function maxTransition(index) {
+            if (index <= 0 || !clips[index - 1] || !clips[index]) return 0;
+            return Math.max(.1, Math.min(clips[index - 1].duration, clips[index].duration) / 2);
+        }
+        function normalizeTransitions() {
+            clips.forEach((clip, index) => {
+                clip.transition = index === 0 ? 0 : clamp(clip.transition || DEFAULT_TRANSITION, .1, maxTransition(index));
+            });
+            buildSchedule();
+        }
+        function calculateSchedule(clipList) {
+            const result = [];
+            clipList.forEach((clip, index) => {
+                const start = index === 0 ? 0 : result[index - 1].end - clip.transition;
+                result.push({ clip, start, end: start + clip.duration });
+            });
+            return result;
+        }
+        function buildSchedule() {
+            schedule = calculateSchedule(clips);
+            totalDuration = schedule.at(-1)?.end || 0;
+            currentTime = clamp(currentTime, 0, totalDuration);
+        }
+        function getActiveState(time) {
+            const active = schedule.filter((item) => time >= item.start && time <= item.end + .001);
+            if (!active.length) return { items: [], progress: 0 };
+            if (active.length === 1) return { items: active, progress: 0 };
+            const from = active[0];
+            const to = active[1];
+            const duration = Math.max(.001, from.end - to.start);
+            return { items: [from, to], progress: clamp((time - to.start) / duration, 0, 1) };
+        }
+        function seekVideos(time, force = false) {
+            const activeIds = new Set(getActiveState(time).items.map((item) => item.clip.id));
+            schedule.forEach((item) => {
+                const localTime = clamp(time - item.start, 0, Math.max(0, item.clip.duration - .001));
+                const video = item.clip.video;
+                if (activeIds.has(item.clip.id)) {
+                    if (force || Math.abs(video.currentTime - localTime) > .18) video.currentTime = localTime;
+                    if (playing && video.paused) video.play().catch(() => { });
+                } else if (!video.paused) video.pause();
             });
         }
-
+        function pauseVideos() { clips.forEach((clip) => clip.video.pause()); }
         async function getFaceLandmarker() {
             if (!faceLandmarkerPromise) {
-                faceLandmarkerPromise = import(MEDIAPIPE_TASKS_URL)
-                    .then(({ FaceLandmarker, FilesetResolver }) =>
-                        FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL).then((vision) =>
-                            FaceLandmarker.createFromOptions(vision, {
-                                baseOptions: {
-                                    modelAssetPath: FACE_MODEL_URL,
-                                },
-                                runningMode: "IMAGE",
-                                numFaces: 1,
-                            }),
-                        ),
-                    )
-                    .catch((error) => {
-                        faceLandmarkerPromise = null;
-                        throw error;
+                faceLandmarkerPromise = import(TASKS_URL).then(async ({ FaceLandmarker, FilesetResolver }) => {
+                    const vision = await FilesetResolver.forVisionTasks(`${TASKS_URL}/wasm`);
+                    return FaceLandmarker.createFromOptions(vision, {
+                        baseOptions: { modelAssetPath: MODEL_URL }, runningMode: "IMAGE", numFaces: 1,
                     });
+                }).catch((error) => {
+                    console.warn("顔検出を初期化できませんでした。クロスフェードで再生します。", error);
+                    faceLandmarkerPromise = null;
+                    return null;
+                });
             }
-
             return faceLandmarkerPromise;
         }
-
-        function getMediaSize(media) {
-            return {
-                width: media.naturalWidth || media.width || 1,
-                height: media.naturalHeight || media.height || 1,
-            };
+        function drawVideoToSource(clip) {
+            const source = clip.sourceCanvas;
+            if (source.width !== WIDTH) source.width = WIDTH;
+            if (source.height !== HEIGHT) source.height = HEIGHT;
+            const sourceCtx = source.getContext("2d", { alpha: false });
+            sourceCtx.fillStyle = "#000";
+            sourceCtx.fillRect(0, 0, WIDTH, HEIGHT);
+            if (clip.video.readyState < 2) return source;
+            const videoRatio = clip.video.videoWidth / clip.video.videoHeight;
+            const outputRatio = WIDTH / HEIGHT;
+            let sx = 0, sy = 0, sw = clip.video.videoWidth, sh = clip.video.videoHeight;
+            if (videoRatio > outputRatio) { sw = sh * outputRatio; sx = (clip.video.videoWidth - sw) / 2; }
+            else { sh = sw / outputRatio; sy = (clip.video.videoHeight - sh) / 2; }
+            sourceCtx.drawImage(clip.video, sx, sy, sw, sh, 0, 0, WIDTH, HEIGHT);
+            return source;
         }
-
-        async function makeMorphDataFromImage(image) {
+        async function detectPoints(clip, now) {
+            if (now - clip.lastDetectionAt < DETECTION_INTERVAL) return clip.points;
+            clip.lastDetectionAt = now;
+            const detector = await getFaceLandmarker();
+            if (!detector) return null;
             try {
-                const faceLandmarker = await getFaceLandmarker();
-                return makeMorphData(faceLandmarker, image);
-            } catch (error) {
-                console.warn("Morph data preparation failed.", error);
-                return null;
-            }
+                const landmarks = detector.detect(clip.sourceCanvas).faceLandmarks?.[0];
+                if (!landmarks) return clip.points;
+                clip.points = landmarks.map((point) => [point.x * WIDTH, point.y * HEIGHT]);
+                clip.points.push([0, 0], [WIDTH - 1, 0], [WIDTH - 1, HEIGHT - 1], [0, HEIGHT - 1]);
+            } catch (error) { console.warn("顔検出をスキップしました", error); }
+            return clip.points;
         }
-
-        function detectFaceLandmarksFromSource(faceLandmarker, source, width, height) {
-            const result = faceLandmarker.detect(source);
-            const landmarks = result.faceLandmarks?.[0];
-            if (!landmarks) return null;
-
-            return landmarks.map((point) => ({
-                x: point.x * width,
-                y: point.y * height,
-            }));
-        }
-
-        function getCenteredCropRect(srcWidth, srcHeight, targetRatio) {
-            const srcRatio = srcWidth / srcHeight;
-
-            if (srcRatio > targetRatio) {
-                const cropHeight = srcHeight;
-                const cropWidth = cropHeight * targetRatio;
-                return {
-                    sx: (srcWidth - cropWidth) / 2,
-                    sy: 0,
-                    sw: cropWidth,
-                    sh: cropHeight,
-                };
-            }
-
-            const cropWidth = srcWidth;
-            const cropHeight = cropWidth / targetRatio;
-            return {
-                sx: 0,
-                sy: (srcHeight - cropHeight) / 2,
-                sw: cropWidth,
-                sh: cropHeight,
-            };
-        }
-
-        function createMorphSourceCanvas(image) {
-            const canvas = document.createElement("canvas");
-            const ctx = prepareCanvas(canvas, MORPH_WIDTH, MORPH_HEIGHT);
-
-            const { sx, sy, sw, sh } = getCenteredCropRect(
-                image.naturalWidth,
-                image.naturalHeight,
-                MORPH_RATIO,
-            );
-            ctx.drawImage(image, sx, sy, sw, sh, 0, 0, MORPH_WIDTH, MORPH_HEIGHT);
-            return canvas;
-        }
-
-        function makeMorphData(faceLandmarker, image) {
-            const canvas = createMorphSourceCanvas(image);
-            const landmarks = detectFaceLandmarksFromSource(
-                faceLandmarker,
-                canvas,
-                MORPH_WIDTH,
-                MORPH_HEIGHT,
-            );
-            if (!landmarks) return null;
-
-            const points = landmarks.map((point) => [point.x, point.y]);
-            points.push([0, 0]);
-            points.push([MORPH_WIDTH - 1, 0]);
-            points.push([MORPH_WIDTH - 1, MORPH_HEIGHT - 1]);
-            points.push([0, MORPH_HEIGHT - 1]);
-
-            return {
-                canvas,
-                points,
-            };
-        }
-
-        async function makeLayer(file) {
-            const src = await readFileAsDataUrl(file);
-            const image = await loadImage(src);
-            const size = getMediaSize(image);
-
-            return {
-                id: createId(),
-                name: file.name,
-                src,
-                image,
-                width: size.width,
-                height: size.height,
-                morph: null,
-                morphWeight: 100,
-            };
-        }
-
-        async function prepareLayerMorph(layer) {
-            const morph = await makeMorphDataFromImage(layer.image);
-            layers = layers.map((current) =>
-                current.id === layer.id ? { ...current, morph } : current,
-            );
-            render();
-        }
-
-        async function addFiles(fileList) {
-            const mediaFiles = Array.from(fileList).filter((file) =>
-                file.type.startsWith("image/"),
-            );
-            const selectedFiles = mediaFiles;
-
-            if (selectedFiles.length === 0) {
-                render();
-                return;
-            }
-
-            const results = await Promise.allSettled(selectedFiles.map(makeLayer));
-            const nextLayers = results
-                .filter((result) => result.status === "fulfilled")
-                .map((result) => result.value);
-            if (nextLayers.length !== selectedFiles.length) {
-                alert("読み込めない画像がありました。PNG、JPEG、WebPなどを使用してください。");
-            }
-            layers = [...nextLayers, ...layers];
-            render();
-            nextLayers.forEach(prepareLayerMorph);
-        }
-
-        function setMorphWeight(id, value) {
-            stopMorphSequence();
-            layers = layers.map((layer) => {
-                if (layer.id !== id) return layer;
-                return { ...layer, morphWeight: Number(value) };
-            });
-            renderStage();
-            renderLayerOutputs();
-        }
-
-        function resetMorphSequence() {
-            sequenceStartedAt = 0;
-            sequenceFromIndex = 0;
-            sequenceProgress = 0;
-        }
-
-        function stopMorphSequence() {
-            sequenceEnabled = false;
-            if (sequenceFrameId) cancelAnimationFrame(sequenceFrameId);
-            sequenceFrameId = null;
-            resetMorphSequence();
-            renderStatus();
-        }
-
-        function setSequenceWeights(progress) {
-            const morphLayers = getMorphLayers();
-            if (morphLayers.length < 2) return;
-            const count = morphLayers.length;
-            const fromLayer = morphLayers[sequenceFromIndex % count];
-            const toLayer = morphLayers[(sequenceFromIndex + 1) % count];
-            const previousLayer = morphLayers[(sequenceFromIndex - 1 + count) % count];
-            const remainder = 1 - sequencePeak;
-            const startWeights = new Map([
-                [fromLayer.id, sequencePeak],
-                [previousLayer.id, remainder],
-            ]);
-            const endWeights = new Map([
-                [toLayer.id, sequencePeak],
-                [fromLayer.id, remainder],
-            ]);
-
-            layers = layers.map((layer) => ({
-                ...layer,
-                morphWeight: (
-                    (startWeights.get(layer.id) || 0) * (1 - progress)
-                    + (endWeights.get(layer.id) || 0) * progress
-                ) * 100,
-            }));
-            renderStage();
-            if (!isRecording()) renderLayerOutputs();
-        }
-
-        function tickMorphSequence(timestamp) {
-            const morphLayers = getMorphLayers();
-            if (!runtimeActive || !sequenceEnabled || morphLayers.length < 2) {
-                sequenceFrameId = null;
-                return;
-            }
-            if (!sequenceStartedAt) sequenceStartedAt = timestamp;
-
-            sequenceProgress = Math.min(
-                1,
-                (timestamp - sequenceStartedAt) / sequenceDuration,
-            );
-            setSequenceWeights(sequenceProgress);
-
-            if (sequenceProgress >= 1) {
-                sequenceFromIndex = (sequenceFromIndex + 1) % morphLayers.length;
-                sequenceStartedAt = timestamp;
-                sequenceProgress = 0;
-            }
-            sequenceFrameId = requestAnimationFrame(tickMorphSequence);
-        }
-
-        function ensureMorphSequenceLoop() {
-            if (sequenceFrameId || !sequenceEnabled || getMorphLayers().length < 2) {
-                return;
-            }
-            sequenceFrameId = requestAnimationFrame(tickMorphSequence);
-        }
-
-        function startMorphSequence() {
-            if (getMorphLayers().length < 2) return;
-            sequenceEnabled = true;
-            resetMorphSequence();
-            setSequenceWeights(0);
-            renderStatus();
-            ensureMorphSequenceLoop();
-        }
-
-        function removeLayer(id) {
-            layers = layers.filter((layer) => layer.id !== id);
-            if (getMorphLayers().length === 0) stopRecording();
-            resetMorphSequence();
-            render();
-        }
-
-        function reorderByDrop(targetId) {
-            if (!draggedId || draggedId === targetId) return;
-
-            const draggedIndex = layers.findIndex((layer) => layer.id === draggedId);
-            const targetIndex = layers.findIndex((layer) => layer.id === targetId);
-            if (draggedIndex === -1 || targetIndex === -1) return;
-
-            const next = [...layers];
-            const [draggedLayer] = next.splice(draggedIndex, 1);
-            next.splice(targetIndex, 0, draggedLayer);
-            layers = next;
-            resetMorphSequence();
-            render();
-        }
-
-        function getMorphLayers() {
-            return layers.filter((layer) => layer.morph);
-        }
-
-        function getNormalizedMorphWeights(morphLayers = getMorphLayers()) {
-            const total = morphLayers.reduce(
-                (sum, layer) => sum + Math.max(0, layer.morphWeight),
-                0,
-            );
-            if (total === 0) return new Map(morphLayers.map((layer) => [layer.id, 0]));
-
-            return new Map(
-                morphLayers.map((layer) => [
-                    layer.id,
-                    Math.max(0, layer.morphWeight) / total,
-                ]),
-            );
-        }
-
-        function getExpandedTriangle(tri, expandPx = TRIANGLE_OVERDRAW_PX) {
-            const centroidX = (tri[0][0] + tri[1][0] + tri[2][0]) / 3;
-            const centroidY = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
-
-            return tri.map(([x, y]) => {
-                const dx = x - centroidX;
-                const dy = y - centroidY;
-                const length = Math.hypot(dx, dy);
-                if (length < 1e-6) return [x, y];
-
-                const scale = (length + expandPx) / length;
-                return [centroidX + dx * scale, centroidY + dy * scale];
+        function expandTriangle(triangle, amount = .7) {
+            const centerX = (triangle[0][0] + triangle[1][0] + triangle[2][0]) / 3;
+            const centerY = (triangle[0][1] + triangle[1][1] + triangle[2][1]) / 3;
+            return triangle.map(([x, y]) => {
+                const dx = x - centerX, dy = y - centerY, length = Math.hypot(dx, dy) || 1;
+                return [x + dx / length * amount, y + dy / length * amount];
             });
         }
-
-        function clipTriangle(ctx, tri, expandPx = TRIANGLE_OVERDRAW_PX) {
-            const expandedTri = getExpandedTriangle(tri, expandPx);
-            ctx.beginPath();
-            ctx.moveTo(expandedTri[0][0], expandedTri[0][1]);
-            ctx.lineTo(expandedTri[1][0], expandedTri[1][1]);
-            ctx.lineTo(expandedTri[2][0], expandedTri[2][1]);
-            ctx.closePath();
-            ctx.clip();
+        function drawTriangle(target, image, sourceTriangle, destinationTriangle) {
+            const [s0, s1, s2] = sourceTriangle;
+            const [d0, d1, d2] = destinationTriangle;
+            const denominator = s0[0] * (s1[1] - s2[1]) + s1[0] * (s2[1] - s0[1]) + s2[0] * (s0[1] - s1[1]);
+            if (Math.abs(denominator) < .0001) return;
+            const a = (d0[0] * (s1[1] - s2[1]) + d1[0] * (s2[1] - s0[1]) + d2[0] * (s0[1] - s1[1])) / denominator;
+            const b = (d0[1] * (s1[1] - s2[1]) + d1[1] * (s2[1] - s0[1]) + d2[1] * (s0[1] - s1[1])) / denominator;
+            const c = (d0[0] * (s2[0] - s1[0]) + d1[0] * (s0[0] - s2[0]) + d2[0] * (s1[0] - s0[0])) / denominator;
+            const d = (d0[1] * (s2[0] - s1[0]) + d1[1] * (s0[0] - s2[0]) + d2[1] * (s1[0] - s0[0])) / denominator;
+            const e = (d0[0] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[0] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[0] * (s0[0] * s1[1] - s1[0] * s0[1])) / denominator;
+            const f = (d0[1] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[1] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[1] * (s0[0] * s1[1] - s1[0] * s0[1])) / denominator;
+            const expanded = expandTriangle(destinationTriangle);
+            target.save();
+            target.beginPath();
+            target.moveTo(...expanded[0]); target.lineTo(...expanded[1]); target.lineTo(...expanded[2]);
+            target.closePath(); target.clip(); target.setTransform(a, b, c, d, e, f); target.drawImage(image, 0, 0); target.restore();
         }
-
-        function drawTriangleImage(ctx, image, srcTri, dstTri, expandPx) {
-            const [sx0, sy0] = srcTri[0];
-            const [sx1, sy1] = srcTri[1];
-            const [sx2, sy2] = srcTri[2];
-            const [dx0, dy0] = dstTri[0];
-            const [dx1, dy1] = dstTri[1];
-            const [dx2, dy2] = dstTri[2];
-            const denom = sx0 * (sy1 - sy2) + sx1 * (sy2 - sy0) + sx2 * (sy0 - sy1);
-            if (Math.abs(denom) < 1e-6) return;
-
-            const a = (dx0 * (sy1 - sy2) + dx1 * (sy2 - sy0) + dx2 * (sy0 - sy1)) / denom;
-            const b = (dy0 * (sy1 - sy2) + dy1 * (sy2 - sy0) + dy2 * (sy0 - sy1)) / denom;
-            const c = (dx0 * (sx2 - sx1) + dx1 * (sx0 - sx2) + dx2 * (sx1 - sx0)) / denom;
-            const d = (dy0 * (sx2 - sx1) + dy1 * (sx0 - sx2) + dy2 * (sx1 - sx0)) / denom;
-            const e =
-                (dx0 * (sx1 * sy2 - sx2 * sy1) +
-                    dx1 * (sx2 * sy0 - sx0 * sy2) +
-                    dx2 * (sx0 * sy1 - sx1 * sy0)) /
-                denom;
-            const f =
-                (dy0 * (sx1 * sy2 - sx2 * sy1) +
-                    dy1 * (sx2 * sy0 - sx0 * sy2) +
-                    dy2 * (sx0 * sy1 - sx1 * sy0)) /
-                denom;
-
-            ctx.save();
-            clipTriangle(ctx, dstTri, expandPx);
-            ctx.setTransform(a, b, c, d, e, f);
-            ctx.drawImage(image, 0, 0);
-            ctx.restore();
-        }
-
-        function getAlignedPoints(morphLayers) {
-            if (!faceAlignmentEnabled || morphLayers.length < 2) {
-                return new Map(morphLayers.map((layer) => [layer.id, layer.morph.points]));
+        function renderWarp(source, sourcePoints, destinationPoints, triangles) {
+            const output = document.createElement("canvas");
+            output.width = WIDTH; output.height = HEIGHT;
+            const outputCtx = output.getContext("2d");
+            for (let index = 0; index < triangles.length; index += 3) {
+                const ids = [triangles[index], triangles[index + 1], triangles[index + 2]];
+                drawTriangle(outputCtx, source, ids.map((id) => sourcePoints[id]), ids.map((id) => destinationPoints[id]));
             }
-
-            const faces = morphLayers.map((layer) => {
-                const points = layer.morph.points.slice(0, -4);
-                const xs = points.map(([x]) => x);
-                const ys = points.map(([, y]) => y);
-                const left = Math.min(...xs);
-                const right = Math.max(...xs);
-                const top = Math.min(...ys);
-                const bottom = Math.max(...ys);
-                return {
-                    layer,
-                    centerX: (left + right) / 2,
-                    centerY: (top + bottom) / 2,
-                    size: Math.hypot(right - left, bottom - top),
-                };
-            });
-            const target = faces.reduce(
-                (sum, face) => ({
-                    centerX: sum.centerX + face.centerX / faces.length,
-                    centerY: sum.centerY + face.centerY / faces.length,
-                    size: sum.size + face.size / faces.length,
-                }),
-                { centerX: 0, centerY: 0, size: 0 },
-            );
-
-            return new Map(faces.map((face) => {
-                const scale = target.size / face.size;
-                const alignedFacePoints = face.layer.morph.points.slice(0, -4).map(([x, y]) => [
-                    target.centerX + (x - face.centerX) * scale,
-                    target.centerY + (y - face.centerY) * scale,
+            return output;
+        }
+        async function renderFrame(now = performance.now()) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+            const state = getActiveState(currentTime);
+            if (!state.items.length) return;
+            const sources = state.items.map((item) => drawVideoToSource(item.clip));
+            if (state.items.length === 1) {
+                ctx.drawImage(sources[0], 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT); stageBadge.textContent = state.items[0].clip.name; return;
+            }
+            const [from, to] = state.items;
+            stageBadge.textContent = `${from.clip.name} → ${to.clip.name} · モーフ ${Math.round(state.progress * 100)}%`;
+            const [fromPoints, toPoints] = await Promise.all([detectPoints(from.clip, now), detectPoints(to.clip, now)]);
+            if (fromPoints && toPoints && fromPoints.length === toPoints.length) {
+                const blended = fromPoints.map((point, index) => [
+                    point[0] + (toPoints[index][0] - point[0]) * state.progress,
+                    point[1] + (toPoints[index][1] - point[1]) * state.progress,
                 ]);
-                return [
-                    face.layer.id,
-                    [...alignedFacePoints, ...face.layer.morph.points.slice(-4)],
-                ];
-            }));
-        }
-
-        function blendPoints(weightedLayers) {
-            const pointCount = weightedLayers[0].points.length;
-            const points = [];
-
-            for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
-                const point = weightedLayers.reduce(
-                    (sum, item) => {
-                        const sourcePoint = item.points[pointIndex];
-                        return [
-                            sum[0] + sourcePoint[0] * item.weight,
-                            sum[1] + sourcePoint[1] * item.weight,
-                        ];
-                    },
-                    [0, 0],
-                );
-                points.push(point);
-            }
-
-            return points;
-        }
-
-        function prepareCanvas(targetCanvas, width, height) {
-            if (targetCanvas.width !== width || targetCanvas.height !== height) {
-                targetCanvas.width = width;
-                targetCanvas.height = height;
-            }
-            const ctx = targetCanvas.getContext("2d");
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.globalAlpha = 1;
-            ctx.filter = "none";
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "high";
-            ctx.clearRect(0, 0, width, height);
-            return ctx;
-        }
-
-        function clamp(value, min, max) {
-            return Math.max(min, Math.min(max, value));
-        }
-
-        function syncToggleButton(button, enabled) {
-            button.classList.toggle("is-off", !enabled);
-            button.setAttribute("aria-pressed", String(enabled));
-        }
-
-        function isRecording() {
-            return recordingActive;
-        }
-
-        function getRecordingSize(morphLayers) {
-            const source = morphLayers.reduce((largest, layer) =>
-                layer.width * layer.height > largest.width * largest.height
-                    ? layer
-                    : largest,
-            );
-            return { width: source.width, height: source.height };
-        }
-
-        function createRecordingLayerData(layer, destinationPoints, width, height, gl) {
-            const outputCrop = getCenteredCropRect(layer.width, layer.height, width / height);
-            const analysisCrop = getCenteredCropRect(layer.width, layer.height, MORPH_RATIO);
-            const sourcePoints = [];
-            const points = destinationPoints.slice(0, -4).map(([x, y], index) => {
-                const [sourcePointX, sourcePointY] = layer.morph.points[index];
-                const sourceX = analysisCrop.sx + sourcePointX * analysisCrop.sw / MORPH_WIDTH;
-                const sourceY = analysisCrop.sy + sourcePointY * analysisCrop.sh / MORPH_HEIGHT;
-                sourcePoints.push(sourceX / layer.width, sourceY / layer.height);
-                const destinationX = analysisCrop.sx + x * analysisCrop.sw / MORPH_WIDTH;
-                const destinationY = analysisCrop.sy + y * analysisCrop.sh / MORPH_HEIGHT;
-                return [
-                    (destinationX - outputCrop.sx) * width / outputCrop.sw,
-                    (destinationY - outputCrop.sy) * height / outputCrop.sh,
-                ];
-            });
-            points.push([0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]);
-            sourcePoints.push(
-                outputCrop.sx / layer.width,
-                outputCrop.sy / layer.height,
-                (outputCrop.sx + outputCrop.sw) / layer.width,
-                outputCrop.sy / layer.height,
-                (outputCrop.sx + outputCrop.sw) / layer.width,
-                (outputCrop.sy + outputCrop.sh) / layer.height,
-                outputCrop.sx / layer.width,
-                (outputCrop.sy + outputCrop.sh) / layer.height,
-            );
-
-            const texture = gl.createTexture();
-            gl.bindTexture(gl.TEXTURE_2D, texture);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-            gl.texImage2D(
-                gl.TEXTURE_2D,
-                0,
-                gl.RGBA,
-                gl.RGBA,
-                gl.UNSIGNED_BYTE,
-                layer.image,
-            );
-
-            return { points, sourcePoints: new Float32Array(sourcePoints), texture };
-        }
-
-        function createRecordingRenderer() {
-            const gl = recordingCanvas.getContext("webgl", {
-                alpha: false,
-                antialias: true,
-                preserveDrawingBuffer: true,
-            });
-            if (!gl) throw new Error("WebGL is unavailable.");
-
-            const compileShader = (type, source) => {
-                const shader = gl.createShader(type);
-                gl.shaderSource(shader, source);
-                gl.compileShader(shader);
-                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-                    throw new Error(gl.getShaderInfoLog(shader));
-                }
-                return shader;
-            };
-            const program = gl.createProgram();
-            gl.attachShader(program, compileShader(gl.VERTEX_SHADER, `
-                attribute vec2 aPosition;
-                attribute vec2 aTexCoord;
-                uniform vec2 uResolution;
-                varying vec2 vTexCoord;
-                void main() {
-                    vec2 clip = aPosition / uResolution * 2.0 - 1.0;
-                    gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-                    vTexCoord = aTexCoord;
-                }
-            `));
-            gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, `
-                precision highp float;
-                uniform sampler2D uTexture;
-                uniform float uWeight;
-                uniform float uMonochrome;
-                varying vec2 vTexCoord;
-                void main() {
-                    vec4 color = texture2D(uTexture, vTexCoord);
-                    float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-                    color.rgb = mix(color.rgb, vec3(gray), uMonochrome);
-                    gl_FragColor = vec4(color.rgb * color.a * uWeight, color.a * uWeight);
-                }
-            `));
-            gl.linkProgram(program);
-            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-                throw new Error(gl.getProgramInfoLog(program));
-            }
-
-            return {
-                gl,
-                program,
-                positionBuffer: gl.createBuffer(),
-                texCoordBuffer: gl.createBuffer(),
-                indexBuffer: gl.createBuffer(),
-                positionLocation: gl.getAttribLocation(program, "aPosition"),
-                texCoordLocation: gl.getAttribLocation(program, "aTexCoord"),
-                resolutionLocation: gl.getUniformLocation(program, "uResolution"),
-                textureLocation: gl.getUniformLocation(program, "uTexture"),
-                weightLocation: gl.getUniformLocation(program, "uWeight"),
-                monochromeLocation: gl.getUniformLocation(program, "uMonochrome"),
-            };
-        }
-
-        function renderRecordingFrame() {
-            const renderer = recordingRenderer;
-            if (!renderer) return;
-            const { gl } = renderer;
-            const morphLayers = getMorphLayers();
-            const normalizedWeights = getNormalizedMorphWeights(morphLayers);
-            const activeLayers = morphLayers
-                .map((layer) => ({
-                    data: recordingLayerData.get(layer.id),
-                    weight: normalizedWeights.get(layer.id) || 0,
-                }))
-                .filter((item) => item.data && item.weight > 0);
-            if (activeLayers.length === 0) return;
-
-            const pointCount = activeLayers[0].data.points.length;
-            const blendedPoints = Array.from({ length: pointCount }, (_, pointIndex) =>
-                activeLayers.reduce((sum, item) => [
-                    sum[0] + item.data.points[pointIndex][0] * item.weight,
-                    sum[1] + item.data.points[pointIndex][1] * item.weight,
-                ], [0, 0]),
-            );
-            const positions = new Float32Array(blendedPoints.flat());
-            const triangles = new Uint16Array(Delaunator.from(blendedPoints).triangles);
-
-            gl.viewport(0, 0, recordingCanvas.width, recordingCanvas.height);
-            gl.clearColor(0, 0, 0, 1);
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.useProgram(renderer.program);
-            gl.enable(gl.BLEND);
-            gl.blendFunc(gl.ONE, gl.ONE);
-            gl.uniform2f(
-                renderer.resolutionLocation,
-                recordingCanvas.width,
-                recordingCanvas.height,
-            );
-            gl.uniform1i(renderer.textureLocation, 0);
-            gl.uniform1f(renderer.monochromeLocation, monochromeEnabled ? 1 : 0);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, renderer.positionBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
-            gl.enableVertexAttribArray(renderer.positionLocation);
-            gl.vertexAttribPointer(renderer.positionLocation, 2, gl.FLOAT, false, 0, 0);
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, renderer.indexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, triangles, gl.DYNAMIC_DRAW);
-
-            activeLayers.forEach((item) => {
-                gl.bindBuffer(gl.ARRAY_BUFFER, renderer.texCoordBuffer);
-                gl.bufferData(gl.ARRAY_BUFFER, item.data.sourcePoints, gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(renderer.texCoordLocation);
-                gl.vertexAttribPointer(renderer.texCoordLocation, 2, gl.FLOAT, false, 0, 0);
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, item.data.texture);
-                gl.uniform1f(renderer.weightLocation, item.weight);
-                gl.drawElements(gl.TRIANGLES, triangles.length, gl.UNSIGNED_SHORT, 0);
-            });
-            gl.flush();
-        }
-
-        function encodeRecordingFrame(frameIndex) {
-            if (sequenceEnabled) {
-                const morphLayerCount = getMorphLayers().length;
-                const totalProgress = recordingSequenceStartProgress
-                    + frameIndex * 1000 / OUTPUT_FPS / sequenceDuration;
-                sequenceFromIndex = (
-                    recordingSequenceStartIndex + Math.floor(totalProgress)
-                ) % morphLayerCount;
-                sequenceProgress = totalProgress % 1;
-                setSequenceWeights(sequenceProgress);
-            }
-
-            renderRecordingFrame();
-            const timestamp = Math.round(frameIndex * 1_000_000 / OUTPUT_FPS);
-            const frame = new VideoFrame(recordingCanvas, {
-                timestamp,
-                duration: Math.round(1_000_000 / OUTPUT_FPS),
-            });
-            recordingEncoder.encode(frame, { keyFrame: frameIndex % 120 === 0 });
-            frame.close();
-            recordingFrameCount += 1;
-        }
-
-        function encodeRecordingFramesThrough(targetFrameCount) {
-            while (recordingFrameCount < targetFrameCount) {
-                encodeRecordingFrame(recordingFrameCount);
-            }
-            renderLayerOutputs();
-        }
-
-        function drawRecordingFrames() {
-            if (!isRecording()) return;
-            const elapsed = performance.now() - recordingStartedAt;
-            encodeRecordingFramesThrough(Math.max(1, Math.floor(elapsed * OUTPUT_FPS / 1000) + 1));
-            recordingTimerId = setTimeout(drawRecordingFrames, 1000 / OUTPUT_FPS);
-        }
-
-        function saveRecording(blob) {
-            if (blob.size === 0) return;
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `morphing-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-        }
-
-        async function startRecording() {
-            if (getMorphLayers().length === 0 || isRecording() || recordingStopping) return;
-            if (!window.VideoEncoder || !window.VideoFrame) {
-                alert("このブラウザは録画に対応していません。");
-                return;
-            }
-
-            const morphLayers = getMorphLayers();
-            const recordingSize = getRecordingSize(morphLayers);
-            const alignedPoints = getAlignedPoints(morphLayers);
-            const encoderConfig = {
-                codec: "vp8",
-                width: recordingSize.width,
-                height: recordingSize.height,
-                bitrate: 30_000_000,
-                framerate: OUTPUT_FPS,
-                latencyMode: "realtime",
-            };
-            const encoderSupport = await VideoEncoder.isConfigSupported(encoderConfig);
-            if (!encoderSupport.supported) {
-                alert("このブラウザでは1080×1920のWebM録画を利用できません。");
-                return;
-            }
-
-            recordingCanvas.width = recordingSize.width;
-            recordingCanvas.height = recordingSize.height;
-            recordingRenderer ||= createRecordingRenderer();
-            recordingLayerData = new Map(
-                morphLayers.map((layer) => [
-                    layer.id,
-                    createRecordingLayerData(
-                        layer,
-                        alignedPoints.get(layer.id),
-                        recordingSize.width,
-                        recordingSize.height,
-                        recordingRenderer.gl,
-                    ),
-                ]),
-            );
-            recordingTarget = new ArrayBufferTarget();
-            recordingMuxer = new Muxer({
-                target: recordingTarget,
-                video: {
-                    codec: "V_VP8",
-                    width: recordingSize.width,
-                    height: recordingSize.height,
-                    frameRate: OUTPUT_FPS,
-                },
-            });
-            recordingEncoder = new VideoEncoder({
-                output: (chunk, metadata) => recordingMuxer.addVideoChunk(chunk, metadata),
-                error: (error) => console.error("Recording encoder failed.", error),
-            });
-            recordingEncoder.configure(encoderConfig);
-            recordingCanvas.className = "morphCanvas";
-            morphCanvas.hidden = true;
-            morphCanvas.after(recordingCanvas);
-            if (sequenceFrameId) cancelAnimationFrame(sequenceFrameId);
-            sequenceFrameId = null;
-            recordingSequenceStartIndex = sequenceFromIndex;
-            recordingSequenceStartProgress = sequenceProgress;
-            recordingActive = true;
-            recordingFrameCount = 0;
-            recordingStartedAt = performance.now();
-            drawRecordingFrames();
-            renderStatus();
-        }
-
-        async function stopRecording() {
-            if (!isRecording() || recordingStopping) return;
-            recordingStopping = true;
-            renderStatus();
-            if (recordingTimerId) clearTimeout(recordingTimerId);
-            recordingTimerId = null;
-            const elapsed = performance.now() - recordingStartedAt;
-            encodeRecordingFramesThrough(Math.max(1, Math.ceil(elapsed * OUTPUT_FPS / 1000)));
-            await recordingEncoder.flush();
-            recordingEncoder.close();
-            recordingMuxer.finalize();
-            saveRecording(new Blob([recordingTarget.buffer], { type: "video/webm" }));
-            recordingActive = false;
-            recordingStopping = false;
-            recordingEncoder = null;
-            recordingMuxer = null;
-            recordingTarget = null;
-            recordingLayerData.forEach((data) =>
-                recordingRenderer.gl.deleteTexture(data.texture),
-            );
-            recordingLayerData.clear();
-            recordingCanvas.remove();
-            morphCanvas.hidden = false;
-            renderStage();
-            ensureMorphSequenceLoop();
-            renderStatus();
-        }
-
-        function getStagePoint(event) {
-            const bounds = stage.getBoundingClientRect();
-            return {
-                x: clamp(event.clientX - bounds.left, 0, bounds.width),
-                y: clamp(event.clientY - bounds.top, 0, bounds.height),
-            };
-        }
-
-        function getCropRect(start, end) {
-            const left = Math.min(start.x, end.x);
-            const top = Math.min(start.y, end.y);
-            return {
-                left,
-                top,
-                width: Math.abs(end.x - start.x),
-                height: Math.abs(end.y - start.y),
-            };
-        }
-
-        function normalizeCropRect(rect) {
-            const { width: stageWidth, height: stageHeight } = getRoundedStageSize();
-            const left = clamp(Math.round(rect.left), 0, stageWidth - 1);
-            const top = clamp(Math.round(rect.top), 0, stageHeight - 1);
-            const width = clamp(Math.round(rect.width), 1, stageWidth - left);
-            const height = clamp(Math.round(rect.height), 1, stageHeight - top);
-            return { left, top, width, height };
-        }
-
-        function getStageSize() {
-            const bounds = stage.getBoundingClientRect();
-            return {
-                width: Math.max(1, bounds.width || stage.clientWidth || 1),
-                height: Math.max(1, bounds.height || stage.clientHeight || 1),
-            };
-        }
-
-        function getRoundedStageSize() {
-            const size = getStageSize();
-            return {
-                width: Math.max(1, Math.round(size.width)),
-                height: Math.max(1, Math.round(size.height)),
-            };
-        }
-
-        function ensureCanvasSize(canvas, width, height) {
-            if (canvas.width !== width) canvas.width = width;
-            if (canvas.height !== height) canvas.height = height;
-        }
-
-        function rectToCropRatio(rect) {
-            const size = getStageSize();
-            return {
-                left: rect.left / size.width,
-                top: rect.top / size.height,
-                width: rect.width / size.width,
-                height: rect.height / size.height,
-            };
-        }
-
-        function ratioToCropRect(ratio) {
-            const size = getStageSize();
-            return normalizeCropRect({
-                left: ratio.left * size.width,
-                top: ratio.top * size.height,
-                width: ratio.width * size.width,
-                height: ratio.height * size.height,
-            });
-        }
-
-        function refreshCropRectFromRatio() {
-            if (!activeCropRatio) return;
-            activeCropRect = ratioToCropRect(activeCropRatio);
-            syncCropInputs(activeCropRect);
-            if (cropEnabled) {
-                updateCropSelection(activeCropRect);
-            }
-            if (cropPopup && !cropPopup.closed) {
-                ensureCropPopupLoop();
-            }
-        }
-
-        function isPointInCropRect(point, rect) {
-            return (
-                point.x >= rect.left &&
-                point.x <= rect.left + rect.width &&
-                point.y >= rect.top &&
-                point.y <= rect.top + rect.height
-            );
-        }
-
-        function updateCropSelection(rect) {
-            cropSelection.hidden = false;
-            cropSelection.style.left = `${rect.left}px`;
-            cropSelection.style.top = `${rect.top}px`;
-            cropSelection.style.width = `${rect.width}px`;
-            cropSelection.style.height = `${rect.height}px`;
-        }
-
-        function hideCropSelection() {
-            cropSelection.hidden = true;
-        }
-
-        function syncCropInputs(rect) {
-            cropXInput.value = String(Math.round(rect.left));
-            cropYInput.value = String(Math.round(rect.top));
-            cropWidthInput.value = String(Math.round(rect.width));
-            cropHeightInput.value = String(Math.round(rect.height));
-        }
-
-        function updateCropInputLimits() {
-            const { width: stageWidth, height: stageHeight } = getRoundedStageSize();
-            cropXInput.max = String(stageWidth - 1);
-            cropYInput.max = String(stageHeight - 1);
-            cropWidthInput.max = String(stageWidth);
-            cropHeightInput.max = String(stageHeight);
-        }
-
-        function setActiveCropRect(rect, options = {}) {
-            activeCropRect = normalizeCropRect(rect);
-            if (options.updateRatio !== false) {
-                activeCropRatio = rectToCropRatio(activeCropRect);
-            }
-            if (options.syncInputs !== false) {
-                syncCropInputs(activeCropRect);
-            }
-            if (cropEnabled || options.showSelection) {
-                updateCropSelection(activeCropRect);
-            }
-            if (cropPopup && !cropPopup.closed) {
-                ensureCropPopupLoop();
-            }
-        }
-
-        function getRectFromCropInputs() {
-            const fallback = activeCropRect || getDefaultCropRect();
-            const readNumber = (input, fallbackValue) => {
-                const value = Number(input.value);
-                return Number.isFinite(value) ? value : fallbackValue;
-            };
-            return normalizeCropRect({
-                left: readNumber(cropXInput, fallback.left),
-                top: readNumber(cropYInput, fallback.top),
-                width: readNumber(cropWidthInput, fallback.width),
-                height: readNumber(cropHeightInput, fallback.height),
-            });
-        }
-
-        function getDefaultCropRect() {
-            const { width: stageWidth, height: stageHeight } = getRoundedStageSize();
-            const width = Math.min(270, stageWidth);
-            const height = Math.min(480, stageHeight);
-            return {
-                left: Math.round((stageWidth - width) / 2),
-                top: Math.round((stageHeight - height) / 2),
-                width,
-                height,
-            };
-        }
-
-        function getObjectFitContainRect(
-            containerWidth,
-            containerHeight,
-            contentWidth,
-            contentHeight,
-        ) {
-            const scale = Math.min(
-                containerWidth / contentWidth,
-                containerHeight / contentHeight,
-            );
-            const width = contentWidth * scale;
-            const height = contentHeight * scale;
-            return {
-                left: (containerWidth - width) / 2,
-                top: (containerHeight - height) / 2,
-                width,
-                height,
-            };
-        }
-
-        function drawStageCrop(targetCanvas, rect) {
-            const width = Math.max(1, Math.round(rect.width));
-            const height = Math.max(1, Math.round(rect.height));
-            ensureCanvasSize(targetCanvas, width, height);
-
-            const ctx = targetCanvas.getContext("2d");
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "medium";
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.globalAlpha = 1;
-            ctx.filter = "none";
-            ctx.clearRect(0, 0, width, height);
-            ctx.fillStyle = "#fff";
-            ctx.fillRect(0, 0, width, height);
-
-            const stageSize = getRoundedStageSize();
-            const fit = getObjectFitContainRect(
-                stageSize.width,
-                stageSize.height,
-                MORPH_WIDTH,
-                MORPH_HEIGHT,
-            );
-            ctx.filter = monochromeEnabled ? "grayscale(1)" : "none";
-            ctx.drawImage(
-                morphCanvas,
-                fit.left - rect.left,
-                fit.top - rect.top,
-                fit.width,
-                fit.height,
-            );
-            ctx.filter = "none";
-
-            return { width, height };
-        }
-
-        function drawCropPopupFrame() {
-            const frameStartTime = performance.now();
-            if (
-                !runtimeActive ||
-                !cropPopup ||
-                cropPopup.closed ||
-                !cropPopupCanvas ||
-                !activeCropRect
-            ) {
-                cropPopupFrameId = null;
-                return;
-            }
-
-            const { width, height } = drawStageCrop(cropPopupCanvas, activeCropRect);
-            const frameCompletedAt = performance.now();
-            recordOutputFrame(frameCompletedAt);
-            if (cropPopup !== window) {
-                cropPopup.document.title = `トリミング範囲 ${width}x${height}`;
-            }
-            const elapsed = frameCompletedAt - frameStartTime;
-            cropPopupFrameId = window.setTimeout(
-                drawCropPopupFrame,
-                Math.max(0, OUTPUT_FRAME_INTERVAL - elapsed),
-            );
-        }
-
-        function getOutputStats() {
-            const now = performance.now();
-            return {
-                fps:
-                    outputFpsStats.lastFrameAt && now - outputFpsStats.lastFrameAt < 2000
-                        ? outputFpsStats.measuredFps
-                        : 0,
-                targetFps: OUTPUT_FPS,
-                width: cropPopupCanvas?.width || 0,
-                height: cropPopupCanvas?.height || 0,
-                active: runtimeActive,
-            };
-        }
-
-        function exposeOutputApi(targetWindow) {
-            targetWindow.getOverlapOutputStats = getOutputStats;
-            targetWindow.setOverlapRuntimeActive = setRuntimeActive;
-        }
-
-        function stopRuntimeLoops() {
-            if (sequenceFrameId) cancelAnimationFrame(sequenceFrameId);
-            if (cropPopupFrameId) clearTimeout(cropPopupFrameId);
-            sequenceFrameId = null;
-            cropPopupFrameId = null;
-            sequenceStartedAt = 0;
-            resetOutputFpsStats();
-        }
-
-        function setRuntimeActive(active) {
-            const nextActive = Boolean(active);
-            if (runtimeActive === nextActive) return;
-            runtimeActive = nextActive;
-
-            if (!runtimeActive) {
-                stopRuntimeLoops();
-                return;
-            }
-
-            resetOutputFpsStats();
-            renderStage();
-            ensureMorphSequenceLoop();
-            if (cropPopup && !cropPopup.closed && cropPopupCanvas && activeCropRect) {
-                ensureCropPopupLoop();
-            }
-        }
-
-        exposeOutputApi(window);
-
-        function ensureCropPopupLoop() {
-            if (cropPopupFrameId) return;
-            cropPopupFrameId = window.setTimeout(drawCropPopupFrame, 0);
-        }
-
-        function getCropPopupHtml(width, height) {
-            return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>トリミング範囲</title>
-    <style>
-        html, body {
-            margin: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background: #fff;
-        }
-        canvas {
-            display: block;
-            width: 100vw;
-            height: 100vh;
-            object-fit: contain;
-        }
-    </style>
-</head>
-<body>
-    <canvas id="cropCanvas" width="${width}" height="${height}"></canvas>`;
-        }
-
-        function requestCropPopupIdentifiers() {
-            let normalizedCanvasId = DISPLAY_CANVAS_ID;
-            while (!normalizedCanvasId) {
-                const canvasId = window.prompt(
-                    "ポップアップ内のCanvas IDを入力してください。",
-                    cropPopupCanvasId,
-                );
-                if (canvasId === null) return null;
-
-                normalizedCanvasId = canvasId.trim();
-                if (!normalizedCanvasId) {
-                    alert("Canvas IDを入力してください。");
-                }
-            }
-
-            cropPopupCanvasId = normalizedCanvasId;
-            return {
-                windowName: CROP_POPUP_WINDOW_NAME,
-                canvasId: cropPopupCanvasId,
-            };
-        }
-
-        function showCropPopup(rect = activeCropRect || getDefaultCropRect()) {
-            const identifiers = requestCropPopupIdentifiers();
-            if (!identifiers) return;
-
-            setActiveCropRect(rect, { showSelection: true });
-            if (IS_EMBEDDED) {
-                cropPopup = window;
-                cropPopupCanvas = embeddedOutputCanvas;
-                cropPopupCanvas.id = identifiers.canvasId;
-                registerCropPopupWithManager(window, identifiers);
-                ensureCropPopupLoop();
-                return;
-            }
-
-            const width = Math.max(1, Math.round(activeCropRect.width));
-            const height = Math.max(1, Math.round(activeCropRect.height));
-            const previousPopup = cropPopup;
-            const popup = window.open(
-                "",
-                identifiers.windowName,
-                `popup,width=${Math.min(1200, Math.max(120, width))},height=${Math.min(1000, Math.max(120, height))}`,
-            );
-            if (!popup) {
-                alert(
-                    "ポップアップがブロックされました。ブラウザの設定でこのページのポップアップを許可してください。",
-                );
-                return;
-            }
-
-            cropPopup = popup;
-            popup.document.open();
-            popup.document.write(getCropPopupHtml(width, height));
-            popup.document.close();
-            cropPopupCanvas = popup.document.getElementById("cropCanvas");
-            cropPopupCanvas.id = identifiers.canvasId;
-            exposeOutputApi(popup);
-            if (previousPopup && previousPopup !== popup && !previousPopup.closed) {
-                previousPopup.close();
-            }
-
-            const managerWindow = registerCropPopupWithManager(popup, identifiers);
-            popup.addEventListener("beforeunload", () => {
-                if (cropPopup === popup) {
-                    try {
-                        managerWindow?.unregisterCanvasSource(DISPLAY_SOURCE_ID, popup);
-                    } catch (error) {
-                        console.warn("Display Managerの登録解除に失敗しました", error);
-                    }
-
-                    cropPopup = null;
-                    cropPopupCanvas = null;
-                }
-            });
-            ensureCropPopupLoop();
-            popup.focus();
-        }
-
-        function registerCropPopupWithManager(popup, identifiers) {
-            if (!DISPLAY_SOURCE_ID) return null;
-
-            const openerIsManager =
-                window.opener &&
-                !window.opener.closed &&
-                typeof window.opener.registerCanvasSource === "function";
-            const managerWindow = openerIsManager
-                ? window.opener
-                : window.parent !== window
-                    ? window.parent
-                    : null;
-
-            try {
-                if (
-                    !managerWindow ||
-                    managerWindow.closed ||
-                    typeof managerWindow.registerCanvasSource !== "function"
-                ) {
-                    console.warn("Display Managerからoverlapを開いてください");
-                    return null;
-                }
-
-                managerWindow.registerCanvasSource(
-                    DISPLAY_SOURCE_ID,
-                    popup,
-                    identifiers.canvasId,
-                );
-                return managerWindow;
-            } catch (error) {
-                console.warn("Display ManagerへのCanvas登録に失敗しました", error);
-                return null;
-            }
-        }
-
-        function initializeEmbeddedOutput() {
-            if (!IS_EMBEDDED || !DISPLAY_SOURCE_ID || !embeddedOutputCanvas) return;
-            showCropPopup(getDefaultCropRect());
-            window.addEventListener("beforeunload", () => {
-                try {
-                    window.parent?.unregisterCanvasSource(DISPLAY_SOURCE_ID, window);
-                } catch (error) {
-                    console.warn("Display Managerへの登録解除に失敗しました", error);
-                }
-            });
-        }
-
-        function setCropEnabled(enabled) {
-            cropEnabled = enabled;
-            cropDrag = null;
-            if (!cropEnabled) {
-                hideCropSelection();
-            } else if (cropEnabled) {
-                setActiveCropRect(activeCropRect || getDefaultCropRect(), {
-                    showSelection: true,
-                });
-            }
-            stage.classList.toggle("is-cropping", cropEnabled);
-            syncToggleButton(cropToggleButton, cropEnabled);
-            cropControls.hidden = !cropEnabled;
-        }
-
-        function handleViewportGeometryChange() {
-            renderStage();
-            updateCropInputLimits();
-            refreshCropRectFromRatio();
-        }
-
-        function clearDevicePixelRatioWatcher() {
-            if (!devicePixelRatioQuery || !devicePixelRatioListener) return;
-
-            if (devicePixelRatioQuery.removeEventListener) {
-                devicePixelRatioQuery.removeEventListener(
-                    "change",
-                    devicePixelRatioListener,
-                );
+                const triangles = Delaunator.from(blended).triangles;
+                ctx.drawImage(renderWarp(sources[0], fromPoints, blended, triangles), 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+                ctx.globalAlpha = state.progress;
+                ctx.drawImage(renderWarp(sources[1], toPoints, blended, triangles), 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
             } else {
-                devicePixelRatioQuery.removeListener(devicePixelRatioListener);
+                ctx.drawImage(sources[0], 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT); ctx.globalAlpha = state.progress; ctx.drawImage(sources[1], 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
             }
-
-            devicePixelRatioQuery = null;
-            devicePixelRatioListener = null;
-        }
-
-        function watchDevicePixelRatio() {
-            clearDevicePixelRatioWatcher();
-            const ratio = window.devicePixelRatio || 1;
-            devicePixelRatioQuery = window.matchMedia(`(resolution: ${ratio}dppx)`);
-            devicePixelRatioListener = () => {
-                handleViewportGeometryChange();
-                watchDevicePixelRatio();
-            };
-
-            if (devicePixelRatioQuery.addEventListener) {
-                devicePixelRatioQuery.addEventListener("change", devicePixelRatioListener, {
-                    once: true,
-                });
-            } else {
-                devicePixelRatioQuery.addListener(devicePixelRatioListener);
-            }
-        }
-
-        function resetCropDrag(event) {
-            const pointerId = cropDrag?.pointerId;
-            cropDrag = null;
-            stage.classList.remove("is-crop-moving");
-
-            if (event && pointerId !== undefined && stage.hasPointerCapture(pointerId)) {
-                stage.releasePointerCapture(pointerId);
-            }
-        }
-
-        function handleCropPointerDown(event) {
-            if (
-                !cropEnabled ||
-                event.button !== 0 ||
-                event.target.closest(".stageControls")
-            )
-                return;
-
-            event.preventDefault();
-            const point = getStagePoint(event);
-            const isMovingSelection =
-                activeCropRect && isPointInCropRect(point, activeCropRect);
-            cropDrag = {
-                mode: isMovingSelection ? "move" : "draw",
-                pointerId: event.pointerId,
-                start: point,
-                current: point,
-                rect: activeCropRect,
-                offset: activeCropRect
-                    ? {
-                        x: point.x - activeCropRect.left,
-                        y: point.y - activeCropRect.top,
-                    }
-                    : null,
-            };
-            stage.setPointerCapture(event.pointerId);
-
-            if (isMovingSelection) {
-                stage.classList.add("is-crop-moving");
-                updateCropSelection(activeCropRect);
-                return;
-            }
-
-            updateCropSelection(getCropRect(point, point));
-        }
-
-        function handleCropPointerMove(event) {
-            if (!cropDrag || event.pointerId !== cropDrag.pointerId) return;
-
-            cropDrag.current = getStagePoint(event);
-            if (cropDrag.mode === "move" && cropDrag.rect && cropDrag.offset) {
-                setActiveCropRect(
-                    {
-                        left: cropDrag.current.x - cropDrag.offset.x,
-                        top: cropDrag.current.y - cropDrag.offset.y,
-                        width: cropDrag.rect.width,
-                        height: cropDrag.rect.height,
-                    },
-                    { showSelection: true },
-                );
-                return;
-            }
-
-            updateCropSelection(getCropRect(cropDrag.start, cropDrag.current));
-        }
-
-        function handleCropPointerUp(event) {
-            if (!cropDrag || event.pointerId !== cropDrag.pointerId) return;
-
-            const dragMode = cropDrag.mode;
-            const rect =
-                dragMode === "move" && activeCropRect
-                    ? activeCropRect
-                    : getCropRect(cropDrag.start, getStagePoint(event));
-            resetCropDrag(event);
-
-            if (dragMode === "move") {
-                updateCropSelection(rect);
-                return;
-            }
-
-            hideCropSelection();
-            if (rect.width < 8 || rect.height < 8) return;
-
-            setActiveCropRect(rect, { showSelection: true });
-            showCropPopup(rect);
-        }
-
-        function handleCropPointerCancel(event) {
-            if (!cropDrag || event.pointerId !== cropDrag.pointerId) return;
-            resetCropDrag(event);
-            hideCropSelection();
-        }
-
-        function renderWarpedImage(
-            targetCanvas,
-            image,
-            sourcePoints,
-            destinationPoints,
-            triangles,
-            width = MORPH_WIDTH,
-            height = MORPH_HEIGHT,
-        ) {
-            const ctx = prepareCanvas(targetCanvas, width, height);
-            const expandPx = TRIANGLE_OVERDRAW_PX * Math.max(
-                width / MORPH_WIDTH,
-                height / MORPH_HEIGHT,
-            );
-
-            for (let i = 0; i < triangles.length; i += 3) {
-                const i0 = triangles[i];
-                const i1 = triangles[i + 1];
-                const i2 = triangles[i + 2];
-                drawTriangleImage(
-                    ctx,
-                    image,
-                    [sourcePoints[i0], sourcePoints[i1], sourcePoints[i2]],
-                    [destinationPoints[i0], destinationPoints[i1], destinationPoints[i2]],
-                    expandPx,
-                );
-            }
-        }
-
-        function renderMorphStage() {
-            const morphLayers = getMorphLayers();
-            const normalizedWeights = getNormalizedMorphWeights(morphLayers);
-            const alignedPoints = getAlignedPoints(morphLayers);
-            const activeMorphLayers = morphLayers
-                .map((layer) => ({
-                    layer,
-                    points: alignedPoints.get(layer.id),
-                    weight: normalizedWeights.get(layer.id) || 0,
-                }))
-                .filter((item) => item.weight > 0);
-            const ctx = prepareCanvas(morphCanvas, MORPH_WIDTH, MORPH_HEIGHT);
-
-            if (morphLayers.length === 0 || activeMorphLayers.length === 0) return;
-
-            const blendedPoints = blendPoints(activeMorphLayers);
-            const triangles = Delaunator.from(blendedPoints).triangles;
-            let cumulativeWeight = 0;
-
-            activeMorphLayers.forEach((item) => {
-                const warpCanvas = document.createElement("canvas");
-                renderWarpedImage(
-                    warpCanvas,
-                    item.layer.morph.canvas,
-                    item.layer.morph.points,
-                    blendedPoints,
-                    triangles,
-                );
-                cumulativeWeight += item.weight;
-                ctx.globalAlpha = item.weight / cumulativeWeight;
-                ctx.drawImage(warpCanvas, 0, 0);
-            });
-
             ctx.globalAlpha = 1;
         }
-
-        function renderStage() {
-            morphCanvas.classList.toggle("is-monochrome", monochromeEnabled);
-            if (isRecording()) return;
-            renderMorphStage();
+        function setPlaying(nextPlaying) {
+            playing = Boolean(nextPlaying && clips.length);
+            previousFrameAt = performance.now();
+            playButton.textContent = playing ? "❚❚ 停止" : "▶ 再生";
+            if (playing) {
+                if (currentTime >= totalDuration) currentTime = 0;
+                seekVideos(currentTime, true);
+                if (!frameId) frameId = requestAnimationFrame(tick);
+            } else pauseVideos();
         }
-
-        function renderLayerOutputs() {
-            const normalizedMorphWeights = getNormalizedMorphWeights();
-            layers.forEach((layer) => {
-                const morphOutput = document.querySelector(
-                    `[data-morph-output="${layer.id}"]`,
-                );
-                if (morphOutput) {
-                    morphOutput.value = `${Math.round((normalizedMorphWeights.get(layer.id) || 0) * 100)}%`;
-                    morphOutput.textContent = morphOutput.value;
-                }
-                const morphInput = document.querySelector(
-                    `[data-morph-input="${layer.id}"]`,
-                );
-                if (morphInput) morphInput.value = String(Math.round(layer.morphWeight));
-            });
+        async function tick(now) {
+            frameId = 0;
+            if (playing) {
+                currentTime += (now - previousFrameAt) / 1000;
+                previousFrameAt = now;
+                if (currentTime >= totalDuration) {
+                    currentTime = totalDuration; setPlaying(false); if (exporting) finishExport();
+                } else seekVideos(currentTime);
+            }
+            await renderFrame(now); updatePlayhead();
+            if (playing) frameId = requestAnimationFrame(tick);
         }
-
-        function isControlTarget(target) {
-            return Boolean(target.closest(".rangeControl, button, input, select"));
+        function setCurrentTime(time) {
+            currentTime = clamp(time, 0, totalDuration);
+            previousFrameAt = performance.now();
+            seekVideos(currentTime, true); updatePlayhead(); requestAnimationFrame(() => void renderFrame());
         }
-
-        function preventLayerDrag(event, item) {
-            event.stopPropagation();
-            item.draggable = false;
+        function updatePlayhead() {
+            playhead.style.left = `${currentTime * pxPerSecond()}px`;
+            timecode.textContent = `${formatTime(currentTime)} / ${formatTime(totalDuration)}`;
         }
-
-        function bindControlDragPrevention(control, item) {
-            ["pointerdown", "mousedown", "touchstart"].forEach((eventName) => {
-                control.addEventListener(eventName, (event) =>
-                    preventLayerDrag(event, item),
-                );
-            });
-        }
-
-        function bindLayerDrag(item, layer) {
-            item.addEventListener("pointerdown", (event) => {
-                item.draggable = !isControlTarget(event.target);
-            });
-            item.addEventListener("dragstart", (event) => {
-                if (isControlTarget(event.target)) {
-                    event.preventDefault();
-                    item.draggable = false;
-                    return;
-                }
-
-                draggedId = layer.id;
-                item.classList.add("dragging");
-            });
-            item.addEventListener("dragend", () => {
-                draggedId = null;
-                item.draggable = false;
-                item.classList.remove("dragging");
-            });
-            item.addEventListener("dragover", (event) => event.preventDefault());
-            item.addEventListener("drop", (event) => {
+        function createClipCard(clip, index) {
+            const card = document.createElement("article");
+            card.className = "clipCard"; card.draggable = true; card.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
+            card.innerHTML = `
+                <video class="clipThumb" src="${clip.url}" muted preload="metadata"></video>
+                <div class="clipBody">
+                    <div class="clipTitle"></div>
+                    <div class="clipMeta">${formatTime(clip.duration)} · クリップ ${index + 1}</div>
+                    ${index ? `<label class="transitionControl"><span>前とのモーフ</span><input data-transition-range type="range" min="0.1" max="${maxTransition(index)}" step="0.1" value="${clip.transition}"><input data-transition-number type="number" min="0.1" max="${maxTransition(index)}" step="0.1" value="${clip.transition.toFixed(1)}" aria-label="前の動画とのモーフ秒数"></label>` : ""}
+                </div>
+                <button class="removeButton" type="button" title="削除">×</button>`;
+            card.querySelector(".clipTitle").textContent = clip.name;
+            const setTransition = (value) => {
+                clip.transition = clamp(Number(value) || .1, .1, maxTransition(index));
+                buildSchedule(); renderClipList(); renderTimeline(); updateControls(); setCurrentTime(currentTime);
+            };
+            card.querySelector("[data-transition-range]")?.addEventListener("change", (event) => setTransition(event.target.value));
+            card.querySelector("[data-transition-number]")?.addEventListener("change", (event) => setTransition(event.target.value));
+            card.querySelector(".removeButton").addEventListener("click", () => removeClip(clip.id));
+            card.querySelectorAll("button,input").forEach((control) => control.addEventListener("pointerdown", (event) => event.stopPropagation()));
+            card.addEventListener("dragstart", () => { draggedId = clip.id; card.classList.add("dragging"); });
+            card.addEventListener("dragend", () => { draggedId = null; card.classList.remove("dragging"); });
+            card.addEventListener("dragover", (event) => event.preventDefault());
+            card.addEventListener("drop", (event) => {
                 event.preventDefault();
-                reorderByDrop(layer.id);
+                const from = clips.findIndex((item) => item.id === draggedId), to = clips.findIndex((item) => item.id === clip.id);
+                if (from < 0 || to < 0 || from === to) return;
+                clips.splice(to, 0, clips.splice(from, 1)[0]); normalizeTransitions(); setCurrentTime(0); renderAll();
             });
+            return card;
         }
-
-        function createIconImage(src) {
-            const image = document.createElement("img");
-            image.src = src;
-            image.alt = "";
-            image.draggable = false;
-            return image;
-        }
-
-        function createRemoveButton(layer) {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = "layerRemoveButton";
-            button.title = "削除";
-            button.setAttribute("aria-label", `${layer.name}を削除`);
-            button.appendChild(createIconImage(REMOVE_ICON_SRC));
-            button.addEventListener("dragstart", (event) => event.stopPropagation());
-            button.addEventListener("click", (event) => {
-                event.stopPropagation();
-                removeLayer(layer.id);
-            });
-            return button;
-        }
-
-        function createThumbnail(layer) {
-            const thumb = document.createElement("div");
-            thumb.className = "layerThumb";
-
-            const image = document.createElement("img");
-            image.src = layer.src;
-            image.alt = layer.name;
-            image.draggable = false;
-            thumb.appendChild(image);
-
-            return thumb;
-        }
-
-        function createLayerTitle(layer) {
-            const title = document.createElement("div");
-            title.className = "layerTitle";
-
-            const fileName = document.createElement("div");
-            fileName.className = "fileName";
-            fileName.textContent = layer.name;
-            fileName.title = layer.name;
-            title.appendChild(fileName);
-
-            return title;
-        }
-
-        function createRangeControl(layer, item, options) {
-            const control = document.createElement("label");
-            control.className = "rangeControl";
-            bindControlDragPrevention(control, item);
-
-            const slider = document.createElement("input");
-            slider.type = "range";
-            slider.min = "0";
-            slider.max = "100";
-            slider.value = String(options.value);
-            slider.draggable = false;
-            slider.disabled = Boolean(options.disabled);
-            slider.dataset[options.inputDatasetKey] = layer.id;
-            slider.setAttribute("aria-label", `${layer.name}の${options.label}`);
-            slider.addEventListener("dragstart", (event) => event.stopPropagation());
-            slider.addEventListener("input", (event) =>
-                options.onInput(layer.id, event.target.value),
-            );
-
-            const output = document.createElement("output");
-            output.dataset[options.outputDatasetKey] = layer.id;
-            output.value = options.outputValue;
-            output.textContent = output.value;
-
-            control.append(slider, output);
-            return control;
-        }
-
-        function createMorphWeightControl(layer, item) {
-            return createRangeControl(layer, item, {
-                label: "モーフィング割合",
-                value: Math.round(layer.morphWeight),
-                disabled: !layer.morph,
-                inputDatasetKey: "morphInput",
-                outputDatasetKey: "morphOutput",
-                outputValue: "0%",
-                onInput: setMorphWeight,
-            });
-        }
-
-        function createLayerItem(layer) {
-            const item = document.createElement("article");
-            item.className = "layer";
-            item.draggable = false;
-            item.dataset.layerId = layer.id;
-            bindLayerDrag(item, layer);
-
-            const body = document.createElement("div");
-            body.className = "layerBody";
-
-            body.append(createLayerTitle(layer));
-            body.append(createMorphWeightControl(layer, item));
-            item.append(createRemoveButton(layer), createThumbnail(layer), body);
-            return item;
-        }
-
-        function renderLayerList() {
-            layersContainer.replaceChildren();
-            layerList.classList.toggle("has-layers", layers.length > 0);
-            layers.forEach((layer) =>
-                layersContainer.appendChild(createLayerItem(layer)),
-            );
-        }
-
-        function renderStatus() {
-            updateCropInputLimits();
-            status.textContent = String(layers.length);
-            clearButton.disabled = layers.length === 0;
-            syncToggleButton(monoToggleButton, monochromeEnabled);
-            faceAlignmentButton.disabled = getMorphLayers().length < 2 || isRecording();
-            syncToggleButton(faceAlignmentButton, faceAlignmentEnabled);
-            recordingButton.disabled = getMorphLayers().length === 0 || recordingStopping;
-            recordingButton.textContent = isRecording() ? "録画停止" : "録画";
-            syncToggleButton(recordingButton, isRecording());
-            sequenceToggleButton.disabled = getMorphLayers().length < 2;
-            syncToggleButton(sequenceToggleButton, sequenceEnabled);
-            sequenceSettings.forEach((control) => {
-                control.hidden = !sequenceEnabled;
-            });
-        }
-
-        function render() {
-            renderStage();
-            renderLayerList();
-            renderLayerOutputs();
-            renderStatus();
-            ensureMorphSequenceLoop();
-        }
-
-        fileInput.addEventListener("change", async (event) => {
-            await addFiles(event.target.files);
-            fileInput.value = "";
-        });
-
-        clearButton.addEventListener("click", () => {
-            stopMorphSequence();
-            stopRecording();
-            layers = [];
-            render();
-        });
-
-        monoToggleButton.addEventListener("click", () => {
-            monochromeEnabled = !monochromeEnabled;
-            render();
-        });
-
-        faceAlignmentButton.addEventListener("click", () => {
-            faceAlignmentEnabled = !faceAlignmentEnabled;
-            render();
-        });
-
-        recordingButton.addEventListener("click", () => {
-            if (isRecording()) {
-                stopRecording();
-            } else {
-                startRecording();
+        function renderClipList() { clipList.replaceChildren(...clips.map(createClipCard)); }
+        function renderTimeline() {
+            const scale = pxPerSecond();
+            const width = Math.max(timelineScroller.clientWidth, totalDuration * scale + 80);
+            timeline.style.width = `${width}px`; timeline.style.setProperty("--second-width", `${scale}px`);
+            timeline.querySelectorAll(":scope > :not(.playhead)").forEach((element) => element.remove());
+            const marks = Math.ceil(width / scale);
+            for (let second = 0; second <= marks; second += 1) {
+                const mark = document.createElement("span");
+                mark.className = "rulerMark"; mark.style.left = `${second * scale}px`; mark.textContent = `${second}s`; timeline.appendChild(mark);
             }
-        });
-
-        sequenceToggleButton.addEventListener("click", () => {
-            if (sequenceEnabled) {
-                stopMorphSequence();
-            } else {
-                startMorphSequence();
-            }
-        });
-
-        sequenceSpeedInput.addEventListener("input", () => {
-            const seconds = Number(sequenceSpeedInput.value);
-            if (!Number.isFinite(seconds) || seconds < 0.1) return;
-            sequenceDuration = seconds * 1000;
-            if (sequenceStartedAt) {
-                sequenceStartedAt = performance.now() - sequenceProgress * sequenceDuration;
-            }
-        });
-
-        sequenceSpeedInput.addEventListener("change", () => {
-            sequenceSpeedInput.value = String(sequenceDuration / 1000);
-        });
-
-        sequencePeakInput.addEventListener("input", () => {
-            const percent = Number(sequencePeakInput.value);
-            if (!Number.isFinite(percent) || percent < 50 || percent > 100) return;
-            sequencePeak = percent / 100;
-            if (sequenceEnabled) setSequenceWeights(sequenceProgress);
-        });
-
-        sequencePeakInput.addEventListener("change", () => {
-            sequencePeakInput.value = String(sequencePeak * 100);
-        });
-
-        cropToggleButton.addEventListener("click", () => {
-            setCropEnabled(!cropEnabled);
-        });
-
-        stage.addEventListener("pointerdown", handleCropPointerDown);
-        stage.addEventListener("pointermove", handleCropPointerMove);
-        stage.addEventListener("pointerup", handleCropPointerUp);
-        stage.addEventListener("pointercancel", handleCropPointerCancel);
-
-        [cropXInput, cropYInput, cropWidthInput, cropHeightInput].forEach((input) => {
-            input.addEventListener("input", () => {
-                setActiveCropRect(getRectFromCropInputs(), {
-                    syncInputs: false,
-                    showSelection: true,
-                });
+            schedule.forEach((item, index) => {
+                const block = document.createElement("div");
+                block.className = "timelineClip"; block.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
+                block.style.left = `${item.start * scale}px`; block.style.top = `${30 + index % 2 * 58}px`; block.style.width = `${Math.max(34, item.clip.duration * scale)}px`;
+                block.innerHTML = `<span></span><small>${formatTime(item.clip.duration)}</small>`; block.querySelector("span").textContent = item.clip.name;
+                block.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start); }); timeline.appendChild(block);
+                if (index > 0) {
+                    const morph = document.createElement("div");
+                    morph.className = "morphRegion"; morph.style.left = `${item.start * scale}px`; morph.style.width = `${Math.max(18, item.clip.transition * scale)}px`;
+                    morph.innerHTML = `<span>モーフ ${item.clip.transition.toFixed(1)}秒</span>`; morph.title = `${schedule[index - 1].clip.name} → ${item.clip.name}`;
+                    morph.addEventListener("click", (event) => { event.stopPropagation(); setCurrentTime(item.start + item.clip.transition / 2); }); timeline.appendChild(morph);
+                }
             });
-            input.addEventListener("change", () => {
-                setActiveCropRect(getRectFromCropInputs(), { showSelection: true });
-            });
+            timeline.appendChild(playhead); updatePlayhead();
+        }
+        function updateControls() {
+            const hasClips = clips.length > 0;
+            playButton.disabled = !hasClips; rewindButton.disabled = !hasClips;
+            exportButton.disabled = !hasClips || !window.MediaRecorder || exporting; clearButton.disabled = !hasClips;
+            status.textContent = `${clips.length}クリップ · 全体 ${formatTime(totalDuration)}`;
+            if (!hasClips) stageBadge.textContent = "";
+            updatePlayhead();
+        }
+        function renderAll() { renderClipList(); renderTimeline(); updateControls(); void renderFrame(); }
+        function removeClip(id) {
+            const index = clips.findIndex((clip) => clip.id === id); if (index < 0) return;
+            const [removed] = clips.splice(index, 1); removed.video.pause(); URL.revokeObjectURL(removed.url);
+            normalizeTransitions(); setPlaying(false); currentTime = 0; renderAll(); seekVideos(0, true);
+        }
+        function clearClips() {
+            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url)); clips = []; schedule = []; totalDuration = 0; currentTime = 0;
+            ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT); renderAll();
+        }
+        function startExport() {
+            if (exporting || !clips.length || !window.MediaRecorder) return;
+            const stream = canvas.captureStream(30);
+            const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
+            recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 }); recordedChunks = [];
+            recorder.addEventListener("dataavailable", (event) => { if (event.data.size) recordedChunks.push(event.data); });
+            recorder.addEventListener("stop", () => {
+                const blob = new Blob(recordedChunks, { type: recorder.mimeType }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
+                anchor.href = url; anchor.download = `morph-sequence-${new Date().toISOString().replaceAll(":", "-")}.webm`; anchor.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000); exporting = false; exportButton.textContent = "WebM書出し"; updateControls();
+            }, { once: true });
+            exporting = true; exportButton.textContent = "書出し中…"; recorder.start(); setCurrentTime(0); setPlaying(true); updateControls();
+        }
+        function finishExport() { if (exporting && recorder && recorder.state !== "inactive") recorder.stop(); }
+
+        fileInput.addEventListener("change", async (event) => { await addFiles(event.target.files); event.target.value = ""; });
+        playButton.addEventListener("click", () => setPlaying(!playing));
+        rewindButton.addEventListener("click", () => setCurrentTime(0));
+        clearButton.addEventListener("click", clearClips);
+        monoInput.addEventListener("change", () => canvas.classList.toggle("monochrome", monoInput.checked));
+        zoomInput.addEventListener("input", renderTimeline);
+        exportButton.addEventListener("click", startExport);
+        timeline.addEventListener("pointerdown", (event) => {
+            if (event.target.closest(".timelineClip,.morphRegion")) return;
+            const rect = timeline.getBoundingClientRect(); setCurrentTime((event.clientX - rect.left) / pxPerSecond());
         });
-
-        cropShowButton.addEventListener("click", () => {
-            showCropPopup(getRectFromCropInputs());
-        });
-
-        const stageResizeObserver = new ResizeObserver(handleViewportGeometryChange);
-        stageResizeObserver.observe(stage);
-        window.addEventListener("resize", handleViewportGeometryChange);
-        window.visualViewport?.addEventListener("resize", handleViewportGeometryChange);
-        watchDevicePixelRatio();
-
-        render();
-        requestAnimationFrame(initializeEmbeddedOutput);
-
+        window.addEventListener("resize", renderTimeline);
+        window.addEventListener("beforeunload", () => clips.forEach((clip) => URL.revokeObjectURL(clip.url)));
+        const sequenceCheck = calculateSchedule([
+            { duration: 2, transition: 0 }, { duration: 2, transition: 1 }, { duration: 2, transition: 1 },
+        ]);
+        console.assert(
+            sequenceCheck[1].start === 1 && sequenceCheck[2].start === 2 && sequenceCheck[2].end === 4,
+            "2秒×3クリップ、1秒モーフのシーケンス計算が正しくありません",
+        );
+        renderAll();
     </script>
 </body>
 
