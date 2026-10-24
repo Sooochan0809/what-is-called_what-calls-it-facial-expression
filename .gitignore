@@ -154,3 +154,7 @@ vite.config.ts.timestamp-*
 analysis-webm/uploads/*.zip
 analysis-webm/uploads/*/
 analysis-webm/uploads/.processed-zips.json
+morphing-v2/upload/.extracted/
+morphing-v2/upload/.processed-zips.json
+morphing-v2/sampling/**/*.webm
+morphing-v2/sampling/**/.sample-*

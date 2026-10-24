@@ -595,7 +595,7 @@
                     <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
                             step="0.1" value="0.3" inputmode="decimal">倍</label>
                     <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1"
-                            value="15" inputmode="numeric">回</label>
+                            value="14" inputmode="numeric">回</label>
                     <label class="transportSetting">フェード<input id="fadeInput" type="number" min="0" step="0.1"
                             value="1" inputmode="decimal">秒</label>
                     <label class="toggleLabel">モノクロ<input id="monoInput" type="checkbox" checked></label>
@@ -682,6 +682,7 @@
         let exportJob = null;
         let previewGeneration = 0;
         let previewWindow = null;
+        let playbackCompletion = null;
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
         const smoothstep = (value) => value * value * (3 - 2 * value);
@@ -709,24 +710,27 @@
             result.width = OUTPUT_WIDTH; result.height = OUTPUT_HEIGHT;
             return result;
         }
-        function loadVideo(file) {
+        function loadVideo(source) {
             return new Promise((resolve, reject) => {
-                const url = URL.createObjectURL(file);
+                const ownedUrl = typeof source.url !== "string";
+                const url = ownedUrl ? URL.createObjectURL(source) : source.url;
                 const video = document.createElement("video");
                 video.src = url; video.preload = "auto"; video.muted = true; video.playsInline = true;
                 video.addEventListener("loadedmetadata", () => {
                     if (!Number.isFinite(video.duration) || video.duration <= 0) {
-                        URL.revokeObjectURL(url); reject(new Error("動画の長さを取得できません")); return;
+                        if (ownedUrl) URL.revokeObjectURL(url);
+                        reject(new Error("動画の長さを取得できません")); return;
                     }
                     resolve({
-                        id: crypto.randomUUID(), name: file.name, url, video, duration: video.duration,
+                        id: crypto.randomUUID(), name: source.name, url, ownedUrl, video, duration: video.duration,
                         rawCanvas: createCanvas(), sourceCanvas: createCanvas(),
                         analysis: { status: "pending", progress: 0, samples: [], gaps: [], error: "" },
                         representative: null, auto: { scale: 1, rotation: 0, x: 0, y: 0 },
                     });
                 }, { once: true });
                 video.addEventListener("error", () => {
-                    URL.revokeObjectURL(url); reject(new Error("動画を読み込めません"));
+                    if (ownedUrl) URL.revokeObjectURL(url);
+                    reject(new Error("動画を読み込めません"));
                 }, { once: true });
             });
         }
@@ -866,7 +870,7 @@
             renderClipList(); updateControls(); setCurrentTime(currentTime);
         }
         async function addFiles(fileList) {
-            const files = [...fileList].filter((file) => file.type.startsWith("video/"));
+            const files = [...fileList].filter((file) => file.type?.startsWith("video/") || typeof file.url === "string");
             if (!files.length) return;
             const results = await Promise.allSettled(files.map(loadVideo));
             const added = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
@@ -1139,6 +1143,7 @@
                     completedLoops += Math.floor(currentTime / totalDuration());
                     if (loopCount() && completedLoops >= loopCount()) {
                         completedLoops = loopCount() - 1; currentTime = totalDuration(); setPlaying(false);
+                        playbackCompletion?.(); playbackCompletion = null;
                     } else currentTime %= totalDuration();
                 }
                 seekVideos(currentTime);
@@ -1258,12 +1263,13 @@
         function removeClip(id) {
             if (editingLocked()) return;
             const index = clips.findIndex((clip) => clip.id === id); if (index < 0) return;
-            const [removed] = clips.splice(index, 1); removed.video.pause(); URL.revokeObjectURL(removed.url);
+            const [removed] = clips.splice(index, 1); removed.video.pause();
+            if (removed.ownedUrl) URL.revokeObjectURL(removed.url);
             buildSchedule(); autoAlignClips(); setPlaying(false); currentTime = 0; renderAll();
         }
         function clearClips() {
             if (editingLocked()) return;
-            setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url));
+            setPlaying(false); clips.filter((clip) => clip.ownedUrl).forEach((clip) => URL.revokeObjectURL(clip.url));
             clips = []; schedule = []; sharedEyeTarget = null; currentTime = 0; completedLoops = 0;
             Object.values(manualInputs).forEach((input) => { input.value = input.defaultValue; });
             clearOutput(); renderAll();
@@ -1354,9 +1360,26 @@
         });
         window.addEventListener("resize", renderTimeline);
         window.addEventListener("beforeunload", () => {
-            clips.forEach((clip) => URL.revokeObjectURL(clip.url));
+            clips.filter((clip) => clip.ownedUrl).forEach((clip) => URL.revokeObjectURL(clip.url));
             if (previewWindow && !previewWindow.closed) previewWindow.close();
         });
+
+        window.runAutomaticMorphing = async (files) => {
+            if (editingLocked()) throw new Error("モーフィング画面が処理中です");
+            clearClips();
+            await addFiles(files);
+            if (!clips.length) throw new Error("再生できるクリップがありません");
+            setCurrentTime(0);
+            return new Promise((resolve, reject) => {
+                playbackCompletion = resolve;
+                setPlaying(true);
+                if (!playing) {
+                    playbackCompletion = null;
+                    reject(new Error(operationStatus.textContent || "自動再生を開始できません"));
+                }
+            });
+        };
+        window.clearAutomaticMorphing = clearClips;
 
         const sixClips = Array.from({ length: 6 }, () => ({ duration: 2 }));
         const scheduleCheck = calculateSchedule(sixClips, 1, .5);

@@ -199,6 +199,13 @@
             const resultUrls = [];
             let modelsReady = false;
             let busy = false;
+            let resolveModelsReady;
+            let rejectModelsReady;
+            const modelsReadyPromise = new Promise((resolve, reject) => {
+                resolveModelsReady = resolve;
+                rejectModelsReady = reject;
+            });
+            void modelsReadyPromise.catch(() => { });
 
             const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
             const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
@@ -458,8 +465,25 @@
                     showResults(emotion, rankings, mode);
                     const unit = mode === "image" ? "枚" : "本";
                     status.textContent = `${files.length}本の動画から、各動画の ${emotion} 上位を合計 ${totalPicks}${unit}抽出しました。`;
+                    return { rankings, mode, emotion };
                 } finally {
                     progress.hidden = true;
+                }
+            }
+
+            async function runAnalysis(files) {
+                clearResults();
+                setBusy(true);
+                try {
+                    const limit = clamp(Math.trunc(Number(limitInput.value)) || 1, 1, 100);
+                    const padding = clamp(Number(paddingInput.value) || .5, .1, 10);
+                    const targetRatio = clamp(Number(targetRatioInput.value) || 0, 0, 100);
+                    limitInput.value = limit;
+                    paddingInput.value = padding;
+                    targetRatioInput.value = targetRatio;
+                    return await analyze(files, emotionInput.value, limit, outputMode.value, padding, targetRatio / 100);
+                } finally {
+                    setBusy(false);
                 }
             }
 
@@ -473,23 +497,69 @@
 
             runButton.addEventListener("click", async () => {
                 if (busy || !fileInput.files.length) return;
-                clearResults();
-                setBusy(true);
                 try {
-                    const limit = clamp(Math.trunc(Number(limitInput.value)) || 1, 1, 100);
-                    const padding = clamp(Number(paddingInput.value) || .5, .1, 10);
-                    const targetRatio = clamp(Number(targetRatioInput.value) || 0, 0, 100);
-                    limitInput.value = limit;
-                    paddingInput.value = padding;
-                    targetRatioInput.value = targetRatio;
-                    await analyze([...fileInput.files], emotionInput.value, limit, outputMode.value, padding, targetRatio / 100);
+                    await runAnalysis([...fileInput.files]);
                 } catch (error) {
                     console.error(error);
                     status.textContent = `処理できませんでした: ${error?.message || String(error)}`;
-                } finally {
-                    setBusy(false);
                 }
             });
+
+            async function saveSamples(files, batch) {
+                const saved = [];
+                for (const file of files) {
+                    const query = new URLSearchParams({ batch, name: file.name });
+                    const response = await fetch(`/api/morphing/sampling?${query}`, {
+                        method: "POST",
+                        headers: { "Content-Type": file.type || "video/webm" },
+                        body: file,
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message || `${file.name}を保存できません`);
+                    saved.push(data);
+                }
+                const media = [...results.querySelectorAll("video")];
+                const downloads = [...results.querySelectorAll("figcaption a")];
+                resultUrls.splice(0).forEach(URL.revokeObjectURL);
+                saved.forEach((sample, index) => {
+                    if (media[index]) media[index].src = sample.url;
+                    if (downloads[index]) {
+                        downloads[index].href = sample.url;
+                        downloads[index].download = sample.name;
+                    }
+                });
+                return saved;
+            }
+
+            window.runAutomaticExpressionPicker = async (sources, batch) => {
+                await modelsReadyPromise;
+                while (busy) await new Promise((resolve) => setTimeout(resolve, 250));
+                const files = await Promise.all(sources.map(async ({ url, name }) => {
+                    const response = await fetch(url, { cache: "no-store" });
+                    if (!response.ok) throw new Error(`${name}を取得できません`);
+                    const blob = await response.blob();
+                    return new File([blob], name, { type: blob.type || "video/webm" });
+                }));
+                const transfer = new DataTransfer();
+                files.forEach((file) => transfer.items.add(file));
+                fileInput.files = transfer.files;
+                status.textContent = `${files.length}本の動画を自動解析します。`;
+                const result = await runAnalysis(files);
+                const outputFiles = result.mode === "image" ? [] : result.rankings.flatMap(({ file, picks }) => {
+                    const baseName = file.name.replace(/\.[^.]+$/, "");
+                    return picks.map((pick, index) => new File(
+                        [pick.blob],
+                        `${baseName}_${result.emotion}_${String(index + 1).padStart(2, "0")}.webm`,
+                        { type: pick.blob.type || "video/webm" },
+                    ));
+                });
+                const saved = outputFiles.length ? await saveSamples(outputFiles, batch) : [];
+                if (saved.length) result.rankings.forEach(({ picks }) => picks.forEach((pick) => { delete pick.blob; }));
+                return {
+                    ...result,
+                    sources: saved,
+                };
+            };
 
             try {
                 await Promise.all([
@@ -497,9 +567,11 @@
                     faceapi.nets.faceExpressionNet.loadFromUri("../modules/faceAPI/models")
                 ]);
                 modelsReady = true;
+                resolveModelsReady();
                 status.textContent = "動画を選択してください。";
             } catch (error) {
                 console.error(error);
+                rejectModelsReady(error);
                 status.textContent = `準備できませんでした: ${error.message}`;
             }
             setBusy(false);
