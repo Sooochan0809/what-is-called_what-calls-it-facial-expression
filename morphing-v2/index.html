@@ -565,9 +565,9 @@
                 </div>
                 <div class="manualGrid">
                     <label>X<input class="manualInput" id="manualXInput" type="number" step="1" value="0"></label>
-                    <label>Y<input class="manualInput" id="manualYInput" type="number" step="1" value="0"></label>
+                    <label>Y<input class="manualInput" id="manualYInput" type="number" step="1" value="-70"></label>
                     <label>倍率<input class="manualInput" id="manualScaleInput" type="number" min="0.5" max="2"
-                            step="0.01" value="1"></label>
+                            step="0.01" value="1.25"></label>
                 </div>
             </div>
             <div class="clipList" id="clipList"></div>
@@ -614,11 +614,11 @@
         const ANALYSIS_STEP = .2;
         const MAX_INTERPOLATION_GAP = .6;
         const FRAME_TOLERANCE = 1 / OUTPUT_FPS;
+        const EPSILON = 1e-6;
         const COLORS = ["#5278d8", "#d85d76", "#8b63d7", "#d98245", "#397f91", "#647c45"];
         const EYE_LEFT = [33, 133];
         const EYE_RIGHT = [362, 263];
-        const MEDIAPIPE_VERSION = "1.1.0";
-        const TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
+        const TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0";
         const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 
         const byId = (id) => document.getElementById(id);
@@ -645,8 +645,8 @@
         const zoomInput = byId("zoomInput");
         const operationStatus = byId("operationStatus");
         const exportButton = byId("exportButton");
-        const warpCanvases = [document.createElement("canvas"), document.createElement("canvas")];
-        warpCanvases.forEach((item) => { item.width = OUTPUT_WIDTH; item.height = OUTPUT_HEIGHT; });
+        const warpCanvases = Array.from({ length: 2 }, createCanvas);
+        const exportQuality = new Quality({ bitrate: 14_000_000 });
 
         let clips = [];
         let schedule = [];
@@ -656,11 +656,9 @@
         let previousFrameAt = 0;
         let draggedId = null;
         let sharedEyeTarget = null;
-        let globalManual = { scale: 1, rotation: 0, x: 0, y: 0 };
         let faceLandmarkerPromise = null;
         let analysisRunning = false;
-        let exportProfile = null;
-        let exportProbeDone = false;
+        let exportCodec;
         let exportJob = null;
         let previewGeneration = 0;
 
@@ -669,10 +667,10 @@
         const pxPerSecond = () => Number(zoomInput.value);
         const totalDuration = () => schedule.at(-1)?.end || 0;
         const isExporting = () => Boolean(exportJob);
+        const editingLocked = () => analysisRunning || isExporting();
         const playbackSpeed = () => clamp(Number(playbackSpeedInput.value) || 1, .1, 2);
         const sourceOverlap = () => Math.max(.01, Number(transitionInput.value) || 1);
         const loopCount = () => Math.max(0, Math.floor(Number(loopCountInput.value) || 0));
-        const identityTransform = () => ({ scale: 1, rotation: 0, x: 0, y: 0 });
         function formatTime(seconds) {
             const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
             const minutes = Math.floor(safe / 60);
@@ -702,7 +700,7 @@
                         id: crypto.randomUUID(), name: file.name, url, video, duration: video.duration,
                         rawCanvas: createCanvas(), sourceCanvas: createCanvas(),
                         analysis: { status: "pending", progress: 0, samples: [], gaps: [], error: "" },
-                        representative: null, auto: identityTransform(),
+                        representative: null, auto: { scale: 1, rotation: 0, x: 0, y: 0 },
                     });
                 }, { once: true });
                 video.addEventListener("error", () => {
@@ -754,14 +752,12 @@
             return target;
         }
         async function getFaceLandmarker() {
-            if (!faceLandmarkerPromise) {
-                faceLandmarkerPromise = import(TASKS_URL).then(async ({ FaceLandmarker, FilesetResolver }) => {
-                    const vision = await FilesetResolver.forVisionTasks(`${TASKS_URL}/wasm`);
-                    return FaceLandmarker.createFromOptions(vision, {
-                        baseOptions: { modelAssetPath: MODEL_URL }, runningMode: "IMAGE", numFaces: 1,
-                    });
+            faceLandmarkerPromise ??= import(TASKS_URL).then(async ({ FaceLandmarker, FilesetResolver }) => {
+                const vision = await FilesetResolver.forVisionTasks(`${TASKS_URL}/wasm`);
+                return FaceLandmarker.createFromOptions(vision, {
+                    baseOptions: { modelAssetPath: MODEL_URL }, runningMode: "IMAGE", numFaces: 1,
                 });
-            }
+            });
             return faceLandmarkerPromise;
         }
         function eyeMetrics(points) {
@@ -776,13 +772,14 @@
                 distance: Math.hypot(dx, dy), angle: Math.atan2(dy, dx),
             };
         }
-        function representativeMetrics(samples) {
-            const values = samples.filter((sample) => sample.points).map((sample) => eyeMetrics(sample.points));
-            if (!values.length) return null;
-            return {
+        function medianMetrics(values) {
+            return values.length ? {
                 x: median(values.map((item) => item.x)), y: median(values.map((item) => item.y)),
                 distance: median(values.map((item) => item.distance)), angle: median(values.map((item) => item.angle)),
-            };
+            } : null;
+        }
+        function representativeMetrics(samples) {
+            return medianMetrics(samples.filter((sample) => sample.points).map((sample) => eyeMetrics(sample.points)));
         }
         function missingGaps(samples) {
             const gaps = [];
@@ -798,19 +795,19 @@
         }
         function updateClipAnalysisUI(clip) {
             const element = clipList.querySelector(`[data-clip-id="${clip.id}"] .clipAnalysis`);
-            if (!element) return;
-            element.textContent = analysisLabel(clip);
-            element.classList.toggle("warning", clip.analysis.status === "failed" || fallbackGaps(clip).length > 0);
+            if (element) renderAnalysisStatus(element, clip);
         }
-        function analysisLabel(clip) {
-            if (clip.analysis.status === "pending") return "解析待ち";
-            if (clip.analysis.status === "analyzing") return `解析 ${Math.round(clip.analysis.progress * 100)}%`;
-            if (clip.analysis.status === "failed") return `⚠ ${clip.analysis.error || "顔未検出"}・クロスフェード`;
+        function renderAnalysisStatus(element, clip) {
+            const { status, progress, error } = clip.analysis;
             const gaps = fallbackGaps(clip);
-            return gaps.length ? `⚠ 欠落 ${gaps.map(formatGap).join(", ")}・クロスフェード` : "解析完了";
+            if (status === "pending") element.textContent = "解析待ち";
+            else if (status === "analyzing") element.textContent = `解析 ${Math.round(progress * 100)}%`;
+            else if (status === "failed") element.textContent = `⚠ ${error || "顔未検出"}・クロスフェード`;
+            else element.textContent = gaps.length ? `⚠ 欠落 ${gaps.map(formatGap).join(", ")}・クロスフェード` : "解析完了";
+            element.classList.toggle("warning", status === "failed" || gaps.length > 0);
         }
         const formatGap = (gap) => `${gap.start.toFixed(1)}–${gap.end.toFixed(1)}秒`;
-        const fallbackGaps = (clip) => clip.analysis.gaps.filter((gap) => gap.duration > MAX_INTERPOLATION_GAP + 1e-6);
+        const fallbackGaps = (clip) => clip.analysis.gaps.filter((gap) => gap.duration > MAX_INTERPOLATION_GAP + EPSILON);
         async function analyzeClip(clip) {
             clip.analysis = { status: "analyzing", progress: 0, samples: [], gaps: [], error: "" };
             updateClipAnalysisUI(clip);
@@ -874,10 +871,10 @@
         }
         function overlapIssues() {
             return clips.map((clip) => ({ clip, shortage: sourceOverlap() * 2 - clip.duration }))
-                .filter((item) => item.shortage > 1e-6);
+                .filter((item) => item.shortage > EPSILON);
         }
-        function blockingOverlapIssues() {
-            return overlapIssues().filter((item) => item.shortage > FRAME_TOLERANCE + 1e-6);
+        function blockingOverlapIssues(issues = overlapIssues()) {
+            return issues.filter((item) => item.shortage > FRAME_TOLERANCE + EPSILON);
         }
         function sourceTimeForItem(time, item) {
             return clamp(
@@ -914,11 +911,16 @@
         function combineAlignment(clip) {
             const auto = clip.auto;
             const pivot = sharedEyeTarget || { x: OUTPUT_WIDTH / 2, y: OUTPUT_HEIGHT * .4 };
+            const manual = {
+                scale: clamp(Number(manualInputs.scale.value) || 1, .5, 2),
+                x: Number(manualInputs.x.value) || 0,
+                y: Number(manualInputs.y.value) || 0,
+            };
             return {
-                scale: auto.scale * globalManual.scale,
+                scale: auto.scale * manual.scale,
                 rotation: auto.rotation,
-                x: globalManual.scale * (auto.x - pivot.x) + pivot.x + globalManual.x,
-                y: globalManual.scale * (auto.y - pivot.y) + pivot.y + globalManual.y,
+                x: manual.scale * (auto.x - pivot.x) + pivot.x + manual.x,
+                y: manual.scale * (auto.y - pivot.y) + pivot.y + manual.y,
             };
         }
         function transformPoint(point, transform) {
@@ -930,13 +932,8 @@
         }
         function autoAlignClips() {
             const valid = clips.filter((clip) => clip.representative);
-            if (!valid.length) { sharedEyeTarget = null; updateControls(); return; }
-            sharedEyeTarget = {
-                x: median(valid.map((clip) => clip.representative.x)),
-                y: median(valid.map((clip) => clip.representative.y)),
-                distance: median(valid.map((clip) => clip.representative.distance)),
-                angle: median(valid.map((clip) => clip.representative.angle)),
-            };
+            if (!valid.length) { sharedEyeTarget = null; return; }
+            sharedEyeTarget = medianMetrics(valid.map((clip) => clip.representative));
             valid.forEach((clip) => {
                 const metric = clip.representative;
                 const scale = sharedEyeTarget.distance / metric.distance;
@@ -948,7 +945,7 @@
                     y: sharedEyeTarget.y - scale * (sin * metric.x + cos * metric.y),
                 };
             });
-            syncAlignmentPanel(); setCurrentTime(currentTime);
+            setCurrentTime(currentTime);
         }
         function drawVideoToSource(clip) {
             const raw = drawBaseFrame(clip);
@@ -979,7 +976,7 @@
                 const nearest = before || after;
                 return nearest && Math.abs(nearest.time - time) <= ANALYSIS_STEP * 1.5 ? nearest.points : null;
             }
-            if (after.time - before.time > MAX_INTERPOLATION_GAP + 1e-6) return null;
+            if (after.time - before.time > MAX_INTERPOLATION_GAP + EPSILON) return null;
             if (after === before || after.time === before.time) return before.points;
             const ratio = (time - before.time) / (after.time - before.time);
             return before.points.map((point, index) => [
@@ -1069,7 +1066,7 @@
             } catch (error) { console.warn("プレビューのシークに失敗しました", error); }
         }
         function setPlaying(nextPlaying) {
-            const blocked = blockingOverlapIssues().length || analysisRunning || isExporting();
+            const blocked = blockingOverlapIssues().length || editingLocked();
             const next = Boolean(nextPlaying && clips.length && !blocked);
             if (playing === next) return;
             playing = next; previousFrameAt = performance.now();
@@ -1106,7 +1103,7 @@
             timecode.textContent = `${formatTime(elapsed)} / ${total}`;
         }
         function createClipCard(clip, index) {
-            const locked = analysisRunning || isExporting();
+            const locked = editingLocked();
             const card = document.createElement("article");
             card.className = "clipCard";
             card.dataset.clipId = clip.id; card.draggable = !locked; card.style.setProperty("--clip-color", COLORS[index % COLORS.length]);
@@ -1119,8 +1116,7 @@
                 </div>
                 <button class="removeButton" type="button" title="削除" ${locked ? "disabled" : ""}>×</button>`;
             card.querySelector(".clipTitle").textContent = clip.name;
-            card.querySelector(".clipAnalysis").textContent = analysisLabel(clip);
-            card.querySelector(".clipAnalysis").classList.toggle("warning", clip.analysis.status === "failed" || fallbackGaps(clip).length > 0);
+            renderAnalysisStatus(card.querySelector(".clipAnalysis"), clip);
             card.querySelector(".removeButton").addEventListener("click", (event) => { event.stopPropagation(); removeClip(clip.id); });
             card.addEventListener("dragstart", () => { draggedId = clip.id; card.classList.add("dragging"); });
             card.addEventListener("dragend", () => { draggedId = null; card.classList.remove("dragging"); });
@@ -1136,11 +1132,8 @@
         }
         function renderClipList() { clipList.replaceChildren(...clips.map(createClipCard)); }
         function syncAlignmentPanel() {
-            const locked = !clips.length || analysisRunning || isExporting();
-            Object.entries(manualInputs).forEach(([key, input]) => {
-                input.disabled = locked;
-                input.value = String(globalManual[key]);
-            });
+            const locked = !clips.length || editingLocked();
+            Object.values(manualInputs).forEach((input) => { input.disabled = locked; });
         }
         function createMorphRegion(start, duration, from, to, scale) {
             const morph = document.createElement("div");
@@ -1180,8 +1173,11 @@
         }
         function updateControls() {
             const hasClips = clips.length > 0;
-            const overlapErrors = blockingOverlapIssues();
-            const locked = analysisRunning || isExporting();
+            const overlaps = overlapIssues();
+            const overlapErrors = blockingOverlapIssues(overlaps);
+            const warnings = fallbackWarnings();
+            const exporting = isExporting();
+            const locked = analysisRunning || exporting;
             const analysisReady = hasClips && clips.every((clip) => ["done", "failed"].includes(clip.analysis.status));
             playButton.disabled = !hasClips || locked || overlapErrors.length > 0;
             clearButton.disabled = !hasClips || locked;
@@ -1189,56 +1185,51 @@
             transitionInput.disabled = locked; playbackSpeedInput.disabled = locked; loopCountInput.disabled = locked;
             monoInput.disabled = locked; zoomInput.disabled = locked;
             autoAlignButton.disabled = locked || !clips.some((clip) => clip.representative);
-            exportButton.disabled = isExporting() ? false : !analysisReady || !exportProfile || !loopCount() || overlapErrors.length > 0;
-            exportButton.textContent = isExporting() ? "キャンセル" : "書き出し";
+            exportButton.disabled = !exporting && (!analysisReady || !exportCodec || !loopCount() || overlapErrors.length > 0);
+            exportButton.textContent = exporting ? "キャンセル" : "書き出し";
             status.textContent = `${clips.length}クリップ · 1周 ${formatTime(totalDuration())}`;
-            operationStatus.classList.toggle("warning", Boolean(overlapErrors.length || fallbackWarnings().length));
-            if (isExporting()) operationStatus.textContent = exportJob.message;
+            operationStatus.classList.toggle("warning", Boolean(overlapErrors.length || warnings.length));
+            if (exporting) operationStatus.textContent = exportJob.message;
             else if (analysisRunning) operationStatus.textContent = "顔ランドマークを事前解析中…";
             else if (overlapErrors.length) operationStatus.textContent = `重なり不足: ${overlapErrors.map((item) => `${item.clip.name} ${item.shortage.toFixed(3)}秒`).join(" / ")}`;
-            else if (overlapIssues().length) operationStatus.textContent = "1フレーム以内の不足は端フレームで補完";
-            else if (fallbackWarnings().length) operationStatus.textContent = "⚠ 欠落区間はクロスフェード（書出し前に確認）";
-            else operationStatus.textContent = exportProbeDone && !exportProfile ? "WebM書き出し非対応" : "";
+            else if (overlaps.length) operationStatus.textContent = "1フレーム以内の不足は端フレームで補完";
+            else if (warnings.length) operationStatus.textContent = "⚠ 欠落区間はクロスフェード（書出し前に確認）";
+            else operationStatus.textContent = exportCodec === null ? "WebM書き出し非対応" : "";
             syncAlignmentPanel(); updatePlayhead();
         }
         function renderAll() { renderClipList(); renderTimeline(); updateControls(); setCurrentTime(currentTime); }
         function removeClip(id) {
-            if (analysisRunning || isExporting()) return;
+            if (editingLocked()) return;
             const index = clips.findIndex((clip) => clip.id === id); if (index < 0) return;
             const [removed] = clips.splice(index, 1); removed.video.pause(); URL.revokeObjectURL(removed.url);
             buildSchedule(); autoAlignClips(); setPlaying(false); currentTime = 0; renderAll();
         }
         function clearClips() {
-            if (analysisRunning || isExporting()) return;
+            if (editingLocked()) return;
             setPlaying(false); clips.forEach((clip) => URL.revokeObjectURL(clip.url));
-            clips = []; schedule = []; sharedEyeTarget = null; globalManual = identityTransform(); currentTime = 0; completedLoops = 0;
+            clips = []; schedule = []; sharedEyeTarget = null; currentTime = 0; completedLoops = 0;
+            Object.values(manualInputs).forEach((input) => { input.value = input.defaultValue; });
             clearOutput(); renderAll();
         }
         async function probeExportSupport() {
-            const quality = new Quality({ bitrate: 14_000_000 });
-            const options = { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT, frameRate: OUTPUT_FPS, quality };
-            const codec = await getFirstEncodableVideoCodec(["vp9", "vp8"], options).catch(() => null);
-            if (codec) exportProfile = {
-                extension: "webm", codec, quality,
-                makeFormat: () => new WebMOutputFormat(),
-            };
-            exportProbeDone = true;
+            const options = { width: OUTPUT_WIDTH, height: OUTPUT_HEIGHT, frameRate: OUTPUT_FPS, quality: exportQuality };
+            exportCodec = await getFirstEncodableVideoCodec(["vp9", "vp8"], options).catch(() => null);
             updateControls();
         }
         async function startExport() {
             if (isExporting()) { exportJob.cancelled = true; exportJob.message = "キャンセル中…"; updateControls(); return; }
             const warnings = fallbackWarnings();
             if (warnings.length && !confirm(`次の区間は通常モーフではなくクロスフェードになります。\n\n${warnings.join("\n")}\n\n書き出しを続けますか？`)) return;
-            if (!exportProfile || !clips.length || !loopCount() || blockingOverlapIssues().length) return;
+            if (!exportCodec || !clips.length || !loopCount() || blockingOverlapIssues().length) return;
             setPlaying(false);
             const resumeTime = currentTime;
             const loopDuration = totalDuration();
             const totalFrames = Math.round(loopDuration * loopCount() * OUTPUT_FPS);
             const target = new BufferTarget();
-            const output = new Output({ format: exportProfile.makeFormat(), target });
-            const source = new CanvasSource(canvas, { codec: exportProfile.codec, quality: exportProfile.quality });
+            const output = new Output({ format: new WebMOutputFormat(), target });
+            const source = new CanvasSource(canvas, { codec: exportCodec, quality: exportQuality });
             output.addVideoTrack(source);
-            exportJob = { cancelled: false, output, message: `0 / ${totalFrames}フレーム` };
+            exportJob = { cancelled: false, message: `0 / ${totalFrames}フレーム` };
             renderClipList(); updateControls();
             try {
                 await output.start();
@@ -1259,7 +1250,7 @@
                 await output.finalize();
                 const blob = new Blob([target.buffer], { type: await output.getMimeType() });
                 const url = URL.createObjectURL(blob), anchor = document.createElement("a");
-                anchor.href = url; anchor.download = `morph-sequence-${new Date().toISOString().replaceAll(":", "-")}.${exportProfile.extension}`;
+                anchor.href = url; anchor.download = `morph-sequence-${new Date().toISOString().replaceAll(":", "-")}.webm`;
                 anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
             } catch (error) {
                 if (!exportJob.cancelled) {
@@ -1275,12 +1266,7 @@
         fileInput.addEventListener("change", async (event) => { await addFiles(event.target.files); event.target.value = ""; });
         playButton.addEventListener("click", () => setPlaying(!playing));
         autoAlignButton.addEventListener("click", autoAlignClips);
-        Object.entries(manualInputs).forEach(([key, input]) => input.addEventListener("input", () => {
-            globalManual[key] = key === "scale"
-                ? clamp(Number(input.value) || 1, .5, 2)
-                : Number(input.value) || 0;
-            setCurrentTime(currentTime);
-        }));
+        Object.values(manualInputs).forEach((input) => input.addEventListener("input", () => setCurrentTime(currentTime)));
         transitionInput.addEventListener("change", () => {
             transitionInput.value = sourceOverlap().toFixed(2); buildSchedule(); renderTimeline(); updateControls(); setCurrentTime(currentTime);
         });
@@ -1300,7 +1286,7 @@
             const rect = timeline.getBoundingClientRect(); setCurrentTime((event.clientX - rect.left) / pxPerSecond());
         };
         timeline.addEventListener("pointerdown", (event) => {
-            if (!clips.length || event.button !== 0 || analysisRunning || isExporting()) return;
+            if (!clips.length || event.button !== 0 || editingLocked()) return;
             timeline.setPointerCapture(event.pointerId); seekFromPointer(event);
         });
         timeline.addEventListener("pointermove", (event) => {
