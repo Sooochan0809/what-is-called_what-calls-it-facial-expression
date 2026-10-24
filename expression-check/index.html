@@ -128,7 +128,11 @@
         }
 
         .finalScoreValue {
-            font-variant-numeric: tabular-nums;
+            color: var(--color-negative);
+        }
+
+        .finalScoreValue.is-appropriate {
+            color: var(--color-positive);
         }
 
         @keyframes revealFinalScore {
@@ -702,7 +706,7 @@
 
     <section id="finalScene" class="introScene" hidden>
         <div class="introContent finalContent">
-            <div id="finalScores" class="finalScores" aria-label="シーンごとの最高スコア"></div>
+            <div id="finalScores" class="finalScores" aria-label="シーンごとの評定"></div>
         </div>
     </section>
 
@@ -773,7 +777,7 @@
         let tutorialEffectTimer = 0;
         let tutorialShown = false;
         let latestExpressions = {};
-        let maximumScores = [];
+        let judgmentResults = [];
         let scoreSegments = [];
         let displayedSegmentCount = 0;
         let targetSegmentCount = 0;
@@ -928,7 +932,6 @@
                 aboveThresholdEmotions,
                 elapsedSeconds(measuredAt, recording.startedAt)
             );
-            maximumScores[situationIndex] = Math.max(maximumScores[situationIndex] || 0, rounded);
             if (isDetectionFrame) {
                 if (aboveThreshold) {
                     if (!judgmentHoldTimer) {
@@ -1089,14 +1092,19 @@
             finalScene.hidden = false;
             const header = document.createElement("div");
             header.className = "finalScoreHeader";
-            header.innerHTML = "<span>状況</span><span>適切度</span>";
+            header.innerHTML = "<span>状況</span><span>評定</span>";
             finalScores.replaceChildren(header, ...situations.map(({ text }, index) => {
+                const detected = judgmentResults[index] === true;
                 const row = document.createElement("div");
                 row.className = "finalScoreRow";
                 row.style.setProperty("--score-index", index);
                 row.append(
                     textElement("span", "finalScoreLabel", text),
-                    textElement("span", "finalScoreValue", `${maximumScores[index] || 0}%`)
+                    textElement(
+                        "span",
+                        `finalScoreValue ${detected ? "is-appropriate" : "is-inappropriate"}`,
+                        detected ? judgmentDetectedTitle : judgmentNotDetectedTitle
+                    )
                 );
                 return row;
             }));
@@ -1567,6 +1575,7 @@
             if (!tutorialOverlay.hidden || captureInProgress || !partIntro.hidden) return;
             const clearEndedAt = performance.now();
             captureInProgress = true;
+            judgmentResults[situationIndex] = detected;
             updateSituationTimer();
             stopSituationRotation();
             stopScoreAnimation();
@@ -1619,7 +1628,7 @@
         function startExperience(enableRecording) {
             if (!photographScene.hidden) return;
             recordingEnabled = enableRecording;
-            maximumScores = Array(situations.length).fill(0);
+            judgmentResults = Array(situations.length).fill(null);
             if (consentDialog.open) consentDialog.close();
             introScene.hidden = true;
             photographScene.hidden = false;
