@@ -62,6 +62,7 @@
         }
 
         .previewArea {
+            position: relative;
             min-width: 0;
             min-height: 0;
             grid-row: 1;
@@ -89,6 +90,19 @@
             display: block;
             width: 100%;
             height: 100%;
+        }
+
+        .previewButton {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 1;
+            height: 34px;
+            padding: 0 12px;
+            border-color: #454d56;
+            background: #2b323a;
+            color: #fff;
+            font-size: .75rem;
         }
 
         .sidebar {
@@ -551,6 +565,7 @@
             <div class="stage" aria-label="動画モーフィングプレビュー">
                 <canvas id="morphCanvas" width="1080" height="1920"></canvas>
             </div>
+            <button class="previewButton" id="previewButton" type="button">別ウィンドウ</button>
         </main>
         <aside class="sidebar" aria-label="動画クリップ">
             <footer class="sidebarFooter">
@@ -623,6 +638,7 @@
 
         const byId = (id) => document.getElementById(id);
         const canvas = byId("morphCanvas");
+        const stage = canvas.parentElement;
         const ctx = canvas.getContext("2d", { alpha: false });
         const fileInput = byId("fileInput");
         const clipList = byId("clipList");
@@ -645,6 +661,7 @@
         const zoomInput = byId("zoomInput");
         const operationStatus = byId("operationStatus");
         const exportButton = byId("exportButton");
+        const previewButton = byId("previewButton");
         const warpCanvases = Array.from({ length: 2 }, createCanvas);
         const exportQuality = new Quality({ bitrate: 14_000_000 });
 
@@ -661,6 +678,7 @@
         let exportCodec;
         let exportJob = null;
         let previewGeneration = 0;
+        let previewWindow = null;
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
         const smoothstep = (value) => value * value * (3 - 2 * value);
@@ -1057,6 +1075,22 @@
             ctx.globalAlpha = 1;
         }
         function renderFrame() { renderState(getActiveState(currentTime), playing); }
+        function openPreviewWindow() {
+            if (previewWindow && !previewWindow.closed) { previewWindow.focus(); return; }
+            previewWindow = window.open("", "morph-preview", "popup=yes,width=540,height=960,resizable=yes");
+            if (!previewWindow) { alert("ポップアップがブロックされました。ブラウザで許可してください。"); return; }
+            const popup = previewWindow;
+            previewWindow.document.title = "モーフィングプレビュー";
+            previewWindow.document.head.innerHTML = `<style>
+                html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+                canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+            </style>`;
+            previewWindow.document.body.append(canvas);
+            popup.addEventListener("beforeunload", () => {
+                stage.append(canvas);
+                if (previewWindow === popup) previewWindow = null;
+            }, { once: true });
+        }
         async function seekAndRender(time) {
             const generation = ++previewGeneration;
             const state = getActiveState(time);
@@ -1265,6 +1299,7 @@
 
         fileInput.addEventListener("change", async (event) => { await addFiles(event.target.files); event.target.value = ""; });
         playButton.addEventListener("click", () => setPlaying(!playing));
+        previewButton.addEventListener("click", openPreviewWindow);
         autoAlignButton.addEventListener("click", autoAlignClips);
         Object.values(manualInputs).forEach((input) => input.addEventListener("input", () => setCurrentTime(currentTime)));
         transitionInput.addEventListener("change", () => {
@@ -1293,7 +1328,10 @@
             if (timeline.hasPointerCapture(event.pointerId)) seekFromPointer(event);
         });
         window.addEventListener("resize", renderTimeline);
-        window.addEventListener("beforeunload", () => clips.forEach((clip) => URL.revokeObjectURL(clip.url)));
+        window.addEventListener("beforeunload", () => {
+            clips.forEach((clip) => URL.revokeObjectURL(clip.url));
+            if (previewWindow && !previewWindow.closed) previewWindow.close();
+        });
 
         const sixClips = Array.from({ length: 6 }, () => ({ duration: 2 }));
         const scheduleCheck = calculateSchedule(sixClips, 1, .5);
