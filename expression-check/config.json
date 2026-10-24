@@ -37,7 +37,7 @@
       {
         "target": "scoreText",
         "text": "この状況に相応しいと思う表情を作ってみましょう！",
-        "durationMs": 5000
+        "durationMs": 3000
       }
     ]
   },

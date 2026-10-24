@@ -1041,6 +1041,7 @@
             frameGuide.classList.toggle("tutorialFocus", step.target === "frameGuide");
             situationTimer.classList.toggle("tutorialFocus", step.target === "situationTimer");
             tutorialText.textContent = step.text.replace("{seconds}", Math.ceil(rotationIntervalMs / 1000));
+            if (situationIndex === 0 && step.target === "scoreText" && recordingEnabled) startPartRecording();
             positionTutorialCard(step.target);
             if (step.target !== "frameGuide") replayAudio(tutorialChimeAudio);
             if (step.target === "scoreBar") animateTutorialScore(step.durationMs);
