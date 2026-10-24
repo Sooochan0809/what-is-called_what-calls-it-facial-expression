@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>表情フレーム・クリップ抽出</title>
+    <script defer src="../modules/faceAPI/face-api.min.js"></script>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, sans-serif;
+            --accent: #4f8cff;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+        }
+
+        main {
+            width: min(1100px, 100%);
+            margin: auto;
+            padding: 28px 20px 48px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+        }
+
+        p {
+            margin: 0 0 20px;
+            opacity: .72;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 12px;
+        }
+
+        label {
+            display: grid;
+            flex: 1 1 180px;
+            gap: 6px;
+        }
+
+        input,
+        select,
+        button {
+            min-height: 42px;
+            padding: 9px 13px;
+            border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
+            border-radius: 7px;
+            font: inherit;
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: .45;
+        }
+
+        output {
+            display: block;
+            min-height: 1.5em;
+            margin: 18px 0 8px;
+        }
+
+        progress {
+            width: 100%;
+            height: 9px;
+            accent-color: var(--accent);
+        }
+
+        progress[hidden] {
+            display: none;
+        }
+
+        #results {
+            margin-top: 24px;
+        }
+
+        .result-group+.result-group {
+            margin-top: 32px;
+        }
+
+        .result-group h2 {
+            margin: 0 0 12px;
+            font-size: 1.2rem;
+        }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        figure {
+            margin: 0;
+            overflow: hidden;
+            border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+            border-radius: 9px;
+            background: color-mix(in srgb, Canvas 94%, CanvasText);
+        }
+
+        figure img,
+        figure video {
+            display: block;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            object-fit: contain;
+            background: #000;
+        }
+
+        figcaption {
+            display: grid;
+            gap: 4px;
+            padding: 10px 12px;
+        }
+
+        figcaption a {
+            color: var(--accent);
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>表情フレーム・クリップ抽出</h1>
+        <p>複数の動画を一括解析し、感情スコア上位を画像、前後・前・後を含む動画で切り出します。</p>
+        <div class="controls">
+            <label>動画（複数選択可）
+                <input id="file" type="file" accept="video/webm,video/*" multiple>
+            </label>
+            <label>感情カテゴリ
+                <select id="emotion">
+                    <option value="neutral" selected>neutral</option>
+                    <option value="happy">happy</option>
+                    <option value="sad">sad</option>
+                    <option value="angry">angry</option>
+                    <option value="fearful">fearful</option>
+                    <option value="disgusted">disgusted</option>
+                    <option value="surprised">surprised</option>
+                </select>
+            </label>
+            <label>上位何位まで
+                <input id="limit" type="number" min="1" max="100" step="1" value="1">
+            </label>
+            <label>出力形式
+                <select id="outputMode">
+                    <option value="image">1フレーム</option>
+                    <option value="video">前後を含む</option>
+                    <option value="before" selected>前を含む</option>
+                    <option value="after">後を含む</option>
+                </select>
+            </label>
+            <label>前後（秒）
+                <input id="padding" type="number" min="0.1" max="10" step="0.1" value="2.0" disabled>
+            </label>
+            <label>理想の変化位置（%）
+                <input id="targetRatio" type="number" min="0" max="100" step="5" value="25" disabled>
+            </label>
+            <button id="run" type="button" disabled>上位結果を抽出</button>
+        </div>
+        <output id="status">モデルを読み込んでいます…</output>
+        <progress id="progress" value="0" max="1" hidden></progress>
+        <section id="results" aria-label="抽出結果"></section>
+    </main>
+
+    <script type="module">
+        import { ALL_FORMATS, BlobSource, BufferTarget, CanvasSink, Conversion, Input, Output, Quality, WebMOutputFormat }
+            from "https://cdn.jsdelivr.net/npm/mediabunny@1.61.0/dist/bundles/mediabunny.min.mjs";
+
+        window.addEventListener("load", async () => {
+            const $ = (id) => document.getElementById(id);
+            const fileInput = $("file");
+            const emotionInput = $("emotion");
+            const limitInput = $("limit");
+            const outputMode = $("outputMode");
+            const paddingInput = $("padding");
+            const targetRatioInput = $("targetRatio");
+            const runButton = $("run");
+            const status = $("status");
+            const progress = $("progress");
+            const results = $("results");
+            const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: .35 });
+            const emotions = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
+            const resultUrls = [];
+            let modelsReady = false;
+            let busy = false;
+
+            const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+            const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
+            const rankFrames = (frames, limit) => frames
+                .sort((a, b) => (b.rankScore ?? b.score) - (a.rankScore ?? a.score) || a.index - b.index)
+                .slice(0, limit);
+            const clipRange = (timestamp, duration, padding, mode) => [
+                clamp(timestamp - (mode === "after" ? 0 : padding), 0, duration),
+                clamp(timestamp + (mode === "before" ? 0 : padding), 0, duration),
+            ];
+            const expressionDifference = (left, right) => emotions
+                .reduce((sum, name) => sum + Math.abs(left[name] - right[name]), 0) / 2;
+            const balanceScore = (ratio, target) => Math.max(0, 1 - 2 * Math.abs(ratio - target));
+            function closestFrame(frames, timestamp) {
+                let low = 0;
+                let high = frames.length - 1;
+                while (low < high) {
+                    const middle = Math.floor((low + high) / 2);
+                    if (frames[middle].timestamp < timestamp) low = middle + 1;
+                    else high = middle;
+                }
+                const next = frames[low];
+                const previous = frames[Math.max(0, low - 1)];
+                return Math.abs(previous.timestamp - timestamp) <= Math.abs(next.timestamp - timestamp) ? previous : next;
+            }
+            function findChangeRatio(frames, start, end, from, to) {
+                // ponytail: 全候補×区間フレーム。長尺動画で遅ければ時刻インデックス化する。
+                const segment = frames.filter(({ timestamp }) => timestamp >= start && timestamp <= end);
+                let streak = 0;
+                for (let index = 0; index < segment.length; index += 1) {
+                    const expressions = segment[index].expressions;
+                    streak = expressionDifference(expressions, to) <= expressionDifference(expressions, from)
+                        ? streak + 1 : 0;
+                    if (streak === 3) {
+                        const timestamp = segment[index - 2].timestamp;
+                        return clamp((timestamp - start) / Math.max(.001, end - start), 0, 1);
+                    }
+                }
+                return 1;
+            }
+            function scoreFrames(frames, duration, padding, mode, targetRatio) {
+                if (mode !== "before" && mode !== "after") return frames;
+                return frames.map((frame) => {
+                    const [start, end] = clipRange(frame.timestamp, duration, padding, mode);
+                    const edge = closestFrame(frames, mode === "before" ? start : end);
+                    const difference = expressionDifference(frame.expressions, edge.expressions);
+                    const coverage = Math.min(1, (end - start) / padding);
+                    const from = mode === "before" ? edge.expressions : frame.expressions;
+                    const to = mode === "before" ? frame.expressions : edge.expressions;
+                    const changeRatio = findChangeRatio(frames, start, end, from, to);
+                    const ratioBonus = .5 * balanceScore(changeRatio, targetRatio) * difference * coverage;
+                    return {
+                        ...frame,
+                        difference,
+                        coverage,
+                        changeRatio,
+                        ratioBonus,
+                        rankScore: frame.score + difference * coverage + ratioBonus,
+                    };
+                });
+            }
+            console.assert(rankFrames([{ index: 0, score: .2 }, { index: 1, score: .8 }], 1)[0].index === 1,
+                "frame ranking is invalid");
+            console.assert(clipRange(5, 10, 1, "before").join() === "4,5"
+                && clipRange(5, 10, 1, "after").join() === "5,6", "clip range is invalid");
+            console.assert(expressionDifference(
+                { neutral: 1, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 },
+                { neutral: 0, happy: 1, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 }
+            ) === 1, "expression difference is invalid");
+            console.assert(balanceScore(.5, .5) === 1 && balanceScore(0, .5) === 0,
+                "balance score is invalid");
+
+            function setBusy(value) {
+                busy = value;
+                fileInput.disabled = value;
+                emotionInput.disabled = value;
+                limitInput.disabled = value;
+                outputMode.disabled = value;
+                paddingInput.disabled = value || outputMode.value === "image";
+                targetRatioInput.disabled = value || (outputMode.value !== "before" && outputMode.value !== "after");
+                runButton.disabled = value || !modelsReady || !fileInput.files.length;
+            }
+
+            function clearResults() {
+                resultUrls.splice(0).forEach(URL.revokeObjectURL);
+                results.replaceChildren();
+            }
+
+            const canvasToBlob = (canvas) => new Promise((resolve, reject) => {
+                canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("画像を作成できませんでした")), "image/png");
+            });
+
+            function showResults(emotion, rankings, mode) {
+                rankings.forEach(({ file, picks }) => {
+                    const group = document.createElement("section");
+                    group.className = "result-group";
+                    const heading = document.createElement("h2");
+                    heading.textContent = file.name;
+                    group.append(heading);
+                    if (!picks.length) {
+                        const empty = document.createElement("p");
+                        empty.textContent = "顔を検出できませんでした。";
+                        group.append(empty);
+                        results.append(group);
+                        return;
+                    }
+                    const grid = document.createElement("div");
+                    grid.className = "result-grid";
+                    const baseName = file.name.replace(/\.[^.]+$/, "");
+                    picks.forEach((pick, index) => {
+                        const url = URL.createObjectURL(pick.blob);
+                        resultUrls.push(url);
+                        const media = mode === "image" ? new Image() : document.createElement("video");
+                        media.src = url;
+                        if (mode === "image") {
+                            media.alt = `${emotion} 第${index + 1}位`;
+                        } else {
+                            media.controls = true;
+                            media.playsInline = true;
+                            media.preload = "metadata";
+                        }
+                        const details = document.createElement("span");
+                        const range = mode !== "image" ? ` · ${formatTime(pick.start)}–${formatTime(pick.end)}` : "";
+                        const bonus = mode === "before" || mode === "after"
+                            ? ` · 表情差 ${pick.difference.toFixed(4)} · 変化位置 ${Math.round(pick.changeRatio * 100)}% · 比率加点 ${pick.ratioBonus.toFixed(4)} · 評価 ${pick.rankScore.toFixed(4)}` : "";
+                        details.textContent = `${index + 1}位 · ${emotion} ${pick.score.toFixed(4)}${bonus} · ${formatTime(pick.timestamp)}${range}`;
+                        const download = document.createElement("a");
+                        download.href = url;
+                        const extension = mode === "image" ? "png" : "webm";
+                        download.download = `${baseName}_${emotion}_${String(index + 1).padStart(2, "0")}_${pick.score.toFixed(4)}.${extension}`;
+                        download.textContent = mode === "image" ? "画像を保存" : "動画を保存";
+                        const caption = document.createElement("figcaption");
+                        caption.append(details, download);
+                        const figure = document.createElement("figure");
+                        figure.append(media, caption);
+                        grid.append(figure);
+                    });
+                    group.append(grid);
+                    results.append(group);
+                });
+            }
+
+            async function extractImages(file, picks, totalFrames, fileNumber, fileCount) {
+                const selected = new Map(picks.map((pick) => [pick.index, pick]));
+                const lastIndex = Math.max(...selected.keys());
+                const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+                const track = await input.getPrimaryVideoTrack();
+                if (!track || !await track.canDecode()) throw new Error("この動画をデコードできません");
+                const sourceWidth = await track.getDisplayWidth();
+                const sourceHeight = await track.getDisplayHeight();
+                const scale = Math.min(1, 1920 / Math.max(sourceWidth, sourceHeight));
+                const width = Math.round(sourceWidth * scale);
+                const height = Math.round(sourceHeight * scale);
+                let frameIndex = 0;
+                let extracted = 0;
+                progress.max = totalFrames;
+                progress.value = 0;
+                try {
+                    const sink = new CanvasSink(track, { width, height, fit: "fill", poolSize: 1 });
+                    for await (const frame of sink.canvases()) {
+                        if (selected.has(frameIndex)) {
+                            selected.get(frameIndex).blob = await canvasToBlob(frame.canvas);
+                            extracted += 1;
+                        }
+                        progress.value = ++frameIndex;
+                        status.textContent = `画像を抽出中 (${fileNumber}/${fileCount}): ${file.name} · ${extracted}/${picks.length}`;
+                        if (frameIndex > lastIndex) break;
+                    }
+                } finally {
+                    input.dispose();
+                }
+            }
+
+            async function cutSegment(file, start, end) {
+                const target = new BufferTarget();
+                const output = new Output({ format: new WebMOutputFormat(), target });
+                const conversion = await Conversion.init({
+                    input: new Input({ source: new BlobSource(file), formats: ALL_FORMATS }),
+                    output,
+                    trim: { start, end },
+                    video: {
+                        quality: new Quality("very-high"),
+                        keyFrameInterval: 1,
+                    },
+                });
+                if (!conversion.isValid) throw new Error("この動画を切り出せません");
+                await conversion.execute();
+                return new Blob([target.buffer], { type: "video/webm" });
+            }
+
+            async function extractClips(file, picks, duration, fileNumber, fileCount, padding, mode) {
+                progress.max = picks.length;
+                progress.value = 0;
+                for (let index = 0; index < picks.length; index += 1) {
+                    const pick = picks[index];
+                    [pick.start, pick.end] = clipRange(pick.timestamp, duration, padding, mode);
+                    status.textContent = `動画を切り出し中 (${fileNumber}/${fileCount}): ${file.name} · ${index + 1}/${picks.length}`;
+                    pick.blob = await cutSegment(file, pick.start, pick.end);
+                    progress.value = index + 1;
+                }
+            }
+
+            async function analyzeFile(file, fileIndex, emotion, fileCount) {
+                const frames = [];
+                const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+                const duration = await input.computeDuration();
+                const track = await input.getPrimaryVideoTrack();
+                if (!track || !await track.canDecode()) throw new Error("この動画をデコードできません");
+                progress.hidden = false;
+                progress.max = duration || 1;
+                try {
+                    const sink = new CanvasSink(track, { width: 320, poolSize: 1 });
+                    let index = 0;
+                    for await (const frame of sink.canvases()) {
+                        const detection = await faceapi.detectSingleFace(frame.canvas, detectorOptions).withFaceExpressions();
+                        if (detection) frames.push({
+                            index,
+                            timestamp: frame.timestamp,
+                            score: detection.expressions[emotion] || 0,
+                            expressions: Object.fromEntries(emotions.map((name) => [name, detection.expressions[name] || 0])),
+                        });
+                        index += 1;
+                        progress.value = frame.timestamp;
+                        status.textContent = `解析中 (${fileIndex + 1}/${fileCount}): ${file.name} · ${index} frames / ${formatTime(frame.timestamp)} · 顔検出 ${frames.length}`;
+                    }
+
+                    if (!index) throw new Error("解析できるフレームがありませんでした");
+                    return { frames, totalFrames: index, duration };
+                } finally {
+                    input.dispose();
+                }
+            }
+
+            async function analyze(files, emotion, limit, mode, padding, targetRatio) {
+                progress.hidden = false;
+                try {
+                    const analyses = [];
+                    for (let index = 0; index < files.length; index += 1) {
+                        analyses.push(await analyzeFile(files[index], index, emotion, files.length));
+                    }
+                    const rankings = analyses.map((analysis, index) => ({
+                        ...analysis,
+                        file: files[index],
+                        picks: rankFrames(scoreFrames(analysis.frames, analysis.duration, padding, mode, targetRatio), limit),
+                    }));
+                    const totalPicks = rankings.reduce((sum, { picks }) => sum + picks.length, 0);
+                    if (!totalPicks) throw new Error("どの動画からも顔を検出できませんでした");
+                    for (let index = 0; index < rankings.length; index += 1) {
+                        const { file, picks, totalFrames, duration } = rankings[index];
+                        if (!picks.length) continue;
+                        if (mode === "image") {
+                            await extractImages(file, picks, totalFrames, index + 1, rankings.length);
+                        } else {
+                            await extractClips(file, picks, duration, index + 1, rankings.length, padding, mode);
+                        }
+                    }
+                    showResults(emotion, rankings, mode);
+                    const unit = mode === "image" ? "枚" : "本";
+                    status.textContent = `${files.length}本の動画から、各動画の ${emotion} 上位を合計 ${totalPicks}${unit}抽出しました。`;
+                } finally {
+                    progress.hidden = true;
+                }
+            }
+
+            fileInput.addEventListener("change", () => {
+                clearResults();
+                status.textContent = fileInput.files.length ? `${fileInput.files.length}本の動画を解析できます。` : "動画を選択してください。";
+                setBusy(false);
+            });
+
+            outputMode.addEventListener("change", () => setBusy(false));
+
+            runButton.addEventListener("click", async () => {
+                if (busy || !fileInput.files.length) return;
+                clearResults();
+                setBusy(true);
+                try {
+                    const limit = clamp(Math.trunc(Number(limitInput.value)) || 1, 1, 100);
+                    const padding = clamp(Number(paddingInput.value) || .5, .1, 10);
+                    const targetRatio = clamp(Number(targetRatioInput.value) || 0, 0, 100);
+                    limitInput.value = limit;
+                    paddingInput.value = padding;
+                    targetRatioInput.value = targetRatio;
+                    await analyze([...fileInput.files], emotionInput.value, limit, outputMode.value, padding, targetRatio / 100);
+                } catch (error) {
+                    console.error(error);
+                    status.textContent = `処理できませんでした: ${error?.message || String(error)}`;
+                } finally {
+                    setBusy(false);
+                }
+            });
+
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri("../modules/faceAPI/models"),
+                    faceapi.nets.faceExpressionNet.loadFromUri("../modules/faceAPI/models")
+                ]);
+                modelsReady = true;
+                status.textContent = "動画を選択してください。";
+            } catch (error) {
+                console.error(error);
+                status.textContent = `準備できませんでした: ${error.message}`;
+            }
+            setBusy(false);
+        });
+    </script>
+</body>
+
+</html>
