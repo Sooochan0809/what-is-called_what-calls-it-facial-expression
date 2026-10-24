@@ -173,7 +173,10 @@ class Handler(SimpleHTTPRequestHandler):
             directory.mkdir(parents=True, exist_ok=True)
             target = directory / filename
             if target.exists():
-                raise FileExistsError(f"既に存在します: {batch}/{filename}")
+                relative = target.relative_to(PROJECT_ROOT)
+                url = "/" + "/".join(urllib.parse.quote(piece) for piece in relative.parts)
+                self.send_json({"name": filename, "url": url, "existing": True})
+                return
             descriptor, temporary_name = tempfile.mkstemp(prefix=".sample-", dir=directory)
             os.close(descriptor)
             temporary = Path(temporary_name)
@@ -189,8 +192,6 @@ class Handler(SimpleHTTPRequestHandler):
             relative = target.relative_to(PROJECT_ROOT)
             url = "/" + "/".join(urllib.parse.quote(piece) for piece in relative.parts)
             self.send_json({"name": filename, "url": url})
-        except FileExistsError as error:
-            self.send_json({"ok": False, "message": str(error)}, HTTPStatus.CONFLICT)
         except (OSError, ValueError) as error:
             self.send_json({"ok": False, "message": str(error)}, HTTPStatus.BAD_REQUEST)
         finally:

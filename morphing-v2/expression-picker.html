@@ -199,6 +199,7 @@
             const resultUrls = [];
             let modelsReady = false;
             let busy = false;
+            let batchLocked = false;
             let resolveModelsReady;
             let rejectModelsReady;
             const modelsReadyPromise = new Promise((resolve, reject) => {
@@ -280,13 +281,14 @@
 
             function setBusy(value) {
                 busy = value;
-                fileInput.disabled = value;
-                emotionInput.disabled = value;
-                limitInput.disabled = value;
-                outputMode.disabled = value;
-                paddingInput.disabled = value || outputMode.value === "image";
-                targetRatioInput.disabled = value || (outputMode.value !== "before" && outputMode.value !== "after");
-                runButton.disabled = value || !modelsReady || !fileInput.files.length;
+                const locked = value || batchLocked;
+                fileInput.disabled = locked;
+                emotionInput.disabled = locked;
+                limitInput.disabled = locked;
+                outputMode.disabled = locked;
+                paddingInput.disabled = locked || outputMode.value === "image";
+                targetRatioInput.disabled = locked || (outputMode.value !== "before" && outputMode.value !== "after");
+                runButton.disabled = locked || !modelsReady || !fileInput.files.length;
             }
 
             function clearResults() {
@@ -341,6 +343,9 @@
                         caption.append(details, download);
                         const figure = document.createElement("figure");
                         figure.append(media, caption);
+                        pick.previewUrl = url;
+                        pick.mediaElement = media;
+                        pick.downloadElement = download;
                         grid.append(figure);
                     });
                     group.append(grid);
@@ -471,17 +476,21 @@
                 }
             }
 
-            async function runAnalysis(files) {
-                clearResults();
+            function readOptions() {
+                const limit = clamp(Math.trunc(Number(limitInput.value)) || 1, 1, 100);
+                const padding = clamp(Number(paddingInput.value) || .5, .1, 10);
+                const targetRatio = clamp(Number(targetRatioInput.value) || 0, 0, 100);
+                limitInput.value = limit;
+                paddingInput.value = padding;
+                targetRatioInput.value = targetRatio;
+                return { emotion: emotionInput.value, limit, mode: outputMode.value, padding, targetRatio: targetRatio / 100 };
+            }
+
+            async function runAnalysis(files, options = readOptions(), clear = true) {
+                if (clear) clearResults();
                 setBusy(true);
                 try {
-                    const limit = clamp(Math.trunc(Number(limitInput.value)) || 1, 1, 100);
-                    const padding = clamp(Number(paddingInput.value) || .5, .1, 10);
-                    const targetRatio = clamp(Number(targetRatioInput.value) || 0, 0, 100);
-                    limitInput.value = limit;
-                    paddingInput.value = padding;
-                    targetRatioInput.value = targetRatio;
-                    return await analyze(files, emotionInput.value, limit, outputMode.value, padding, targetRatio / 100);
+                    return await analyze(files, options.emotion, options.limit, options.mode, options.padding, options.targetRatio);
                 } finally {
                     setBusy(false);
                 }
@@ -505,7 +514,7 @@
                 }
             });
 
-            async function saveSamples(files, batch) {
+            async function saveSamples(files, batch, picks) {
                 const saved = [];
                 for (const file of files) {
                     const query = new URLSearchParams({ batch, name: file.name });
@@ -518,33 +527,42 @@
                     if (!response.ok) throw new Error(data.message || `${file.name}を保存できません`);
                     saved.push(data);
                 }
-                const media = [...results.querySelectorAll("video")];
-                const downloads = [...results.querySelectorAll("figcaption a")];
-                resultUrls.splice(0).forEach(URL.revokeObjectURL);
                 saved.forEach((sample, index) => {
-                    if (media[index]) media[index].src = sample.url;
-                    if (downloads[index]) {
-                        downloads[index].href = sample.url;
-                        downloads[index].download = sample.name;
+                    const pick = picks[index];
+                    if (pick?.previewUrl) {
+                        URL.revokeObjectURL(pick.previewUrl);
+                        const urlIndex = resultUrls.indexOf(pick.previewUrl);
+                        if (urlIndex >= 0) resultUrls.splice(urlIndex, 1);
+                    }
+                    if (pick?.mediaElement) pick.mediaElement.src = sample.url;
+                    if (pick?.downloadElement) {
+                        pick.downloadElement.href = sample.url;
+                        pick.downloadElement.download = sample.name;
                     }
                 });
                 return saved;
             }
 
-            window.runAutomaticExpressionPicker = async (sources, batch) => {
+            window.beginAutomaticExpressionBatch = async () => {
                 await modelsReadyPromise;
                 while (busy) await new Promise((resolve) => setTimeout(resolve, 250));
-                const files = await Promise.all(sources.map(async ({ url, name }) => {
-                    const response = await fetch(url, { cache: "no-store" });
-                    if (!response.ok) throw new Error(`${name}を取得できません`);
-                    const blob = await response.blob();
-                    return new File([blob], name, { type: blob.type || "video/webm" });
-                }));
+                batchLocked = true;
+                clearResults();
+                setBusy(false);
+                return readOptions();
+            };
+
+            window.processAutomaticExpressionSource = async (source, batch, options) => {
+                const response = await fetch(source.url, { cache: "no-store" });
+                if (!response.ok) throw new Error(`${source.name}を取得できません`);
+                const blob = await response.blob();
+                const file = new File([blob], source.name, { type: blob.type || "video/webm" });
                 const transfer = new DataTransfer();
-                files.forEach((file) => transfer.items.add(file));
+                transfer.items.add(file);
                 fileInput.files = transfer.files;
-                status.textContent = `${files.length}本の動画を自動解析します。`;
-                const result = await runAnalysis(files);
+                status.textContent = `${file.name}を自動解析します。`;
+                const result = await runAnalysis([file], options, false);
+                const picks = result.rankings.flatMap((ranking) => ranking.picks);
                 const outputFiles = result.mode === "image" ? [] : result.rankings.flatMap(({ file, picks }) => {
                     const baseName = file.name.replace(/\.[^.]+$/, "");
                     return picks.map((pick, index) => new File(
@@ -553,12 +571,18 @@
                         { type: pick.blob.type || "video/webm" },
                     ));
                 });
-                const saved = outputFiles.length ? await saveSamples(outputFiles, batch) : [];
+                const saved = outputFiles.length ? await saveSamples(outputFiles, batch, picks) : [];
                 if (saved.length) result.rankings.forEach(({ picks }) => picks.forEach((pick) => { delete pick.blob; }));
                 return {
                     ...result,
                     sources: saved,
                 };
+            };
+
+            window.endAutomaticExpressionBatch = () => {
+                batchLocked = false;
+                fileInput.value = "";
+                setBusy(false);
             };
 
             try {

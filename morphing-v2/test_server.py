@@ -1,4 +1,5 @@
 import http.client
+import json
 import tempfile
 import threading
 import unittest
@@ -26,6 +27,15 @@ class SamplingUploadTest(unittest.TestCase):
                 )
                 response = connection.getresponse()
                 self.assertEqual(response.status, 200, response.read())
+                self.assertEqual((Path(temporary) / "batch-1" / "clip.webm").read_bytes(), b"video")
+                connection.request(
+                    "POST",
+                    "/api/morphing/sampling?batch=batch-1&name=clip.webm",
+                    body=b"newer",
+                    headers={"Content-Type": "video/webm", "Content-Length": "5"},
+                )
+                response = connection.getresponse()
+                self.assertTrue(json.loads(response.read())["existing"])
                 self.assertEqual((Path(temporary) / "batch-1" / "clip.webm").read_bytes(), b"video")
             finally:
                 httpd.shutdown()

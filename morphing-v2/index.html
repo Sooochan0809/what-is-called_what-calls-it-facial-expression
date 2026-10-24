@@ -83,8 +83,7 @@
         let processing = false;
 
         const formatParts = (jobs) => jobs.map(({ part }) => `p${part}`).join(", ");
-        const batchName = (jobs) => `${new Date(Math.min(...jobs.map(({ modifiedAt }) => modifiedAt)))
-            .toISOString().replaceAll(":", "-").replace(".000Z", "Z")}-${crypto.randomUUID().slice(0, 8)}`;
+        const makeBatchName = (job) => `${job.modifiedAt}-${job.zipName.replace(/\.[^.]+$/, "")}`;
         function setStatus(message, error = false) {
             status.textContent = message;
             status.dataset.error = String(error);
@@ -94,8 +93,11 @@
             if (!job?.id || knownIds.has(job.id) || !Number.isInteger(job.part)) return;
             knownIds.add(job.id);
             let batch = batches.at(-1);
-            if (!batch || (job.part === 1 && batch.jobs.length) || batch.parts.has(job.part)) {
-                batch = { jobs: [], parts: new Set(), lastAddedAt: 0, complete: false };
+            if (!batch || batch.sealed || (job.part === 1 && batch.jobs.length) || batch.parts.has(job.part)) {
+                batch = {
+                    jobs: [], parts: new Set(), lastAddedAt: 0, complete: false, sealed: false,
+                    started: false, nextJob: 0, saved: [], name: makeBatchName(job),
+                };
                 batches.push(batch);
             }
             batch.jobs.push(job);
@@ -103,13 +105,8 @@
             batch.lastAddedAt = Date.now();
             if (job.part === 6) batch.complete = true;
         }
-        function readyBatch() {
-            const batch = batches[0];
-            if (!batch) return null;
-            const followedByAnotherBatch = batches.length > 1;
-            return batch.complete || followedByAnotherBatch || Date.now() - batch.lastAddedAt >= INCOMPLETE_BATCH_WAIT
-                ? batch : null;
-        }
+        const batchIsClosed = (batch) => batch.complete || batches.length > 1
+            || Date.now() - batch.lastAddedAt >= INCOMPLETE_BATCH_WAIT;
         async function acknowledge(jobs) {
             const response = await fetch(COMPLETE_URL, {
                 method: "POST", headers: { "Content-Type": "application/json" },
@@ -117,35 +114,63 @@
             });
             if (!response.ok) throw new Error("ZIPの処理済み状態を保存できません");
         }
-        async function processNextBatch() {
+        async function processPipeline() {
             if (processing) return;
-            const batch = readyBatch();
-            if (!batch) {
-                if (batches[0]) setStatus(`${formatParts(batches[0].jobs)} を受信済み・残りのZIPを待機中…`);
-                return;
-            }
+            const batch = batches[0];
+            if (!batch) return;
             processing = true;
-            batches.shift();
-            const jobs = [...batch.jobs].sort((left, right) => left.part - right.part);
             try {
-                setStatus(`${formatParts(jobs)} の動画を解析・調整画面へ読み込み中…`);
-                const sources = jobs.map((job) => ({
-                    url: job.videoUrl,
-                    name: decodeURIComponent(job.videoUrl.split("/").at(-1)),
-                }));
-                const result = await pickerFrame.contentWindow.runAutomaticExpressionPicker(sources, batchName(jobs));
-                if (result.sources.length) {
-                    setStatus(`${result.emotion} の抽出結果 ${result.sources.length}本を保存し、モーフィングを準備中…`);
-                    await morphingFrame.contentWindow.runAutomaticMorphing(result.sources);
-                    setStatus("再生完了。素材を破棄して次のセットを待機します…");
-                } else setStatus("出力形式が画像のため、モーフィング再生は行いません。", true);
-                await acknowledge(jobs);
+                if (!batch.started) {
+                    batch.options = await pickerFrame.contentWindow.beginAutomaticExpressionBatch();
+                    const { emotion, mode, limit, padding, targetRatio } = batch.options;
+                    batch.name += `-${emotion}-${mode}-${limit}-${padding}-${Math.round(targetRatio * 100)}`;
+                    morphingFrame.contentWindow.beginAutomaticMorphingBatch();
+                    batch.started = true;
+                }
+                while (batch.nextJob < batch.jobs.length) {
+                    const job = batch.jobs[batch.nextJob++];
+                    setStatus(`${job.zipName} を先行解析中（${batch.nextJob}/${batch.jobs.length}）…`);
+                    try {
+                        const source = {
+                            url: job.videoUrl,
+                            name: decodeURIComponent(job.videoUrl.split("/").at(-1)),
+                        };
+                        const result = await pickerFrame.contentWindow.processAutomaticExpressionSource(
+                            source, batch.name, batch.options,
+                        );
+                        for (let rank = 0; rank < result.sources.length; rank += 1) {
+                            const saved = result.sources[rank];
+                            await morphingFrame.contentWindow.prepareAutomaticMorphingClip(saved, job.part, rank);
+                            batch.saved.push(saved);
+                        }
+                    } catch (error) {
+                        console.error(error);
+                        setStatus(`${job.zipName} の先行処理に失敗: ${error.message || error}`, true);
+                    }
+                }
+                if (!batchIsClosed(batch)) {
+                    setStatus(`${formatParts(batch.jobs)} の先行処理完了・残りのZIPを待機中…`);
+                    return;
+                }
+                batch.sealed = true;
+                if (batch.saved.length) {
+                    setStatus(`${batch.saved.length}本の準備完了。最終位置合わせ後に再生します…`);
+                    await morphingFrame.contentWindow.playPreparedMorphing();
+                    setStatus("再生完了。次のセットを待機します…");
+                } else setStatus("モーフィング可能な動画を抽出できませんでした。", true);
+                await acknowledge(batch.jobs);
+                pickerFrame.contentWindow.endAutomaticExpressionBatch?.();
+                morphingFrame.contentWindow.clearAutomaticMorphing?.();
+                batches.shift();
             } catch (error) {
                 console.error(error); setStatus(`自動処理エラー: ${error.message || error}`, true);
-            } finally {
+                pickerFrame.contentWindow.endAutomaticExpressionBatch?.();
                 morphingFrame.contentWindow.clearAutomaticMorphing?.();
+                await acknowledge(batch.jobs).catch(console.error);
+                if (batches[0] === batch) batches.shift();
+            } finally {
                 processing = false;
-                setTimeout(processNextBatch, 0);
+                if (batches[0] && batches[0] !== batch) setTimeout(processPipeline, 0);
             }
         }
         async function poll() {
@@ -158,7 +183,7 @@
                     const key = `${error.zipName}:${error.message}`;
                     if (!reportedErrors.has(key)) { reportedErrors.add(key); console.error("ZIP読込エラー", error); }
                 }
-                await processNextBatch();
+                await processPipeline();
             } catch (error) {
                 if (!processing) setStatus(`${error.message}。morphing-v2/server.py で起動してください。`, true);
             }

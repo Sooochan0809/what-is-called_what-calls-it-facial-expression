@@ -683,13 +683,14 @@
         let previewGeneration = 0;
         let previewWindow = null;
         let playbackCompletion = null;
+        let automaticBatchActive = false;
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
         const smoothstep = (value) => value * value * (3 - 2 * value);
         const pxPerSecond = () => Number(zoomInput.value);
         const totalDuration = () => schedule.at(-1)?.end || 0;
         const isExporting = () => Boolean(exportJob);
-        const editingLocked = () => analysisRunning || isExporting();
+        const editingLocked = () => analysisRunning || isExporting() || automaticBatchActive;
         const playbackSpeed = () => clamp(Number(playbackSpeedInput.value) || 1, .1, 2);
         const sourceOverlap = () => Math.max(.01, Number(transitionInput.value) || 1);
         const loopCount = () => Math.max(0, Math.floor(Number(loopCountInput.value) || 0));
@@ -862,22 +863,23 @@
             }
             updateClipAnalysisUI(clip);
         }
-        async function analyzeClips(targets) {
+        async function analyzeClips(targets, align = true) {
             analysisRunning = true; setPlaying(false); updateControls();
             for (const clip of targets) await analyzeClip(clip);
             analysisRunning = false;
-            autoAlignClips();
+            if (align) autoAlignClips();
             renderClipList(); updateControls(); setCurrentTime(currentTime);
         }
-        async function addFiles(fileList) {
+        async function addFiles(fileList, align = true) {
             const files = [...fileList].filter((file) => file.type?.startsWith("video/") || typeof file.url === "string");
-            if (!files.length) return;
+            if (!files.length) return [];
             const results = await Promise.allSettled(files.map(loadVideo));
             const added = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
             if (added.length !== files.length) alert("読み込めない動画がありました。ブラウザで再生できるMP4、WebMなどを使用してください。");
             clips.push(...added);
             buildSchedule(); currentTime = 0; completedLoops = 0; renderAll();
-            if (added.length) await analyzeClips(added);
+            if (added.length) await analyzeClips(added, align);
+            return added;
         }
         function calculateSchedule(clipList, overlap = 1, speed = 1) {
             if (!clipList.length) return [];
@@ -1364,12 +1366,31 @@
             if (previewWindow && !previewWindow.closed) previewWindow.close();
         });
 
-        window.runAutomaticMorphing = async (files) => {
+        window.beginAutomaticMorphingBatch = () => {
             if (editingLocked()) throw new Error("モーフィング画面が処理中です");
             clearClips();
-            await addFiles(files);
+            automaticBatchActive = true;
+            updateControls();
+        };
+
+        window.prepareAutomaticMorphingClip = async (source, part, rank = 0) => {
+            if (playing || analysisRunning || isExporting()) throw new Error("モーフィング画面が処理中です");
+            const added = await addFiles([source], false);
+            added.forEach((clip) => { clip.automaticOrder = [part, rank]; });
+            clips.sort((left, right) => {
+                const [leftPart = 0, leftRank = 0] = left.automaticOrder || [];
+                const [rightPart = 0, rightRank = 0] = right.automaticOrder || [];
+                return leftPart - rightPart || leftRank - rightRank;
+            });
+            buildSchedule(); renderAll();
+            return added.length;
+        };
+
+        window.playPreparedMorphing = async () => {
             if (!clips.length) throw new Error("再生できるクリップがありません");
+            autoAlignClips(); buildSchedule(); renderAll();
             setCurrentTime(0);
+            automaticBatchActive = false;
             return new Promise((resolve, reject) => {
                 playbackCompletion = resolve;
                 setPlaying(true);
@@ -1379,7 +1400,18 @@
                 }
             });
         };
-        window.clearAutomaticMorphing = clearClips;
+
+        window.runAutomaticMorphing = async (files) => {
+            window.beginAutomaticMorphingBatch();
+            for (let index = 0; index < files.length; index += 1) {
+                await window.prepareAutomaticMorphingClip(files[index], index + 1);
+            }
+            return window.playPreparedMorphing();
+        };
+        window.clearAutomaticMorphing = () => {
+            automaticBatchActive = false;
+            clearClips();
+        };
 
         const sixClips = Array.from({ length: 6 }, () => ({ duration: 2 }));
         const scheduleCheck = calculateSchedule(sixClips, 1, .5);
