@@ -593,9 +593,9 @@
                     <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0" max="50"
                             step="1" value="50" inputmode="decimal">%</label>
                     <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
-                            step="0.1" value="0.4" inputmode="decimal">倍</label>
+                            step="0.1" value="0.3" inputmode="decimal">倍</label>
                     <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1"
-                            value="14" inputmode="numeric">回</label>
+                            value="10" inputmode="numeric">回</label>
                     <label class="transportSetting">フェード<input id="fadeInput" type="number" min="0" step="0.1" value="1"
                             inputmode="decimal">秒</label>
                     <label class="toggleLabel">モノクロ<input id="monoInput" type="checkbox" checked></label>
@@ -974,11 +974,35 @@
             });
             setCurrentTime(currentTime);
         }
-        function drawVideoToSource(clip) {
+        function transitionTransform(source, target) {
+            const scale = clamp(target.distance / source.distance, .5, 2);
+            return { scale, rotation: 0, x: target.x - source.x * scale, y: target.y - source.y * scale };
+        }
+        function smoothedEyeMetricsAt(clip, time) {
+            const fixed = combineAlignment(clip);
+            const values = [-ANALYSIS_STEP, 0, ANALYSIS_STEP].flatMap((offset) => {
+                const points = rawLandmarksAt(clip, clamp(time + offset, 0, clip.duration));
+                if (!points) return [];
+                const metric = eyeMetrics(points), center = transformPoint([metric.x, metric.y], fixed);
+                return [{
+                    x: center[0], y: center[1],
+                    distance: metric.distance * fixed.scale,
+                    angle: metric.angle + fixed.rotation,
+                }];
+            });
+            return medianMetrics(values);
+        }
+        function drawVideoToSource(clip, transition = { scale: 1, rotation: 0, x: 0, y: 0 }) {
             const raw = drawBaseFrame(clip);
             const source = clip.sourceCanvas;
             const sourceCtx = source.getContext("2d", { alpha: false });
-            const transform = combineAlignment(clip);
+            const fixed = combineAlignment(clip);
+            const origin = transformPoint([fixed.x, fixed.y], transition);
+            const transform = {
+                scale: fixed.scale * transition.scale,
+                rotation: fixed.rotation + transition.rotation,
+                x: origin[0], y: origin[1],
+            };
             const cos = Math.cos(transform.rotation), sin = Math.sin(transform.rotation);
             sourceCtx.setTransform(1, 0, 0, 1, 0, 0);
             sourceCtx.fillStyle = "#000"; sourceCtx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
@@ -1011,11 +1035,14 @@
                 point[1] + (after.points[index][1] - point[1]) * ratio,
             ]);
         }
-        function landmarksAt(clip, time) {
+        function landmarksAt(clip, time, transition = null) {
             const points = rawLandmarksAt(clip, time);
             if (!points) return null;
             const transform = combineAlignment(clip);
-            const transformed = points.map((point) => transformPoint(point, transform));
+            const transformed = points.map((point) => {
+                const fixed = transformPoint(point, transform);
+                return transition ? transformPoint(fixed, transition) : fixed;
+            });
             transformed.push([0, 0], [OUTPUT_WIDTH - 1, 0], [OUTPUT_WIDTH - 1, OUTPUT_HEIGHT - 1], [0, OUTPUT_HEIGHT - 1]);
             return transformed;
         }
@@ -1062,13 +1089,23 @@
         function renderState(state, useActualTimes = false) {
             clearOutput();
             if (!state.items.length) return;
-            const sources = state.items.map((item) => drawVideoToSource(item.clip));
-            if (state.items.length === 1) drawOutput(sources[0]);
+            if (state.items.length === 1) drawOutput(drawVideoToSource(state.items[0].clip));
             else {
                 const [from, to] = state.items;
                 const fromTime = useActualTimes ? from.clip.video.currentTime : from.sourceTime;
                 const toTime = useActualTimes ? to.clip.video.currentTime : to.sourceTime;
-                const fromPoints = landmarksAt(from.clip, fromTime), toPoints = landmarksAt(to.clip, toTime);
+                const fromMetric = smoothedEyeMetricsAt(from.clip, fromTime);
+                const toMetric = smoothedEyeMetricsAt(to.clip, toTime);
+                const target = fromMetric && toMetric ? {
+                    x: fromMetric.x + (toMetric.x - fromMetric.x) * state.progress,
+                    y: fromMetric.y + (toMetric.y - fromMetric.y) * state.progress,
+                    distance: fromMetric.distance + (toMetric.distance - fromMetric.distance) * state.progress,
+                } : null;
+                const fromTransition = target && transitionTransform(fromMetric, target);
+                const toTransition = target && transitionTransform(toMetric, target);
+                const sources = [drawVideoToSource(from.clip, fromTransition || undefined), drawVideoToSource(to.clip, toTransition || undefined)];
+                const fromPoints = landmarksAt(from.clip, fromTime, fromTransition);
+                const toPoints = landmarksAt(to.clip, toTime, toTransition);
                 if (fromPoints && toPoints && fromPoints.length === toPoints.length) {
                     const blended = fromPoints.map((point, index) => [
                         point[0] + (toPoints[index][0] - point[0]) * state.progress,
@@ -1417,6 +1454,8 @@
         console.assert(fadeVisibility(0, 10, 1) === 0 && fadeVisibility(1, 10, 1) === 1 && fadeVisibility(9.5, 10, 1) === .5 && fadeVisibility(0, 10, 0) === 1, "フェード計算が不正です");
         const fixed = { scale: 1.1, rotation: .1, x: 3, y: 4 };
         console.assert(JSON.stringify(transformPoint([10, 20], fixed)) === JSON.stringify(transformPoint([10, 20], fixed)), "固定位置合わせが変化しています");
+        const transitionCheck = transitionTransform({ x: 10, y: 20, distance: 10 }, { x: 30, y: 50, distance: 20 });
+        console.assert(JSON.stringify(transformPoint([10, 20], transitionCheck)) === JSON.stringify([30, 50]), "モーフ中の顔サイズ補正が不正です");
 
         buildSchedule(); renderAll(); void probeExportSupport();
     </script>
