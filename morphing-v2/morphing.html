@@ -590,10 +590,10 @@
         <section class="timelinePanel" aria-label="シーケンス">
             <div class="transport">
                 <div class="transportGroup">
-                    <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0" step="0.1"
-                            value="0.8" inputmode="decimal">秒</label>
+                    <label class="transportSetting">重なり<input id="transitionInput" type="number" min="0" max="50"
+                            step="1" value="50" inputmode="decimal">%</label>
                     <label class="transportSetting">速度<input id="playbackSpeedInput" type="number" min="0.1" max="2"
-                            step="0.1" value="0.3" inputmode="decimal">倍</label>
+                            step="0.1" value="0.4" inputmode="decimal">倍</label>
                     <label class="transportSetting">ループ<input id="loopCountInput" type="number" min="0" step="1"
                             value="14" inputmode="numeric">回</label>
                     <label class="transportSetting">フェード<input id="fadeInput" type="number" min="0" step="0.1" value="1"
@@ -630,7 +630,6 @@
         const OUTPUT_FPS = 60;
         const ANALYSIS_STEP = .2;
         const MAX_INTERPOLATION_GAP = .6;
-        const FRAME_TOLERANCE = 1 / OUTPUT_FPS;
         const EPSILON = 1e-6;
         const COLORS = ["#5278d8", "#d85d76", "#8b63d7", "#d98245", "#397f91", "#647c45"];
         const EYE_LEFT = [33, 133];
@@ -692,7 +691,10 @@
         const isExporting = () => Boolean(exportJob);
         const editingLocked = () => analysisRunning || isExporting() || automaticBatchActive;
         const playbackSpeed = () => clamp(Number(playbackSpeedInput.value) || 1, .1, 2);
-        const sourceOverlap = () => Math.max(.01, Number(transitionInput.value) || 1);
+        const overlapPercent = () => {
+            const value = Number(transitionInput.value);
+            return clamp(Number.isFinite(value) ? value : 40, 0, 50);
+        };
         const loopCount = () => Math.max(0, Math.floor(Number(loopCountInput.value) || 0));
         const fadeDuration = () => Math.max(0, Number(fadeInput.value) || 0);
         function formatTime(seconds) {
@@ -881,28 +883,25 @@
             if (added.length) await analyzeClips(added, align);
             return added;
         }
-        function calculateSchedule(clipList, overlap = 1, speed = 1) {
+        function calculateSchedule(clipList, percent = 40, speed = 1) {
             if (!clipList.length) return [];
-            const connection = clipList.length > 1 ? overlap / speed : 0;
-            let previousEnd = clipList[0].duration / speed - connection;
+            const ratio = clamp(percent, 0, 50) / 100;
+            const connections = clipList.length > 1
+                ? clipList.map((clip, index) => Math.min(clip.duration, clipList[(index + 1) % clipList.length].duration) * ratio / speed)
+                : [0];
+            let previousEnd = clipList[0].duration / speed - connections.at(-1);
             return clipList.map((clip, index) => {
-                if (!index) return { clip, start: 0, end: previousEnd, transition: 0, offset: connection };
-                const start = previousEnd - connection;
+                if (!index) return { clip, start: 0, end: previousEnd, transition: 0, offset: connections.at(-1) };
+                const transition = connections[index - 1];
+                const start = previousEnd - transition;
                 const end = start + clip.duration / speed;
                 previousEnd = end;
-                return { clip, start, end, transition: connection, offset: 0 };
+                return { clip, start, end, transition, offset: 0 };
             });
         }
         function buildSchedule() {
-            schedule = calculateSchedule(clips, sourceOverlap(), playbackSpeed());
+            schedule = calculateSchedule(clips, overlapPercent(), playbackSpeed());
             currentTime = clamp(currentTime, 0, totalDuration());
-        }
-        function overlapIssues() {
-            return clips.map((clip) => ({ clip, shortage: sourceOverlap() * 2 - clip.duration }))
-                .filter((item) => item.shortage > EPSILON);
-        }
-        function blockingOverlapIssues(issues = overlapIssues()) {
-            return issues.filter((item) => item.shortage > FRAME_TOLERANCE + EPSILON);
         }
         function sourceTimeForItem(time, item) {
             return clamp(
@@ -1128,8 +1127,7 @@
             } catch (error) { console.warn("プレビューのシークに失敗しました", error); }
         }
         function setPlaying(nextPlaying) {
-            const blocked = blockingOverlapIssues().length || editingLocked();
-            const next = Boolean(nextPlaying && clips.length && !blocked);
+            const next = Boolean(nextPlaying && clips.length && !editingLocked());
             if (playing === next) return;
             playing = next; previousFrameAt = performance.now();
             playButton.textContent = playing ? "❚❚ 停止" : "▶ 再生";
@@ -1236,27 +1234,23 @@
         }
         function updateControls() {
             const hasClips = clips.length > 0;
-            const overlaps = overlapIssues();
-            const overlapErrors = blockingOverlapIssues(overlaps);
             const warnings = fallbackWarnings();
             const exporting = isExporting();
             const locked = analysisRunning || exporting;
             const analysisReady = hasClips && clips.every((clip) => ["done", "failed"].includes(clip.analysis.status));
-            playButton.disabled = !hasClips || locked || overlapErrors.length > 0;
+            playButton.disabled = !hasClips || locked;
             clearButton.disabled = !hasClips || locked;
             fileInput.disabled = locked;
             transitionInput.disabled = locked; playbackSpeedInput.disabled = locked; loopCountInput.disabled = locked;
             fadeInput.disabled = locked;
             monoInput.disabled = locked; zoomInput.disabled = locked;
             autoAlignButton.disabled = locked || !clips.some((clip) => clip.representative);
-            exportButton.disabled = !exporting && (!analysisReady || !exportCodec || !loopCount() || overlapErrors.length > 0);
+            exportButton.disabled = !exporting && (!analysisReady || !exportCodec || !loopCount());
             exportButton.textContent = exporting ? "キャンセル" : "書き出し";
             status.textContent = `${clips.length}クリップ · 1周 ${formatTime(totalDuration())}`;
-            operationStatus.classList.toggle("warning", Boolean(overlapErrors.length || warnings.length));
+            operationStatus.classList.toggle("warning", Boolean(warnings.length));
             if (exporting) operationStatus.textContent = exportJob.message;
             else if (analysisRunning) operationStatus.textContent = "顔ランドマークを事前解析中…";
-            else if (overlapErrors.length) operationStatus.textContent = `重なり不足: ${overlapErrors.map((item) => `${item.clip.name} ${item.shortage.toFixed(3)}秒`).join(" / ")}`;
-            else if (overlaps.length) operationStatus.textContent = "1フレーム以内の不足は端フレームで補完";
             else if (warnings.length) operationStatus.textContent = "⚠ 欠落区間はクロスフェード（書出し前に確認）";
             else operationStatus.textContent = exportCodec === null ? "WebM書き出し非対応" : "";
             syncAlignmentPanel(); updatePlayhead();
@@ -1285,7 +1279,7 @@
             if (isExporting()) { exportJob.cancelled = true; exportJob.message = "キャンセル中…"; updateControls(); return; }
             const warnings = fallbackWarnings();
             if (warnings.length && !confirm(`次の区間は通常モーフではなくクロスフェードになります。\n\n${warnings.join("\n")}\n\n書き出しを続けますか？`)) return;
-            if (!exportCodec || !clips.length || !loopCount() || blockingOverlapIssues().length) return;
+            if (!exportCodec || !clips.length || !loopCount()) return;
             setPlaying(false);
             const resumeTime = currentTime;
             const loopDuration = totalDuration();
@@ -1335,7 +1329,7 @@
         autoAlignButton.addEventListener("click", autoAlignClips);
         Object.values(manualInputs).forEach((input) => input.addEventListener("input", () => setCurrentTime(currentTime)));
         transitionInput.addEventListener("change", () => {
-            transitionInput.value = sourceOverlap().toFixed(2); buildSchedule(); renderTimeline(); updateControls(); setCurrentTime(currentTime);
+            transitionInput.value = String(overlapPercent()); buildSchedule(); renderTimeline(); updateControls(); setCurrentTime(currentTime);
         });
         playbackSpeedInput.addEventListener("change", () => {
             const progress = currentTime / (totalDuration() || 1);
@@ -1414,9 +1408,11 @@
         };
 
         const sixClips = Array.from({ length: 6 }, () => ({ duration: 2 }));
-        const scheduleCheck = calculateSchedule(sixClips, 1, .5);
+        const scheduleCheck = calculateSchedule(sixClips, 50, .5);
         console.assert(scheduleCheck.at(-1).end === 12, "2秒×6本・0.5倍・接続2秒は1周12秒です");
         console.assert(Math.round(scheduleCheck.at(-1).end * 3 * OUTPUT_FPS) === 2160, "3周は36秒・2160フレームです");
+        const mixedDurationCheck = calculateSchedule([{ duration: 2 }, { duration: 4 }], 50, .5);
+        console.assert(mixedDurationCheck.at(-1).end === 8 && mixedDurationCheck[1].transition === 2, "異なる尺では短い素材を基準に重なり率を計算します");
         console.assert(smoothstep(.5) === .5 && smoothstep(0) === 0 && smoothstep(1) === 1, "smoothstepが不正です");
         console.assert(fadeVisibility(0, 10, 1) === 0 && fadeVisibility(1, 10, 1) === 1 && fadeVisibility(9.5, 10, 1) === .5 && fadeVisibility(0, 10, 0) === 1, "フェード計算が不正です");
         const fixed = { scale: 1.1, rotation: .1, x: 3, y: 4 };
