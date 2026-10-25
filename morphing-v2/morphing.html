@@ -992,17 +992,11 @@
             });
             return medianMetrics(values);
         }
-        function drawVideoToSource(clip, transition = { scale: 1, rotation: 0, x: 0, y: 0 }) {
+        function drawVideoToSource(clip) {
             const raw = drawBaseFrame(clip);
             const source = clip.sourceCanvas;
             const sourceCtx = source.getContext("2d", { alpha: false });
-            const fixed = combineAlignment(clip);
-            const origin = transformPoint([fixed.x, fixed.y], transition);
-            const transform = {
-                scale: fixed.scale * transition.scale,
-                rotation: fixed.rotation + transition.rotation,
-                x: origin[0], y: origin[1],
-            };
+            const transform = combineAlignment(clip);
             const cos = Math.cos(transform.rotation), sin = Math.sin(transform.rotation);
             sourceCtx.setTransform(1, 0, 0, 1, 0, 0);
             sourceCtx.fillStyle = "#000"; sourceCtx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
@@ -1103,13 +1097,15 @@
                 } : null;
                 const fromTransition = target && transitionTransform(fromMetric, target);
                 const toTransition = target && transitionTransform(toMetric, target);
-                const sources = [drawVideoToSource(from.clip, fromTransition || undefined), drawVideoToSource(to.clip, toTransition || undefined)];
-                const fromPoints = landmarksAt(from.clip, fromTime, fromTransition);
-                const toPoints = landmarksAt(to.clip, toTime, toTransition);
+                const sources = [drawVideoToSource(from.clip), drawVideoToSource(to.clip)];
+                const fromPoints = landmarksAt(from.clip, fromTime);
+                const toPoints = landmarksAt(to.clip, toTime);
                 if (fromPoints && toPoints && fromPoints.length === toPoints.length) {
-                    const blended = fromPoints.map((point, index) => [
-                        point[0] + (toPoints[index][0] - point[0]) * state.progress,
-                        point[1] + (toPoints[index][1] - point[1]) * state.progress,
+                    const fromTarget = fromTransition ? landmarksAt(from.clip, fromTime, fromTransition) : fromPoints;
+                    const toTarget = toTransition ? landmarksAt(to.clip, toTime, toTransition) : toPoints;
+                    const blended = fromTarget.map((point, index) => [
+                        point[0] + (toTarget[index][0] - point[0]) * state.progress,
+                        point[1] + (toTarget[index][1] - point[1]) * state.progress,
                     ]);
                     const triangles = Delaunator.from(blended).triangles;
                     drawOutput(renderWarp(sources[0], fromPoints, blended, triangles, warpCanvases[0]));

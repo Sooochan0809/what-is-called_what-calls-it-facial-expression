@@ -46,7 +46,7 @@
 
         label {
             display: grid;
-            flex: 1 1 180px;
+            flex: 1 1 140px;
             gap: 6px;
         }
 
@@ -154,6 +154,12 @@
                     <option value="surprised">surprised</option>
                 </select>
             </label>
+            <label>最低スコア
+                <input id="minScore" type="number" min="0" max="1" step="0.05" value="0.30">
+            </label>
+            <label>解析頻度（fps）
+                <input id="analysisFps" type="number" min="1" max="60" step="1" value="10">
+            </label>
             <label>上位何位まで
                 <input id="limit" type="number" min="1" max="100" step="1" value="1">
             </label>
@@ -161,12 +167,13 @@
                 <select id="outputMode">
                     <option value="image">1フレーム</option>
                     <option value="video">前後を含む</option>
-                    <option value="before" selected>前を含む</option>
+                    <option value="before">前を含む</option>
                     <option value="after">後を含む</option>
+                    <option value="end" selected>終了</option>
                 </select>
             </label>
-            <label>前後（秒）
-                <input id="padding" type="number" min="0.1" max="10" step="0.1" value="2.0" disabled>
+            <label><span id="paddingLabel">前後（秒）</span>
+                <input id="padding" type="number" min="0.1" max="10" step="0.1" value="3.0" disabled>
             </label>
             <label>理想の変化位置（%）
                 <input id="targetRatio" type="number" min="0" max="100" step="5" value="25" disabled>
@@ -186,8 +193,11 @@
             const $ = (id) => document.getElementById(id);
             const fileInput = $("file");
             const emotionInput = $("emotion");
+            const minScoreInput = $("minScore");
+            const analysisFpsInput = $("analysisFps");
             const limitInput = $("limit");
             const outputMode = $("outputMode");
+            const paddingLabel = $("paddingLabel");
             const paddingInput = $("padding");
             const targetRatioInput = $("targetRatio");
             const runButton = $("run");
@@ -217,8 +227,7 @@
                 clamp(timestamp - (mode === "after" ? 0 : padding), 0, duration),
                 clamp(timestamp + (mode === "before" ? 0 : padding), 0, duration),
             ];
-            const expressionDifference = (left, right) => emotions
-                .reduce((sum, name) => sum + Math.abs(left[name] - right[name]), 0) / 2;
+            const expressionDifference = (left, right, emotion) => Math.abs(left[emotion] - right[emotion]);
             const balanceScore = (ratio, target) => Math.max(0, 1 - 2 * Math.abs(ratio - target));
             function closestFrame(frames, timestamp) {
                 let low = 0;
@@ -232,32 +241,36 @@
                 const previous = frames[Math.max(0, low - 1)];
                 return Math.abs(previous.timestamp - timestamp) <= Math.abs(next.timestamp - timestamp) ? previous : next;
             }
-            function findChangeRatio(frames, start, end, from, to) {
+            function findChangeRatio(frames, start, end, from, to, emotion) {
                 // ponytail: 全候補×区間フレーム。長尺動画で遅ければ時刻インデックス化する。
                 const segment = frames.filter(({ timestamp }) => timestamp >= start && timestamp <= end);
-                let streak = 0;
+                const recent = [];
                 for (let index = 0; index < segment.length; index += 1) {
                     const expressions = segment[index].expressions;
-                    streak = expressionDifference(expressions, to) <= expressionDifference(expressions, from)
-                        ? streak + 1 : 0;
-                    if (streak === 3) {
-                        const timestamp = segment[index - 2].timestamp;
+                    recent.push(expressionDifference(expressions, to, emotion) <= expressionDifference(expressions, from, emotion));
+                    if (recent.length > 3) recent.shift();
+                    if (recent.length === 3 && recent.filter(Boolean).length >= 2) {
+                        const firstHit = recent.indexOf(true);
+                        const timestamp = segment[index - 2 + firstHit].timestamp;
                         return clamp((timestamp - start) / Math.max(.001, end - start), 0, 1);
                     }
                 }
-                return 1;
+                return null;
             }
-            function scoreFrames(frames, duration, padding, mode, targetRatio) {
-                if (mode !== "before" && mode !== "after") return frames;
-                return frames.map((frame) => {
+            function scoreFrames(frames, duration, padding, mode, targetRatio, emotion, minScore) {
+                const candidates = frames.filter(({ score }) => score >= minScore);
+                if (mode !== "before" && mode !== "after") return candidates;
+                return candidates.map((frame) => {
                     const [start, end] = clipRange(frame.timestamp, duration, padding, mode);
                     const edge = closestFrame(frames, mode === "before" ? start : end);
-                    const difference = expressionDifference(frame.expressions, edge.expressions);
+                    const difference = expressionDifference(frame.expressions, edge.expressions, emotion);
                     const coverage = Math.min(1, (end - start) / padding);
                     const from = mode === "before" ? edge.expressions : frame.expressions;
                     const to = mode === "before" ? frame.expressions : edge.expressions;
-                    const changeRatio = findChangeRatio(frames, start, end, from, to);
-                    const ratioBonus = .5 * balanceScore(changeRatio, targetRatio) * difference * coverage;
+                    const changeRatio = findChangeRatio(frames, start, end, from, to, emotion);
+                    const ratioBonus = changeRatio === null
+                        ? 0
+                        : .5 * balanceScore(changeRatio, targetRatio) * difference * coverage;
                     return {
                         ...frame,
                         difference,
@@ -271,24 +284,42 @@
             console.assert(rankFrames([{ index: 0, score: .2 }, { index: 1, score: .8 }], 1)[0].index === 1,
                 "frame ranking is invalid");
             console.assert(clipRange(5, 10, 1, "before").join() === "4,5"
-                && clipRange(5, 10, 1, "after").join() === "5,6", "clip range is invalid");
+                && clipRange(5, 10, 1, "after").join() === "5,6"
+                && clipRange(10, 10, 3, "end").join() === "7,10", "clip range is invalid");
             console.assert(expressionDifference(
                 { neutral: 1, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 },
-                { neutral: 0, happy: 1, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 }
-            ) === 1, "expression difference is invalid");
+                { neutral: 0, happy: 1, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 },
+                "neutral"
+            ) === 1 && expressionDifference(
+                { neutral: 1, happy: 0 }, { neutral: 0, happy: 0 }, "happy"
+            ) === 0, "expression difference is invalid");
             console.assert(balanceScore(.5, .5) === 1 && balanceScore(0, .5) === 0,
                 "balance score is invalid");
+            console.assert(scoreFrames([{ score: .2 }], 1, 1, "image", .5, "neutral", .3).length === 0,
+                "minimum score filter is invalid");
+            console.assert(Math.abs(findChangeRatio([
+                { timestamp: 0, expressions: { neutral: 0 } },
+                { timestamp: .1, expressions: { neutral: 1 } },
+                { timestamp: .2, expressions: { neutral: 0 } },
+                { timestamp: .3, expressions: { neutral: 1 } },
+            ], 0, .3, { neutral: 0 }, { neutral: 1 }, "neutral") - 1 / 3) < 1e-9,
+                "two-of-three change detection is invalid");
 
             function setBusy(value) {
                 busy = value;
                 const locked = value || batchLocked;
+                const endMode = outputMode.value === "end";
                 fileInput.disabled = locked;
-                emotionInput.disabled = locked;
-                limitInput.disabled = locked;
+                emotionInput.disabled = locked || endMode;
+                minScoreInput.disabled = locked || endMode;
+                analysisFpsInput.disabled = locked || endMode;
+                limitInput.disabled = locked || endMode;
                 outputMode.disabled = locked;
                 paddingInput.disabled = locked || outputMode.value === "image";
                 targetRatioInput.disabled = locked || (outputMode.value !== "before" && outputMode.value !== "after");
-                runButton.disabled = locked || !modelsReady || !fileInput.files.length;
+                paddingLabel.textContent = endMode ? "終了から（秒）" : "前後（秒）";
+                runButton.textContent = endMode ? "終了部分を抽出" : "上位結果を抽出";
+                runButton.disabled = locked || (!endMode && !modelsReady) || !fileInput.files.length;
             }
 
             function clearResults() {
@@ -309,7 +340,7 @@
                     group.append(heading);
                     if (!picks.length) {
                         const empty = document.createElement("p");
-                        empty.textContent = "顔を検出できませんでした。";
+                        empty.textContent = "条件を満たすフレームがありませんでした。";
                         group.append(empty);
                         results.append(group);
                         return;
@@ -332,12 +363,16 @@
                         const details = document.createElement("span");
                         const range = mode !== "image" ? ` · ${formatTime(pick.start)}–${formatTime(pick.end)}` : "";
                         const bonus = mode === "before" || mode === "after"
-                            ? ` · 表情差 ${pick.difference.toFixed(4)} · 変化位置 ${Math.round(pick.changeRatio * 100)}% · 比率加点 ${pick.ratioBonus.toFixed(4)} · 評価 ${pick.rankScore.toFixed(4)}` : "";
-                        details.textContent = `${index + 1}位 · ${emotion} ${pick.score.toFixed(4)}${bonus} · ${formatTime(pick.timestamp)}${range}`;
+                            ? ` · ${emotion}差 ${pick.difference.toFixed(4)} · 変化位置 ${pick.changeRatio === null ? "未検出" : `${Math.round(pick.changeRatio * 100)}%`} · 比率加点 ${pick.ratioBonus.toFixed(4)} · 評価 ${pick.rankScore.toFixed(4)}` : "";
+                        details.textContent = mode === "end"
+                            ? `終了 · 最後の ${(pick.end - pick.start).toFixed(2)}秒${range}`
+                            : `${index + 1}位 · ${emotion} ${pick.score.toFixed(4)}${bonus} · ${formatTime(pick.timestamp)}${range}`;
                         const download = document.createElement("a");
                         download.href = url;
                         const extension = mode === "image" ? "png" : "webm";
-                        download.download = `${baseName}_${emotion}_${String(index + 1).padStart(2, "0")}_${pick.score.toFixed(4)}.${extension}`;
+                        download.download = mode === "end"
+                            ? `${baseName}_end_${(pick.end - pick.start).toFixed(1)}s.webm`
+                            : `${baseName}_${emotion}_${String(index + 1).padStart(2, "0")}_${pick.score.toFixed(4)}.${extension}`;
                         download.textContent = mode === "image" ? "画像を保存" : "動画を保存";
                         const caption = document.createElement("figcaption");
                         caption.append(details, download);
@@ -413,7 +448,7 @@
                 }
             }
 
-            async function analyzeFile(file, fileIndex, emotion, fileCount) {
+            async function analyzeFile(file, fileIndex, emotion, fileCount, analysisFps) {
                 const frames = [];
                 const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
                 const duration = await input.computeDuration();
@@ -424,17 +459,25 @@
                 try {
                     const sink = new CanvasSink(track, { width: 320, poolSize: 1 });
                     let index = 0;
+                    let analyzed = 0;
+                    const analysisInterval = 1 / analysisFps;
+                    let nextAnalysisAt = 0;
                     for await (const frame of sink.canvases()) {
-                        const detection = await faceapi.detectSingleFace(frame.canvas, detectorOptions).withFaceExpressions();
-                        if (detection) frames.push({
-                            index,
-                            timestamp: frame.timestamp,
-                            score: detection.expressions[emotion] || 0,
-                            expressions: Object.fromEntries(emotions.map((name) => [name, detection.expressions[name] || 0])),
-                        });
+                        if (frame.timestamp + .0001 >= nextAnalysisAt) {
+                            const detection = await faceapi.detectSingleFace(frame.canvas, detectorOptions).withFaceExpressions();
+                            if (detection) frames.push({
+                                index,
+                                timestamp: frame.timestamp,
+                                score: detection.expressions[emotion] || 0,
+                                expressions: Object.fromEntries(emotions.map((name) => [name, detection.expressions[name] || 0])),
+                            });
+                            analyzed += 1;
+                            do nextAnalysisAt += analysisInterval;
+                            while (nextAnalysisAt <= frame.timestamp + .0001);
+                        }
                         index += 1;
                         progress.value = frame.timestamp;
-                        status.textContent = `解析中 (${fileIndex + 1}/${fileCount}): ${file.name} · ${index} frames / ${formatTime(frame.timestamp)} · 顔検出 ${frames.length}`;
+                        status.textContent = `解析中 (${fileIndex + 1}/${fileCount}): ${file.name} · ${index} frames / ${formatTime(frame.timestamp)} · 解析 ${analyzed} · 顔検出 ${frames.length}`;
                     }
 
                     if (!index) throw new Error("解析できるフレームがありませんでした");
@@ -444,20 +487,36 @@
                 }
             }
 
-            async function analyze(files, emotion, limit, mode, padding, targetRatio) {
+            async function inspectFile(file, fileIndex, fileCount) {
+                const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+                try {
+                    status.textContent = `終了位置を確認中 (${fileIndex + 1}/${fileCount}): ${file.name}`;
+                    const duration = await input.computeDuration();
+                    if (!(duration > 0)) throw new Error("動画の長さを取得できません");
+                    return { frames: [], totalFrames: 0, duration };
+                } finally {
+                    input.dispose();
+                }
+            }
+
+            async function analyze(files, emotion, minScore, analysisFps, limit, mode, padding, targetRatio) {
                 progress.hidden = false;
                 try {
                     const analyses = [];
                     for (let index = 0; index < files.length; index += 1) {
-                        analyses.push(await analyzeFile(files[index], index, emotion, files.length));
+                        analyses.push(mode === "end"
+                            ? await inspectFile(files[index], index, files.length)
+                            : await analyzeFile(files[index], index, emotion, files.length, analysisFps));
                     }
                     const rankings = analyses.map((analysis, index) => ({
                         ...analysis,
                         file: files[index],
-                        picks: rankFrames(scoreFrames(analysis.frames, analysis.duration, padding, mode, targetRatio), limit),
+                        picks: mode === "end"
+                            ? [{ index: 0, timestamp: analysis.duration, score: 0 }]
+                            : rankFrames(scoreFrames(analysis.frames, analysis.duration, padding, mode, targetRatio, emotion, minScore), limit),
                     }));
                     const totalPicks = rankings.reduce((sum, { picks }) => sum + picks.length, 0);
-                    if (!totalPicks) throw new Error("どの動画からも顔を検出できませんでした");
+                    if (!totalPicks) throw new Error("どの動画にも条件を満たすフレームがありませんでした");
                     for (let index = 0; index < rankings.length; index += 1) {
                         const { file, picks, totalFrames, duration } = rankings[index];
                         if (!picks.length) continue;
@@ -469,7 +528,9 @@
                     }
                     showResults(emotion, rankings, mode);
                     const unit = mode === "image" ? "枚" : "本";
-                    status.textContent = `${files.length}本の動画から、各動画の ${emotion} 上位を合計 ${totalPicks}${unit}抽出しました。`;
+                    status.textContent = mode === "end"
+                        ? `${files.length}本の動画から、終了部分を合計 ${totalPicks}${unit}抽出しました。`
+                        : `${files.length}本の動画から、各動画の ${emotion} 上位を合計 ${totalPicks}${unit}抽出しました。`;
                     return { rankings, mode, emotion };
                 } finally {
                     progress.hidden = true;
@@ -478,19 +539,23 @@
 
             function readOptions() {
                 const limit = clamp(Math.trunc(Number(limitInput.value)) || 1, 1, 100);
+                const minScore = clamp(Number(minScoreInput.value) || 0, 0, 1);
+                const analysisFps = clamp(Number(analysisFpsInput.value) || 10, 1, 60);
                 const padding = clamp(Number(paddingInput.value) || .5, .1, 10);
                 const targetRatio = clamp(Number(targetRatioInput.value) || 0, 0, 100);
                 limitInput.value = limit;
+                minScoreInput.value = minScore.toFixed(2);
+                analysisFpsInput.value = analysisFps;
                 paddingInput.value = padding;
                 targetRatioInput.value = targetRatio;
-                return { emotion: emotionInput.value, limit, mode: outputMode.value, padding, targetRatio: targetRatio / 100 };
+                return { emotion: emotionInput.value, minScore, analysisFps, limit, mode: outputMode.value, padding, targetRatio: targetRatio / 100 };
             }
 
             async function runAnalysis(files, options = readOptions(), clear = true) {
                 if (clear) clearResults();
                 setBusy(true);
                 try {
-                    return await analyze(files, options.emotion, options.limit, options.mode, options.padding, options.targetRatio);
+                    return await analyze(files, options.emotion, options.minScore, options.analysisFps, options.limit, options.mode, options.padding, options.targetRatio);
                 } finally {
                     setBusy(false);
                 }
@@ -544,12 +609,13 @@
             }
 
             window.beginAutomaticExpressionBatch = async () => {
-                await modelsReadyPromise;
                 while (busy) await new Promise((resolve) => setTimeout(resolve, 250));
+                const options = readOptions();
+                if (options.mode !== "end") await modelsReadyPromise;
                 batchLocked = true;
                 clearResults();
                 setBusy(false);
-                return readOptions();
+                return options;
             };
 
             window.processAutomaticExpressionSource = async (source, batch, options) => {
@@ -567,7 +633,7 @@
                     const baseName = file.name.replace(/\.[^.]+$/, "");
                     return picks.map((pick, index) => new File(
                         [pick.blob],
-                        `${baseName}_${result.emotion}_${String(index + 1).padStart(2, "0")}.webm`,
+                        `${baseName}_${result.mode === "end" ? "end" : result.emotion}_${String(index + 1).padStart(2, "0")}.webm`,
                         { type: pick.blob.type || "video/webm" },
                     ));
                 });
