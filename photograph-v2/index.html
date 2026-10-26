@@ -82,6 +82,26 @@
             gap: 14px;
         }
 
+        .exitGuide {
+            width: min(720px, 100%);
+            justify-items: center;
+            text-align: center;
+            transform: none;
+        }
+
+        .exitGuide p {
+            margin: 0;
+            font-size: clamp(1.2rem, 2.5vw, 1.7rem);
+            font-weight: 600;
+        }
+
+        .exitGuide span {
+            display: block;
+            margin-top: 4px;
+            font-size: clamp(3rem, 7vw, 5rem);
+            line-height: 1;
+        }
+
         .finalScoreHeader,
         .finalScoreRow {
             display: grid;
@@ -567,11 +587,19 @@
         </div>
     </section>
 
+    <section id="exitScene" class="introScene" hidden>
+        <div class="introContent exitGuide" aria-label="右からご退出ください。">
+            <p>右からご退出ください。</p>
+            <span aria-hidden="true">→</span>
+        </div>
+    </section>
+
     <script>
         const $ = (id) => document.getElementById(id);
         const introScene = $("introScene");
         const photographScene = $("photographScene");
         const finalScene = $("finalScene");
+        const exitScene = $("exitScene");
         const finalScores = $("finalScores");
         const startButton = $("startButton");
         const video = $("video");
@@ -619,6 +647,7 @@
         let situationIndex = 0;
         let rotationIntervalMs = 30000;
         let resultDurationMs = 8000;
+        let exitDurationMs = 8000;
         let resultTimer = 0;
         let rotationTimer = 0;
         let rotationClockTimer = 0;
@@ -939,6 +968,12 @@
             else showSituation(situationIndex + 1);
         }
 
+        function showExit() {
+            finalScene.hidden = true;
+            exitScene.hidden = false;
+            resultTimer = setTimeout(() => window.location.reload(), exitDurationMs);
+        }
+
         function showResults() {
             clearTimeout(partIntroTimer);
             stopSituationRotation();
@@ -965,7 +1000,7 @@
                 return row;
             }));
             clearTimeout(resultTimer);
-            resultTimer = setTimeout(() => window.location.reload(), resultDurationMs);
+            resultTimer = setTimeout(showExit, resultDurationMs);
         }
 
         async function loadConfig() {
@@ -997,6 +1032,7 @@
             rotationIntervalMs = Math.max(1000, Number(config.rotationIntervalMs) || 30000);
             partIntroDurationMs = Math.max(0, Number(config.partIntroDurationMs) || 3000);
             resultDurationMs = Math.max(1000, Number(config.resultDurationMs) || 8000);
+            exitDurationMs = Math.max(1000, Number(config.exitDurationMs) || 8000);
             tutorialSteps = config.tutorial?.steps || [];
             if (!tutorialSteps.length || tutorialSteps.some(({ target, text, durationMs }) =>
                 !["frameGuide", "scoreText", "scoreBar", "situationTimer"].includes(target)
@@ -1497,7 +1533,7 @@
                 }
                 return;
             }
-            if (!finalScene.hidden) return;
+            if (!finalScene.hidden || !exitScene.hidden) return;
             if (event.code === "Space") {
                 event.preventDefault();
                 status.hidden = !status.hidden;
