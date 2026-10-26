@@ -26,6 +26,11 @@
         "durationMs": 3000
       },
       {
+        "target": "frameGuide",
+        "text": "体験中は、顔を前後・左右に動かさないように\n注意してください",
+        "durationMs": 4000
+      },
+      {
         "target": "scoreBar",
         "text": "このバーは、あなたの表情の〈適切さ〉を示しています。\n適切な表情ほど、バーが多く塗られます。",
         "durationMs": 10000
