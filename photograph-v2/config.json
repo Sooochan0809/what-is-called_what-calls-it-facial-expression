@@ -16,8 +16,8 @@
   },
   "rotationIntervalMs": 30000,
   "partIntroDurationMs": 3000,
-  "resultDurationMs": 4000,
-  "exitDurationMs": 4000,
+  "resultDurationMs": 5000,
+  "exitDurationMs": 5000,
   "tutorial": {
     "steps": [
       {
